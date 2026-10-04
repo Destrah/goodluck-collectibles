@@ -1,0 +1,9 @@
+- Preserve existing FiveM config values; do not replace config.lua wholesale.
+- ox_inventory changes must be server authoritative.
+- Card artwork and masks must support runtime remote URLs.
+- Maintain compatibility with both FiveM NUI and standalone Vite mode.
+- Do not regress binder sleeve/plastic visuals.
+- Card editor uses explicit Save/Revert, not autosave.
+- Large FiveM payloads must use latent events.
+- Run npm build and build:fivem when applicable.
+- Prefer focused diffs and do not modify unrelated features.
