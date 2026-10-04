@@ -1,0 +1,20 @@
+[
+  {
+    "id": "base",
+    "name": "Base Set",
+    "code": "BASE",
+    "description": "Default Rush Trading Cards set.",
+    "cardIds": [
+      "nate-gatto",
+      "holo-mask-lab",
+      "peggy-moto",
+      "business-fudge",
+      "bcso-moto",
+      "sunset-run",
+      "dark-sky",
+      "county-heat-gauntlet",
+      "air-juanito",
+      "pier-park-man"
+    ]
+  }
+]

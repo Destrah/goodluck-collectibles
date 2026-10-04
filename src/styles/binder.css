@@ -1,0 +1,172 @@
+/* Trading card binder (FiveM binder item "View Binder" + standalone preview).
+   Written for older Chromium too (FiveM NUI): no color-mix / aspect-ratio / individual transform properties. */
+.bd-overlay{position:fixed;left:0;top:0;right:0;bottom:0;z-index:140;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  background:radial-gradient(ellipse at 50% 50%,rgba(6,5,12,.45) 0%,rgba(0,0,0,.25) 70%);animation:bd-in .3s ease-out both}
+@keyframes bd-in{from{opacity:0;-webkit-transform:scale(.97);transform:scale(.97)}to{opacity:1;-webkit-transform:none;transform:none}}
+
+.bd-head{display:flex;align-items:center;justify-content:space-between;color:#f3eefc;max-width:98vw}
+.bd-head strong{display:block;font-size:18px;letter-spacing:.02em;text-shadow:0 2px 10px rgba(0,0,0,.8)}
+.bd-head span{display:block;font-size:12px;color:#c9c0dc;margin-top:2px;text-shadow:0 1px 6px rgba(0,0,0,.8)}
+.bd-close{width:38px;height:38px;border-radius:50%;padding:0;font-size:22px;line-height:1;border:1px solid rgba(255,255,255,.2);background:rgba(15,12,24,.85);color:#fff}
+
+/* the binder cover: dark padded leather with stitching */
+.bd-binder{position:relative;border-radius:18px;
+  background:radial-gradient(ellipse at 30% 20%,#2c2038 0%,#1b1424 55%,#120d19 100%);
+  box-shadow:0 30px 70px rgba(0,0,0,.6),inset 0 0 0 2px rgba(255,255,255,.04),inset 0 0 40px rgba(0,0,0,.6)}
+.bd-binder:before{content:"";position:absolute;left:8px;top:8px;right:8px;bottom:8px;border-radius:12px;border:1px dashed rgba(255,255,255,.12);pointer-events:none}
+.bd-spread{position:relative;display:flex;-webkit-perspective:2600px;perspective:2600px}
+
+/* a sleeve page: black backing card, three by three clear pockets */
+.bd-page{position:relative;box-sizing:border-box;flex:none;background:linear-gradient(180deg,#121218,#0b0b10);border-radius:6px;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),0 2px 8px rgba(0,0,0,.5)}
+.bd-page--left{border-radius:6px 2px 2px 6px;box-shadow:inset -18px 0 24px -16px rgba(0,0,0,.9),inset 0 0 0 1px rgba(255,255,255,.06)}
+.bd-page--right{border-radius:2px 6px 6px 2px;box-shadow:inset 18px 0 24px -16px rgba(0,0,0,.9),inset 0 0 0 1px rgba(255,255,255,.06)}
+.bd-grid{display:grid;width:100%;height:100%}
+.bd-page-no{position:absolute;bottom:6px;left:0;right:0;text-align:center;font-size:10px;color:rgba(255,255,255,.28);letter-spacing:.1em}
+
+.bd-pocket{position:relative;display:flex;align-items:center;justify-content:center;border-radius:4px;
+  background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.015));box-shadow:inset 0 0 0 1px rgba(255,255,255,.07)}
+.bd-pocket.is-off{opacity:.25}
+/* clear plastic over the card: edge seal, glossy streak, slightly darker opening band at the top */
+.bd-sleeve{position:absolute;left:0;top:0;right:0;bottom:0;z-index:9;border-radius:4px;pointer-events:none;
+  background:
+    linear-gradient(180deg,rgba(8,10,15,.42) 0,rgba(8,10,15,.42) 5.2%,rgba(255,255,255,.24) 5.5%,rgba(255,255,255,.05) 7.4%,rgba(255,255,255,.032) 100%),
+    linear-gradient(118deg,transparent 10%,rgba(255,255,255,.24) 21%,rgba(255,255,255,.075) 34%,transparent 47%,transparent 62%,rgba(255,255,255,.15) 74%,transparent 86%);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.3),inset 0 0 0 3px rgba(255,255,255,.045),inset 0 -12px 20px rgba(0,0,0,.1),0 1px 1px rgba(255,255,255,.06);
+  opacity:.96}
+.bd-sleeve:before{content:"";position:absolute;left:3%;right:3%;top:4.6%;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.5) 16%,rgba(255,255,255,.12) 75%,transparent);box-shadow:0 2px 5px rgba(0,0,0,.35)}
+.bd-sleeve:after{content:"";position:absolute;inset:2px;border-radius:3px;background:linear-gradient(100deg,transparent 0 56%,rgba(255,255,255,.065) 61%,transparent 68%);mix-blend-mode:screen;opacity:.85}
+
+.bd-card{position:relative;display:block;padding:0;border:0;background:none;border-radius:6px;cursor:zoom-in;overflow:visible;
+  box-shadow:0 2px 6px rgba(0,0,0,.6);-webkit-transition:-webkit-transform .15s ease;transition:transform .15s ease}
+.bd-card:hover{-webkit-transform:translateY(-3px);transform:translateY(-3px)}
+.bd-card-scale{position:absolute;left:0;top:0;width:230px;height:322px;-webkit-transform-origin:0 0;transform-origin:0 0}
+.bd-card-scale .card-stage--medium{width:230px;min-height:322px}
+
+/* metal rings down the spine */
+.bd-spine{position:relative;z-index:3;flex:none;background:linear-gradient(90deg,#0b0810,#1a1322 30%,#1a1322 70%,#0b0810)}
+.bd-ring{position:absolute;left:-30%;right:-30%;height:22px;margin-top:-11px;border-radius:11px;
+  background:linear-gradient(180deg,#f4f4f8 0%,#a9abb8 35%,#6b6d7a 60%,#d6d7df 100%);
+  box-shadow:0 3px 6px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.8)}
+
+/* page turn: a leaf flips over the spine */
+.bd-leaf{position:absolute;top:0;z-index:5;-webkit-transform-style:preserve-3d;transform-style:preserve-3d;
+  -webkit-animation-timing-function:cubic-bezier(.45,.05,.35,1);animation-timing-function:cubic-bezier(.45,.05,.35,1);
+  -webkit-animation-fill-mode:forwards;animation-fill-mode:forwards}
+.bd-leaf--next{-webkit-transform-origin:0 50%;transform-origin:0 50%;-webkit-animation-name:bd-turn-next;animation-name:bd-turn-next}
+.bd-leaf--prev{-webkit-transform-origin:100% 50%;transform-origin:100% 50%;-webkit-animation-name:bd-turn-prev;animation-name:bd-turn-prev}
+.bd-leaf-face{position:absolute;left:0;top:0;-webkit-backface-visibility:hidden;backface-visibility:hidden}
+.bd-leaf-back{-webkit-transform:rotateY(180deg);transform:rotateY(180deg)}
+@-webkit-keyframes bd-turn-next{from{-webkit-transform:rotateY(0deg)}to{-webkit-transform:rotateY(-180deg)}}
+@keyframes bd-turn-next{from{transform:rotateY(0deg)}to{transform:rotateY(-180deg)}}
+@-webkit-keyframes bd-turn-prev{from{-webkit-transform:rotateY(0deg)}to{-webkit-transform:rotateY(180deg)}}
+@keyframes bd-turn-prev{from{transform:rotateY(0deg)}to{transform:rotateY(180deg)}}
+
+.bd-nav{display:flex;align-items:center;gap:14px;color:#e8e2f4;font-size:13px;text-shadow:0 1px 6px rgba(0,0,0,.8)}
+.bd-nav button{width:44px;height:44px;border-radius:50%;padding:0;font-size:26px;line-height:1;border:1px solid rgba(255,255,255,.2);background:rgba(15,12,24,.85);color:#fff}
+.bd-nav button:disabled{opacity:.3}
+@media (prefers-reduced-motion:reduce){.bd-leaf{-webkit-animation-duration:1ms!important;animation-duration:1ms!important}}
+
+/* standalone: binder preview button above the print collection */
+.binder-preview-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:0 32px 14px;padding:12px 16px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.03);color:#9fb0c8;font-size:12px}
+/* standalone: the app page behind is busy, so dim it properly (FiveM keeps the light dim so the game shows) */
+html:not(.fivem-runtime) .bd-overlay{background:rgba(5,7,12,.9)}
+
+/* Binder drag reordering. A normal click still inspects; hold + drag extracts through the sleeve opening. */
+.bd-swap-help{margin-top:4px!important;color:#aebbd0!important;font-size:11px!important;letter-spacing:.01em!important;transition:color .16s ease}
+.bd-swap-help.has-message{color:#f4c978!important}
+.bd-pocket{overflow:visible}
+.bd-card{position:relative;z-index:2;will-change:transform,filter;touch-action:none;-webkit-user-select:none;user-select:none}
+.bd-card img{-webkit-user-drag:none;user-drag:none}
+.bd-pocket.is-drag-target{box-shadow:inset 0 0 0 2px rgba(244,201,120,.95),0 0 20px rgba(244,201,120,.32)}
+.bd-pocket.is-drag-target:after{content:"DROP";position:absolute;left:50%;top:50%;z-index:12;-webkit-transform:translate(-50%,-50%);transform:translate(-50%,-50%);padding:5px 8px;border-radius:999px;background:rgba(20,15,29,.9);border:1px solid rgba(244,201,120,.72);color:#f4c978;font-size:9px;font-weight:900;letter-spacing:.1em;pointer-events:none}
+.bd-pocket.is-drag-source,.bd-pocket.is-drop-source,.bd-pocket.is-drop-target{z-index:30}
+.bd-binder.is-reordering .bd-sleeve{opacity:.96}
+
+/* 1) stay behind the clear plastic while rising vertically through the pocket's top opening */
+.bd-card.is-extracting{z-index:2!important;pointer-events:none;animation-name:bd-card-extract;animation-timing-function:cubic-bezier(.25,.72,.2,1);animation-fill-mode:both;filter:drop-shadow(0 15px 15px rgba(0,0,0,.48))}
+@keyframes bd-card-extract{
+  from{z-index:2;-webkit-transform:translate3d(0,0,0) scale(1);transform:translate3d(0,0,0) scale(1)}
+  to{z-index:2;-webkit-transform:translate3d(0,var(--bd-drag-extract-y),0) scale(1.035);transform:translate3d(0,var(--bd-drag-extract-y),0) scale(1.035)}
+}
+
+/* 2) only after it is fully clear of the opening does it rise above the plastic and follow the pointer */
+.bd-card.is-dragging{z-index:40!important;pointer-events:none;cursor:grabbing!important;-webkit-transform:translate3d(var(--bd-drag-x),var(--bd-drag-y),0) scale(1.045) rotate(1.5deg);transform:translate3d(var(--bd-drag-x),var(--bd-drag-y),0) scale(1.045) rotate(1.5deg);filter:drop-shadow(0 24px 24px rgba(0,0,0,.65));animation:bd-card-drag-engage 120ms cubic-bezier(.2,.78,.22,1) both}
+@keyframes bd-card-drag-engage{
+  from{-webkit-transform:translate3d(0,var(--bd-drag-extract-y),0) scale(1.035);transform:translate3d(0,var(--bd-drag-extract-y),0) scale(1.035)}
+  to{-webkit-transform:translate3d(var(--bd-drag-x),var(--bd-drag-y),0) scale(1.045) rotate(1.5deg);transform:translate3d(var(--bd-drag-x),var(--bd-drag-y),0) scale(1.045) rotate(1.5deg)}
+}
+
+/* Dropping the held card: move above the destination opening, then slide straight down into the pocket. */
+.bd-card.is-drop-source{pointer-events:none;animation-name:bd-card-drop-source;animation-timing-function:cubic-bezier(.2,.76,.22,1);animation-fill-mode:both;filter:drop-shadow(0 22px 22px rgba(0,0,0,.62))}
+@keyframes bd-card-drop-source{
+  0%{z-index:40;-webkit-transform:translate3d(var(--bd-drop-start-x),var(--bd-drop-start-y),0) scale(1.045) rotate(1.5deg);transform:translate3d(var(--bd-drop-start-x),var(--bd-drop-start-y),0) scale(1.045) rotate(1.5deg)}
+  58%{z-index:40;-webkit-transform:translate3d(var(--bd-drop-end-x),calc(var(--bd-drop-end-y) + var(--bd-drop-extract-y)),0) scale(1.04);transform:translate3d(var(--bd-drop-end-x),calc(var(--bd-drop-end-y) + var(--bd-drop-extract-y)),0) scale(1.04)}
+  62%{z-index:2;-webkit-transform:translate3d(var(--bd-drop-end-x),calc(var(--bd-drop-end-y) + var(--bd-drop-extract-y)),0) scale(1.04);transform:translate3d(var(--bd-drop-end-x),calc(var(--bd-drop-end-y) + var(--bd-drop-extract-y)),0) scale(1.04)}
+  100%{z-index:2;-webkit-transform:translate3d(var(--bd-drop-end-x),var(--bd-drop-end-y),0) scale(1);transform:translate3d(var(--bd-drop-end-x),var(--bd-drop-end-y),0) scale(1);filter:drop-shadow(0 4px 7px rgba(0,0,0,.36))}
+}
+
+/* If the destination is occupied, that card performs the inverse trip back to the source pocket. */
+.bd-card.is-drop-return{pointer-events:none;animation-name:bd-card-drop-return;animation-timing-function:cubic-bezier(.2,.76,.22,1);animation-fill-mode:both;filter:drop-shadow(0 18px 18px rgba(0,0,0,.58))}
+@keyframes bd-card-drop-return{
+  0%{z-index:2;-webkit-transform:translate3d(0,0,0) scale(1);transform:translate3d(0,0,0) scale(1)}
+  30%{z-index:2;-webkit-transform:translate3d(0,var(--bd-return-extract-y),0) scale(1.035);transform:translate3d(0,var(--bd-return-extract-y),0) scale(1.035)}
+  34%{z-index:40;-webkit-transform:translate3d(0,var(--bd-return-extract-y),0) scale(1.035);transform:translate3d(0,var(--bd-return-extract-y),0) scale(1.035)}
+  70%{z-index:40;-webkit-transform:translate3d(var(--bd-return-x),calc(var(--bd-return-y) + var(--bd-return-extract-y)),0) scale(1.035);transform:translate3d(var(--bd-return-x),calc(var(--bd-return-y) + var(--bd-return-extract-y)),0) scale(1.035)}
+  74%{z-index:2;-webkit-transform:translate3d(var(--bd-return-x),calc(var(--bd-return-y) + var(--bd-return-extract-y)),0) scale(1.035);transform:translate3d(var(--bd-return-x),calc(var(--bd-return-y) + var(--bd-return-extract-y)),0) scale(1.035)}
+  100%{z-index:2;-webkit-transform:translate3d(var(--bd-return-x),var(--bd-return-y),0) scale(1);transform:translate3d(var(--bd-return-x),var(--bd-return-y),0) scale(1)}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .bd-card.is-extracting,.bd-card.is-dragging,.bd-card.is-drop-source,.bd-card.is-drop-return{animation-duration:1ms!important}
+}
+
+/* Cross-page binder dragging -------------------------------------------------
+   While a card is held, hovering at the left/right binder edge turns the page.
+   The held card is promoted to a fixed floating layer so the source page can
+   unmount without losing the card under the pointer. */
+.bd-binder.is-reordering .bd-leaf{pointer-events:none}
+.bd-card.is-float-source-hidden{opacity:0!important;pointer-events:none!important}
+
+.bd-drag-page-edge{position:absolute;top:20px;bottom:20px;width:78px;z-index:70;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;pointer-events:none;opacity:.24;color:#f3e5c6;text-shadow:0 2px 9px rgba(0,0,0,.85);transition:opacity .14s ease,background .14s ease,box-shadow .14s ease}
+.bd-drag-page-edge--left{left:20px;border-radius:10px 0 0 10px;background:linear-gradient(90deg,rgba(244,201,120,.24),rgba(244,201,120,0))}
+.bd-drag-page-edge--right{right:20px;border-radius:0 10px 10px 0;background:linear-gradient(270deg,rgba(244,201,120,.24),rgba(244,201,120,0))}
+.bd-drag-page-edge strong{font-size:38px;line-height:.9;font-weight:500}
+.bd-drag-page-edge span{font-size:9px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;white-space:nowrap}
+.bd-drag-page-edge.is-hot{opacity:1;box-shadow:inset 0 0 0 1px rgba(244,201,120,.36);animation:bd-edge-hold-pulse .52s ease-in-out infinite alternate}
+.bd-drag-page-edge.is-disabled{opacity:.08}
+@keyframes bd-edge-hold-pulse{from{filter:brightness(.95)}to{filter:brightness(1.45)}}
+
+.bd-drag-float{position:fixed;z-index:290;display:block;padding:0;border:0;border-radius:6px;pointer-events:none;overflow:visible;will-change:left,top,transform,opacity;filter:drop-shadow(0 24px 24px rgba(0,0,0,.68))}
+.bd-drag-float.is-dropping{animation-name:bd-float-crosspage-drop;animation-timing-function:cubic-bezier(.2,.76,.22,1);animation-fill-mode:both}
+@keyframes bd-float-crosspage-drop{
+  0%{opacity:1;transform:translate3d(0,0,0) scale(1.045) rotate(1.5deg)}
+  56%{opacity:1;transform:translate3d(var(--bd-float-drop-x),var(--bd-float-drop-y),0) scale(1.035)}
+  64%{opacity:0;transform:translate3d(var(--bd-float-drop-x),var(--bd-float-drop-y),0) scale(1.035)}
+  100%{opacity:0;transform:translate3d(var(--bd-float-drop-x),var(--bd-float-drop-y),0) scale(1.035)}
+}
+
+/* Once the floating card reaches the destination opening, a pocket-local copy
+   takes over behind the clear plastic and slides down into the sleeve. */
+.bd-crosspage-insert{position:absolute;left:50%;top:50%;z-index:2;pointer-events:none;opacity:0;animation-name:bd-crosspage-insert;animation-timing-function:cubic-bezier(.2,.76,.22,1);animation-fill-mode:both;filter:drop-shadow(0 8px 10px rgba(0,0,0,.42))}
+@keyframes bd-crosspage-insert{
+  0%,55%{opacity:0;transform:translate(-50%,-50%) translate3d(0,var(--bd-cross-insert-extract-y),0) scale(1.035)}
+  60%{opacity:1;transform:translate(-50%,-50%) translate3d(0,var(--bd-cross-insert-extract-y),0) scale(1.035)}
+  100%{opacity:1;transform:translate(-50%,-50%) translate3d(0,0,0) scale(1)}
+}
+
+/* If the destination was occupied, its card comes out through the top of that
+   sleeve, then exits toward the old page while the held card drops in. */
+.bd-card.is-crosspage-return{pointer-events:none;animation-name:bd-crosspage-return;animation-timing-function:cubic-bezier(.2,.76,.22,1);animation-fill-mode:both;filter:drop-shadow(0 18px 18px rgba(0,0,0,.58))}
+@keyframes bd-crosspage-return{
+  0%{z-index:2;opacity:1;transform:translate3d(0,0,0) scale(1)}
+  29%{z-index:2;opacity:1;transform:translate3d(0,var(--bd-cross-return-extract-y),0) scale(1.035)}
+  33%{z-index:40;opacity:1;transform:translate3d(0,var(--bd-cross-return-extract-y),0) scale(1.035)}
+  72%{z-index:40;opacity:0;transform:translate3d(var(--bd-cross-return-x),var(--bd-cross-return-extract-y),0) scale(1.02)}
+  100%{z-index:40;opacity:0;transform:translate3d(var(--bd-cross-return-x),var(--bd-cross-return-extract-y),0) scale(1.02)}
+}
+
+@media (prefers-reduced-motion:reduce){
+  .bd-drag-page-edge.is-hot{animation:none!important}
+  .bd-drag-float.is-dropping,.bd-crosspage-insert,.bd-card.is-crosspage-return{animation-duration:1ms!important}
+}

@@ -1,0 +1,1103 @@
+[
+  {
+    "id": "nate-gatto",
+    "title": "Nate Gatto",
+    "subtitle": "City Civilian",
+    "hp": 100,
+    "type": "civilian",
+    "chanceWeight": 50,
+    "image": "/img/nate_gatto.jpg",
+    "description": "A local face with a knack for being in the middle of whatever is happening downtown.",
+    "accent": "#f59e0b",
+    "foilA": "#ff4d8d",
+    "foilB": "#4df3ff",
+    "foilC": "#ffe66d",
+    "attacks": [
+      {
+        "name": "Fast Talk",
+        "cost": 1,
+        "damage": 20,
+        "text": "Distract the other player and draw one card."
+      },
+      {
+        "name": "Street Smarts",
+        "cost": 2,
+        "damage": 50,
+        "text": "Gets stronger when played in a city location."
+      }
+    ],
+    "variants": [
+      {
+        "id": "nate-gatto--base",
+        "name": "Base",
+        "rarity": "Common",
+        "rarityKey": "common",
+        "chanceWeight": 65,
+        "layout": "classic",
+        "holo": "none",
+        "holoStrength": 55,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      },
+      {
+        "id": "nate-gatto--reverse-holo",
+        "name": "Reverse Holo",
+        "rarity": "Common Reverse",
+        "rarityKey": "common",
+        "chanceWeight": 25,
+        "layout": "classic",
+        "holo": "reverse",
+        "holoStrength": 46,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      },
+      {
+        "id": "nate-gatto--rainbow-chase",
+        "name": "Rainbow Chase",
+        "rarity": "Common Holo",
+        "rarityKey": "common",
+        "chanceWeight": 10,
+        "layout": "classic",
+        "holo": "rainbow",
+        "holoStrength": 32,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      },
+      {
+        "id": "nate-gatto--character-outline",
+        "name": "Character Outline",
+        "rarity": "Rare Outline",
+        "rarityKey": "rare",
+        "chanceWeight": 18,
+        "layout": "classic",
+        "holo": "none",
+        "holoStrength": 55,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": [
+          {
+            "id": "nate-gatto--character-outline--layer-1",
+            "name": "Nate character outline",
+            "image": "/img/nate_gatto_character.png",
+            "mode": "outline-rainbow",
+            "strength": 86,
+            "maskOnly": false,
+            "maskSource": "alpha",
+            "foilA": "#ff3d81",
+            "foilB": "#46e8ff",
+            "foilC": "#ffe95f"
+          }
+        ]
+      },
+      {
+        "id": "nate-gatto--character-car-outline",
+        "name": "Character + Car Outline",
+        "rarity": "Ultra Rare Outline",
+        "rarityKey": "ultra_rare",
+        "chanceWeight": 10,
+        "layout": "classic",
+        "holo": "prism",
+        "holoStrength": 18,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": [
+          {
+            "id": "nate-gatto--character-car-outline--layer-1",
+            "name": "Nate and sheriff car outline",
+            "image": "/img/nate_gatto_character_car.png",
+            "mode": "outline-gold",
+            "strength": 88,
+            "maskOnly": false,
+            "maskSource": "alpha",
+            "foilA": "#f59e0b",
+            "foilB": "#fff7c2",
+            "foilC": "#ffffff"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "holo-mask-lab",
+    "title": "Holo Mask Lab",
+    "subtitle": "Reference Demo",
+    "hp": 120,
+    "type": "vehicle",
+    "chanceWeight": 1,
+    "image": "/img/holo_sample_art.png",
+    "description": "A clean sample card made specifically to demonstrate proper region masks, outline masks, and stacked foil layers.",
+    "accent": "#41dcff",
+    "foilA": "#ff3cac",
+    "foilB": "#27e5ff",
+    "foilC": "#ffe86a",
+    "attacks": [
+      {
+        "name": "Diffraction",
+        "cost": 1,
+        "damage": 30,
+        "text": "A mask-clipped spectrum that follows the pointer."
+      },
+      {
+        "name": "Layer Stack",
+        "cost": 2,
+        "damage": 70,
+        "text": "Stacks subject, outline, and accent masks independently."
+      }
+    ],
+    "variants": [
+      {
+        "id": "holo-mask-lab--reference-base",
+        "name": "Reference Base",
+        "rarity": "Reference",
+        "rarityKey": "rare",
+        "chanceWeight": 1,
+        "layout": "classic",
+        "holo": "none",
+        "holoStrength": 55,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      },
+      {
+        "id": "holo-mask-lab--subject-prism-mask",
+        "name": "Subject Prism Mask",
+        "rarity": "Reference Holo",
+        "rarityKey": "ultra_rare",
+        "chanceWeight": 1,
+        "layout": "classic",
+        "holo": "none",
+        "holoStrength": 55,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": [
+          {
+            "id": "holo-mask-lab--subject-prism-mask--layer-1",
+            "name": "Subject fill mask",
+            "image": "/img/holo_sample_subject_mask.png",
+            "mode": "foil-prism",
+            "strength": 78,
+            "maskOnly": true,
+            "maskSource": "alpha",
+            "foilA": "#ff3cac",
+            "foilB": "#27e5ff",
+            "foilC": "#ffe86a"
+          }
+        ]
+      },
+      {
+        "id": "holo-mask-lab--dedicated-outline-mask",
+        "name": "Dedicated Outline Mask",
+        "rarity": "Reference Outline",
+        "rarityKey": "ultra_rare",
+        "chanceWeight": 1,
+        "layout": "classic",
+        "holo": "none",
+        "holoStrength": 55,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": [
+          {
+            "id": "holo-mask-lab--dedicated-outline-mask--layer-1",
+            "name": "True outline ring mask",
+            "image": "/img/holo_sample_outline_mask.png",
+            "mode": "foil-galaxy",
+            "strength": 92,
+            "maskOnly": true,
+            "maskSource": "alpha",
+            "foilA": "#ff4dc8",
+            "foilB": "#38e8ff",
+            "foilC": "#fff27a"
+          }
+        ]
+      },
+      {
+        "id": "holo-mask-lab--triple-mask-chase",
+        "name": "Triple Mask Chase",
+        "rarity": "Reference Chase",
+        "rarityKey": "legendary",
+        "chanceWeight": 1,
+        "layout": "classic",
+        "holo": "aurora",
+        "holoStrength": 16,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": [
+          {
+            "id": "holo-mask-lab--triple-mask-chase--layer-1",
+            "name": "Subject prism",
+            "image": "/img/holo_sample_subject_mask.png",
+            "mode": "foil-prism",
+            "strength": 62,
+            "maskOnly": true,
+            "maskSource": "alpha",
+            "foilA": "#ff3cac",
+            "foilB": "#27e5ff",
+            "foilC": "#ffe86a"
+          },
+          {
+            "id": "holo-mask-lab--triple-mask-chase--layer-2",
+            "name": "Outline diffraction",
+            "image": "/img/holo_sample_outline_mask.png",
+            "mode": "foil-galaxy",
+            "strength": 96,
+            "maskOnly": true,
+            "maskSource": "alpha",
+            "foilA": "#ff5bca",
+            "foilB": "#4af4ff",
+            "foilC": "#ffffff"
+          },
+          {
+            "id": "holo-mask-lab--triple-mask-chase--layer-3",
+            "name": "Neon accent mask",
+            "image": "/img/holo_sample_accent_mask.png",
+            "mode": "foil-cosmos",
+            "strength": 82,
+            "maskOnly": true,
+            "maskSource": "alpha",
+            "foilA": "#9b5cff",
+            "foilB": "#27e5ff",
+            "foilC": "#ff58bd"
+          }
+        ]
+      },
+      {
+        "id": "holo-mask-lab--electric-outline-demo",
+        "name": "Electric Outline Demo",
+        "rarity": "Reference Electric",
+        "rarityKey": "ultra_rare",
+        "chanceWeight": 1,
+        "layout": "classic",
+        "holo": "none",
+        "holoStrength": 55,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": [
+          {
+            "id": "holo-mask-lab--electric-outline-demo--layer-1",
+            "name": "Electric outline ring",
+            "image": "/img/holo_sample_outline_mask.png",
+            "mode": "foil-electric",
+            "strength": 88,
+            "maskOnly": true,
+            "maskSource": "alpha",
+            "foilA": "#3b82f6",
+            "foilB": "#67e8f9",
+            "foilC": "#f8fafc"
+          }
+        ]
+      },
+      {
+        "id": "holo-mask-lab--water-subject-demo",
+        "name": "Water Subject Demo",
+        "rarity": "Reference Water",
+        "rarityKey": "ultra_rare",
+        "chanceWeight": 1,
+        "layout": "classic",
+        "holo": "none",
+        "holoStrength": 55,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": [
+          {
+            "id": "holo-mask-lab--water-subject-demo--layer-1",
+            "name": "Water subject fill",
+            "image": "/img/holo_sample_subject_mask.png",
+            "mode": "foil-water",
+            "strength": 78,
+            "maskOnly": true,
+            "maskSource": "alpha",
+            "foilA": "#0ea5e9",
+            "foilB": "#67e8f9",
+            "foilC": "#dbeafe"
+          }
+        ]
+      },
+      {
+        "id": "holo-mask-lab--flame-accent-demo",
+        "name": "Flame Accent Demo",
+        "rarity": "Reference Flame v1",
+        "rarityKey": "legendary",
+        "chanceWeight": 1,
+        "layout": "classic",
+        "holo": "none",
+        "holoStrength": 55,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": [
+          {
+            "id": "holo-mask-lab--flame-accent-demo--layer-1",
+            "name": "Flame contour v1",
+            "image": "/img/holo_sample_subject_mask.png",
+            "mode": "foil-flame",
+            "strength": 84,
+            "maskOnly": true,
+            "maskSource": "alpha",
+            "foilA": "#f97316",
+            "foilB": "#fb7185",
+            "foilC": "#fde047"
+          }
+        ]
+      },
+      {
+        "id": "holo-mask-lab--flame-smooth-demo",
+        "name": "Flame Smooth Demo",
+        "rarity": "Reference Flame v2",
+        "rarityKey": "legendary",
+        "chanceWeight": 1,
+        "layout": "classic",
+        "holo": "none",
+        "holoStrength": 55,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": [
+          {
+            "id": "holo-mask-lab--flame-smooth-demo--layer-1",
+            "name": "Continuous smooth flame",
+            "image": "/img/holo_sample_subject_mask.png",
+            "mode": "foil-flame-v2",
+            "strength": 82,
+            "maskOnly": true,
+            "maskSource": "alpha",
+            "foilA": "#ff4b18",
+            "foilB": "#ff9f2d",
+            "foilC": "#ffe36b"
+          }
+        ]
+      },
+      {
+        "id": "holo-mask-lab--flame-hybrid-demo",
+        "name": "Flame Hybrid Demo",
+        "rarity": "Reference Flame v3",
+        "rarityKey": "legendary",
+        "chanceWeight": 1,
+        "layout": "classic",
+        "holo": "none",
+        "holoStrength": 55,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": [
+          {
+            "id": "holo-mask-lab--flame-hybrid-demo--layer-1",
+            "name": "Realistic layered fire",
+            "image": "/img/holo_sample_subject_mask.png",
+            "mode": "foil-flame-hybrid",
+            "strength": 84,
+            "maskOnly": true,
+            "maskSource": "alpha",
+            "foilA": "#ff5418",
+            "foilB": "#ffad33",
+            "foilC": "#fff08a"
+          }
+        ]
+      },
+      {
+        "id": "holo-mask-lab--flame-anime-demo",
+        "name": "Flame Anime Demo",
+        "rarity": "Reference Flame v4",
+        "rarityKey": "legendary",
+        "chanceWeight": 1,
+        "layout": "classic",
+        "holo": "none",
+        "holoStrength": 55,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": [
+          {
+            "id": "holo-mask-lab--flame-anime-demo--layer-1",
+            "name": "Stylized anime flame",
+            "image": "/img/holo_sample_subject_mask.png",
+            "mode": "foil-flame-anime",
+            "strength": 88,
+            "maskOnly": true,
+            "maskSource": "alpha",
+            "foilA": "#ef2b12",
+            "foilB": "#ff7a12",
+            "foilC": "#ffd62e"
+          }
+        ]
+      },
+      {
+        "id": "holo-mask-lab--flame-smoky-demo",
+        "name": "Flame Smoky Demo",
+        "rarity": "Reference Flame v5",
+        "rarityKey": "legendary",
+        "chanceWeight": 1,
+        "layout": "classic",
+        "holo": "none",
+        "holoStrength": 55,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": [
+          {
+            "id": "holo-mask-lab--flame-smoky-demo--layer-1",
+            "name": "Smoky realistic flame",
+            "image": "/img/holo_sample_subject_mask.png",
+            "mode": "foil-flame-smoky",
+            "strength": 78,
+            "maskOnly": true,
+            "maskSource": "alpha",
+            "foilA": "#f04a18",
+            "foilB": "#ff9a28",
+            "foilC": "#ffe077"
+          }
+        ]
+      },
+      {
+        "id": "holo-mask-lab--flame-hybrid-50-demo",
+        "name": "Flame Hybrid 50% Demo",
+        "rarity": "Reference Flame 50%",
+        "rarityKey": "legendary",
+        "chanceWeight": 1,
+        "layout": "classic",
+        "holo": "none",
+        "holoStrength": 55,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": [
+          {
+            "id": "holo-mask-lab--flame-hybrid-50-demo--layer-1",
+            "name": "Realistic layered fire at 50%",
+            "image": "/img/holo_sample_subject_mask.png",
+            "mode": "foil-flame-hybrid",
+            "strength": 50,
+            "maskOnly": true,
+            "maskSource": "alpha",
+            "foilA": "#ff5418",
+            "foilB": "#ffad33",
+            "foilC": "#fff08a"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "peggy-moto",
+    "title": "Peggy Moto",
+    "subtitle": "Local Rider",
+    "hp": 95,
+    "type": "civilian",
+    "chanceWeight": 42,
+    "image": "/img/peggy_moto.jpg",
+    "description": "A street-level character card with multiple finishes in the same common pool.",
+    "accent": "#fb923c",
+    "foilA": "#fb7185",
+    "foilB": "#67e8f9",
+    "foilC": "#fde68a",
+    "attacks": [
+      {
+        "name": "Quick Turn",
+        "cost": 1,
+        "damage": 20,
+        "text": "Move before the opponent on the next turn."
+      },
+      {
+        "name": "Side Street",
+        "cost": 2,
+        "damage": 40,
+        "text": "Gets a bonus while a city location is active."
+      }
+    ],
+    "variants": [
+      {
+        "id": "peggy-moto--base",
+        "name": "Base",
+        "rarity": "Common",
+        "rarityKey": "common",
+        "chanceWeight": 72,
+        "layout": "classic",
+        "holo": "none",
+        "holoStrength": 55,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      },
+      {
+        "id": "peggy-moto--etched",
+        "name": "Etched",
+        "rarity": "Common Etched",
+        "rarityKey": "common",
+        "chanceWeight": 18,
+        "layout": "classic",
+        "holo": "etched",
+        "holoStrength": 42,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      },
+      {
+        "id": "peggy-moto--prism",
+        "name": "Prism",
+        "rarity": "Common Prism",
+        "rarityKey": "common",
+        "chanceWeight": 10,
+        "layout": "classic",
+        "holo": "prism",
+        "holoStrength": 34,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      }
+    ]
+  },
+  {
+    "id": "business-fudge",
+    "title": "Business Fudge",
+    "subtitle": "Downtown Regular",
+    "hp": 105,
+    "type": "civilian",
+    "chanceWeight": 38,
+    "image": "/img/business_fudge.jpg",
+    "description": "Another common-pool subject so repeated packs do not collapse to a single character.",
+    "accent": "#eab308",
+    "foilA": "#facc15",
+    "foilB": "#22d3ee",
+    "foilC": "#f472b6",
+    "attacks": [
+      {
+        "name": "Pitch",
+        "cost": 1,
+        "damage": 25,
+        "text": "Draw one card if this attack lands."
+      },
+      {
+        "name": "Close Deal",
+        "cost": 2,
+        "damage": 45,
+        "text": "Extra damage against a weakened card."
+      }
+    ],
+    "variants": [
+      {
+        "id": "business-fudge--base",
+        "name": "Base",
+        "rarity": "Common",
+        "rarityKey": "common",
+        "chanceWeight": 75,
+        "layout": "classic",
+        "holo": "none",
+        "holoStrength": 55,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      },
+      {
+        "id": "business-fudge--reverse-holo",
+        "name": "Reverse Holo",
+        "rarity": "Common Reverse",
+        "rarityKey": "common",
+        "chanceWeight": 25,
+        "layout": "classic",
+        "holo": "reverse",
+        "holoStrength": 40,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      }
+    ]
+  },
+  {
+    "id": "bcso-moto",
+    "title": "BCSO Moto",
+    "subtitle": "Traffic Unit",
+    "hp": 130,
+    "type": "police",
+    "chanceWeight": 45,
+    "image": "/img/moto_bcso.jpg",
+    "description": "Built for pursuit, traffic control, and rapid response.",
+    "accent": "#4d8dff",
+    "foilA": "#38bdf8",
+    "foilB": "#a78bfa",
+    "foilC": "#f8fafc",
+    "attacks": [
+      {
+        "name": "Rapid Response",
+        "cost": 2,
+        "damage": 60,
+        "text": "May act first on the next turn."
+      },
+      {
+        "name": "Intercept",
+        "cost": 3,
+        "damage": 90,
+        "text": "Extra damage against vehicle cards."
+      }
+    ],
+    "variants": [
+      {
+        "id": "bcso-moto--standard",
+        "name": "Standard",
+        "rarity": "Uncommon",
+        "rarityKey": "uncommon",
+        "chanceWeight": 58,
+        "layout": "classic",
+        "holo": "none",
+        "holoStrength": 55,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      },
+      {
+        "id": "bcso-moto--reverse",
+        "name": "Reverse",
+        "rarity": "Uncommon Reverse",
+        "rarityKey": "uncommon",
+        "chanceWeight": 27,
+        "layout": "classic",
+        "holo": "reverse",
+        "holoStrength": 48,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      },
+      {
+        "id": "bcso-moto--full-art-prism",
+        "name": "Full Art Prism",
+        "rarity": "Ultra Rare",
+        "rarityKey": "ultra_rare",
+        "chanceWeight": 15,
+        "layout": "full-art",
+        "holo": "prism",
+        "holoStrength": 42,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      }
+    ]
+  },
+  {
+    "id": "sunset-run",
+    "title": "Sunset Run",
+    "subtitle": "Location",
+    "hp": 110,
+    "type": "location",
+    "chanceWeight": 32,
+    "image": "/img/sunset.jpg",
+    "description": "A location print used to make the uncommon pool more varied.",
+    "accent": "#f97316",
+    "foilA": "#fb7185",
+    "foilB": "#fbbf24",
+    "foilC": "#60a5fa",
+    "attacks": [
+      {
+        "name": "Golden Hour",
+        "cost": 1,
+        "damage": 30,
+        "text": "Boost a civilian card until the next turn."
+      },
+      {
+        "name": "Long Road",
+        "cost": 2,
+        "damage": 55,
+        "text": "Location cards remain active one extra turn."
+      }
+    ],
+    "variants": [
+      {
+        "id": "sunset-run--standard",
+        "name": "Standard",
+        "rarity": "Uncommon",
+        "rarityKey": "uncommon",
+        "chanceWeight": 70,
+        "layout": "classic",
+        "holo": "none",
+        "holoStrength": 55,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      },
+      {
+        "id": "sunset-run--aurora",
+        "name": "Aurora",
+        "rarity": "Uncommon Holo",
+        "rarityKey": "uncommon",
+        "chanceWeight": 30,
+        "layout": "classic",
+        "holo": "aurora",
+        "holoStrength": 38,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      }
+    ]
+  },
+  {
+    "id": "dark-sky",
+    "title": "Dark Sky",
+    "subtitle": "Criminal",
+    "hp": 120,
+    "type": "criminal",
+    "chanceWeight": 35,
+    "image": "/img/dark_sky_woman.jpg",
+    "description": "An illustration-style card where the artwork owns nearly the entire surface.",
+    "accent": "#a855f7",
+    "foilA": "#f0abfc",
+    "foilB": "#60a5fa",
+    "foilC": "#fb7185",
+    "attacks": [
+      {
+        "name": "Disappear",
+        "cost": 1,
+        "damage": 30,
+        "text": "Reduce incoming damage on the next turn."
+      },
+      {
+        "name": "Night Move",
+        "cost": 3,
+        "damage": 80,
+        "text": "Deals bonus damage under a location card."
+      }
+    ],
+    "variants": [
+      {
+        "id": "dark-sky--rare",
+        "name": "Rare",
+        "rarity": "Rare",
+        "rarityKey": "rare",
+        "chanceWeight": 55,
+        "layout": "classic",
+        "holo": "cosmos",
+        "holoStrength": 35,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      },
+      {
+        "id": "dark-sky--illustration-rare",
+        "name": "Illustration Rare",
+        "rarity": "Illustration Rare",
+        "rarityKey": "rare",
+        "chanceWeight": 30,
+        "layout": "illustration",
+        "holo": "oilslick",
+        "holoStrength": 32,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      },
+      {
+        "id": "dark-sky--full-art",
+        "name": "Full Art",
+        "rarity": "Ultra Rare",
+        "rarityKey": "ultra_rare",
+        "chanceWeight": 15,
+        "layout": "full-art",
+        "holo": "rainbow",
+        "holoStrength": 28,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      }
+    ]
+  },
+  {
+    "id": "county-heat-gauntlet",
+    "title": "County Heat Gauntlet",
+    "subtitle": "Event",
+    "hp": 145,
+    "type": "police",
+    "chanceWeight": 28,
+    "image": "/img/county_heat_gauntlet.jpg",
+    "description": "A second rare-pool subject with standard and premium treatments.",
+    "accent": "#ef4444",
+    "foilA": "#fb7185",
+    "foilB": "#facc15",
+    "foilC": "#38bdf8",
+    "attacks": [
+      {
+        "name": "Heat Check",
+        "cost": 2,
+        "damage": 65,
+        "text": "Adds pressure to the opposing card."
+      },
+      {
+        "name": "Gauntlet",
+        "cost": 3,
+        "damage": 95,
+        "text": "Heavy damage after surviving a turn."
+      }
+    ],
+    "variants": [
+      {
+        "id": "county-heat-gauntlet--rare",
+        "name": "Rare",
+        "rarity": "Rare",
+        "rarityKey": "rare",
+        "chanceWeight": 65,
+        "layout": "classic",
+        "holo": "etched",
+        "holoStrength": 38,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      },
+      {
+        "id": "county-heat-gauntlet--prism-full-art",
+        "name": "Prism Full Art",
+        "rarity": "Ultra Rare",
+        "rarityKey": "ultra_rare",
+        "chanceWeight": 25,
+        "layout": "full-art",
+        "holo": "prism",
+        "holoStrength": 38,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      },
+      {
+        "id": "county-heat-gauntlet--gold-chase",
+        "name": "Gold Chase",
+        "rarity": "Legendary",
+        "rarityKey": "legendary",
+        "chanceWeight": 10,
+        "layout": "dark-borderless",
+        "holo": "aurora",
+        "holoStrength": 34,
+        "image": "",
+        "accent": "",
+        "foilA": "#f59e0b",
+        "foilB": "#fde68a",
+        "foilC": "#ffffff",
+        "subjectLayers": []
+      }
+    ]
+  },
+  {
+    "id": "air-juanito",
+    "title": "Air Juanito",
+    "subtitle": "Special Vehicle",
+    "hp": 160,
+    "type": "vehicle",
+    "chanceWeight": 24,
+    "image": "/img/air_juanito.jpg",
+    "description": "A vehicle chase card with multiple high-rarity print treatments.",
+    "accent": "#22d3ee",
+    "foilA": "#67e8f9",
+    "foilB": "#818cf8",
+    "foilC": "#fef08a",
+    "attacks": [
+      {
+        "name": "Flyover",
+        "cost": 2,
+        "damage": 70,
+        "text": "Ignores one ground-based effect."
+      },
+      {
+        "name": "Hard Landing",
+        "cost": 3,
+        "damage": 100,
+        "text": "High damage with a recovery turn."
+      }
+    ],
+    "variants": [
+      {
+        "id": "air-juanito--ultra-rare",
+        "name": "Ultra Rare",
+        "rarity": "Ultra Rare",
+        "rarityKey": "ultra_rare",
+        "chanceWeight": 70,
+        "layout": "full-art",
+        "holo": "prism",
+        "holoStrength": 36,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      },
+      {
+        "id": "air-juanito--oil-slick",
+        "name": "Oil Slick",
+        "rarity": "Ultra Rare Alt",
+        "rarityKey": "ultra_rare",
+        "chanceWeight": 30,
+        "layout": "dark-borderless",
+        "holo": "oilslick",
+        "holoStrength": 42,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      }
+    ]
+  },
+  {
+    "id": "pier-park-man",
+    "title": "Pier Park Man",
+    "subtitle": "Legendary Civilian",
+    "hp": 180,
+    "type": "civilian",
+    "chanceWeight": 20,
+    "image": "/img/pier_park_man.jpg",
+    "description": "A full-art legendary-style test card built to make foil and lighting easy to inspect.",
+    "accent": "#fbbf24",
+    "foilA": "#fb7185",
+    "foilB": "#22d3ee",
+    "foilC": "#fde047",
+    "attacks": [
+      {
+        "name": "Boardwalk Legend",
+        "cost": 2,
+        "damage": 90,
+        "text": "Gain a bonus when a location card is active."
+      },
+      {
+        "name": "Last Call",
+        "cost": 4,
+        "damage": 130,
+        "text": "A heavy finisher for pack testing."
+      }
+    ],
+    "variants": [
+      {
+        "id": "pier-park-man--legendary-rainbow",
+        "name": "Legendary Rainbow",
+        "rarity": "Legendary",
+        "rarityKey": "legendary",
+        "chanceWeight": 55,
+        "layout": "full-art",
+        "holo": "rainbow",
+        "holoStrength": 28,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      },
+      {
+        "id": "pier-park-man--legendary-etched",
+        "name": "Legendary Etched",
+        "rarity": "Legendary Etched",
+        "rarityKey": "legendary",
+        "chanceWeight": 30,
+        "layout": "illustration",
+        "holo": "etched",
+        "holoStrength": 45,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      },
+      {
+        "id": "pier-park-man--legendary-aurora",
+        "name": "Legendary Aurora",
+        "rarity": "Legendary Aurora",
+        "rarityKey": "legendary",
+        "chanceWeight": 15,
+        "layout": "dark-borderless",
+        "holo": "aurora",
+        "holoStrength": 38,
+        "image": "",
+        "accent": "",
+        "foilA": "",
+        "foilB": "",
+        "foilC": "",
+        "subjectLayers": []
+      }
+    ]
+  }
+]
