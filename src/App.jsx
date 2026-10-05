@@ -236,13 +236,18 @@ export default function App() {
     }
     if (!selected || !selectedDirty || saveState.saving) return !selectedDirty
     setSaveState({ saving: true, error: '' })
+    // A catalog reload still in flight (e.g. started when /cardadmin opened) was read before this save:
+    // letting it land afterwards replaced the saved card with the old copy and the editor kept saying "Unsaved changes".
+    ++catalogRevision.current
     const snapshot = normalizeCard(structuredClone(selected))
+    const savedJson = JSON.stringify(snapshot)
     const result = await storage.saveCard(snapshot)
     if (!result?.ok) {
       setSaveState({ saving: false, error: result?.error || 'Could not save card.' })
       return false
     }
-    setCards(current => current.map(card => card.id === snapshot.id ? structuredClone(snapshot) : card))
+    // edits made while the save was travelling stay in the editor (and keep it marked unsaved)
+    setCards(current => current.map(card => card.id === snapshot.id && JSON.stringify(normalizeCard(card)) === savedJson ? structuredClone(snapshot) : card))
     setSavedCards(current => {
       const exists = current.some(card => card.id === snapshot.id)
       return exists

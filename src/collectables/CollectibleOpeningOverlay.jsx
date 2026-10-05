@@ -6,6 +6,10 @@ import './collectibles.css'
 import { loadPackPrefs } from '../runtime/packPrefs'
 import { openingLook } from './containerPrefs.js'
 
+// The 3D canvas covers the whole screen (collectibles.css) but is framed like the centre stage it used to be
+// (min(1400px,96vw) x min(70vh,760px)), so pieces flying outwards are no longer cut off at the stage edges.
+const OVERLAY_FRAME = (w, h) => ({ width: Math.min(1400, w * 0.96), height: Math.max(240, Math.min(h * 0.7, 760)) })
+
 export default function CollectibleOpeningOverlay({ request, onClose }) {
   const [run, setRun] = useState(null)
   const [error, setError] = useState('')
@@ -54,7 +58,7 @@ export default function CollectibleOpeningOverlay({ request, onClose }) {
   }, [canFlip, viewer, onClose,claiming])
   return <div className="pk-overlay collectible-opening-overlay" role="dialog" aria-label="Opening a collectible container">
     <div className="pk-overlay-stage">
-      {run && <ContainerOpening3D key={run.id} run={run} look={run.playbackLook}
+      {run && <ContainerOpening3D key={run.id} run={run} look={run.playbackLook} frame={OVERLAY_FRAME}
         compact flipAllKey={flipAllKey} onInspect={setViewer} onComplete={() => setSettled(true)} onAllRevealed={() => claim().catch(() => {})} />}
       {!run && !error && <p className="collectible-opening-status" role="status">Opening container…</p>}
     </div>

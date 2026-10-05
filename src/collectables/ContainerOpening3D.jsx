@@ -21,7 +21,7 @@ const caseInfo = run => ({ count: run.items.length, innerLabel: run.container.la
 
 // Opening of a coin bag / plushie box / outer case rendered by Container3D.js. Falls back to the 2D CSS
 // version when WebGL is unavailable. `look` is the container's saved design and animation.
-export default function ContainerOpening3D({ run, look, onInspect, onComplete, onAllRevealed, flipAllKey = 0, compact = false }) {
+export default function ContainerOpening3D({ run, look, onInspect, onComplete, onAllRevealed, flipAllKey = 0, compact = false, frame }) {
   const host = useRef(null)
   const scene = useRef(null)
   const [failed, setFailed] = useState(false)
@@ -40,7 +40,7 @@ export default function ContainerOpening3D({ run, look, onInspect, onComplete, o
     const soundBase = { kind, style: chosen.style, animation: chosen.animation, innerKind: innerLookKind(run.container) }
     import('./Container3D.js')
       .then(({ createContainerScene }) => createContainerScene(canvas, {
-        kind, style: chosen.style, animation: chosen.animation, items: run.items, caseInfo: caseInfo(run),
+        kind, style: chosen.style, animation: chosen.animation, items: run.items, caseInfo: caseInfo(run), frame,
         onPhase: (name, index) => {
           if (dead) return
           if (name === 'charge' || name === 'open' || name === 'emerge') soundFx.container({ ...soundBase, event: name })

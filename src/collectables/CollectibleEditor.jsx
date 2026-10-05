@@ -1,4 +1,5 @@
 import { RARITIES, FINISHES, makePrint, printsOf, rarityLabel } from './prints.js'
+import { compressImageFile } from '../utils/compressImage.js'
 
 // Same structure and classes as the trading card editor (components/CardEditor.jsx): identity shared by every
 // print, then print tabs with each print's rarity, pull weight and look.
@@ -6,11 +7,10 @@ function Field({ label, children, className = '' }) {
   return <label className={`field ${className}`}><span>{label}</span>{children}</label>
 }
 
+// Uploaded artwork is downscaled/re-encoded first so it fits browser storage and FiveM saves.
 const loadFile = (onLoaded, file) => {
   if (!file) return
-  const reader = new FileReader()
-  reader.onload = () => onLoaded(reader.result)
-  reader.readAsDataURL(file)
+  compressImageFile(file).then(onLoaded, error => console.warn('Could not load artwork file.', error))
 }
 
 function TypedField({ field, value, onChange, className }) {

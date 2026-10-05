@@ -175,12 +175,17 @@ How item use is wired (`Config.Items.UseMethod`, default `'auto'` = both routes)
 ## Card inventory icons (ox_inventory)
 `Config.CardIcons.Mode`:
 - `'rarity'` (default): one 100x100 icon per rarity (`img/cards/metacard_<rarity>.png`). Nothing to set up.
-- `'upload'`: every card gets **one icon per rarity it comes in** (at most 5 per card; all variants and copies of that card at
-  that rarity share it), a 100x100 icon (frame in the card's colour, artwork, name, HP, rarity stars),
+- `'upload'`: **one icon per distinct look** of a card, coin or plushie. Prints that look the same (same artwork, colour,
+  name, HP, rarity stars / same coin or plushie design) share one icon; a different look (full art, another plushie
+  colour, ...) gets its own. Card icons are 100x100 (frame in the card's colour, artwork, name, HP, rarity stars),
   drawn in a player's game UI, uploaded to Fivemanage by the server and remembered in `data/card_icons.json`.
   Add your key to **server.cfg** (never config.lua, which players receive): `set metacomic_fivemanage_key "your-api-key"`.
-  Each icon is uploaded once; opening packs or giving items never uploads anything new. On start (and with `cardicons` in
+  Each look is uploaded once; saving without changing a look, opening packs or giving items never uploads anything new.
+  When a collectable or print is deleted, or saved with a different look, the old look's icon is deleted from Fivemanage
+  (failed deletes are retried from `data/card_icons_trash.json`) and items still showing it fall back to the rarity icon.
+  Items stored in stashes / trunks are only updated when they reach a player inventory. On start (and with `cardicons` in
   the server console) the saved urls are checked, and icons deleted from Fivemanage are uploaded again.
+  After updating from the per-rarity version, icons that match a current look are kept and the others are deleted once.
   Missing icons are made automatically, 8 at a time, by the first player online whose UI has loaded:
   - when the resource starts (players already online) and whenever a player joins,
   - when the catalog is saved in-game: new cards get icons, edited cards (name, HP, colour, rarity or artwork) get redrawn,

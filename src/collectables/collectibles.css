@@ -224,6 +224,9 @@
 
 .gallery-item .collectible-object figcaption,.effect-card .collectible-object figcaption { display:none; }
 .collectible-opening-overlay .pk-overlay-stage { width:min(1400px,96vw); }
-.collectible-opening-overlay .meta-opening3d-stage { height:min(70vh,760px); min-height:240px; }
+
+/* full-screen 3D layer, framed like the old centre stage (OVERLAY_FRAME), so nothing is cut off before the screen edges */
+.collectible-opening-overlay .meta-opening3d-stage { position:fixed; inset:0; width:auto; height:auto; min-height:0; }
+.collectible-opening-overlay .meta-opening3d > p { position:fixed; left:0; right:0; bottom:calc(max(4vh,22px) + 54px); margin:0; pointer-events:none; text-shadow:0 2px 8px #000; }
 .collectible-opening-overlay .meta-opening { background:transparent; border:0; }
 .collectible-opening-status { text-align:center; color:#fff; }

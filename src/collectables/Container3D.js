@@ -1325,10 +1325,16 @@ export async function createContainerScene(canvas, options = {}) {
 
   const resize = () => {
     const w = canvas.clientWidth || 1, h = canvas.clientHeight || 1
+    // opts.frame(w, h) -> { width, height }: the area the scene is framed for when the canvas is bigger (FiveM:
+    // full-screen canvas, framed like the centre stage, so flying pieces reach the screen edges instead of being cut off)
+    const region = opts.frame?.(w, h)
+    const fw = region ? Math.max(1, Math.min(w, region.width)) : w, fh = region ? Math.max(1, Math.min(h, region.height)) : h
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, opts.maxPixelRatio))
     renderer.setSize(w, h, false)
-    camera.aspect = w / h
-    camera.fov = w / h < 1 ? 40 : 32
+    camera.aspect = fw / fh
+    camera.fov = fw / fh < 1 ? 40 : 32
+    if (region) camera.setViewOffset(fw, fh, -(w - fw) / 2, -(h - fh) / 2, w, h)
+    else camera.clearViewOffset()
     camera.updateProjectionMatrix()
     const fitH = (container.height + 0.9) / 2 / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)
     const fitW = 2.2 / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) / camera.aspect

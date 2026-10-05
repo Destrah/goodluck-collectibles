@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 
 export default function PropVisual({ modelUrl, imageUrl, alt, className = '' }) {
   const [hasModel, setHasModel] = useState(false)
+  const [viewerReady, setViewerReady] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -14,7 +15,16 @@ export default function PropVisual({ modelUrl, imageUrl, alt, className = '' }) 
     return () => { active = false }
   }, [modelUrl])
 
-  if (!hasModel) return <img className={className} src={imageUrl} alt={alt} />
+  // model-viewer (with its own copy of three.js) is ~1 MB: load it only when a model file actually exists,
+  // so the NUI / standalone page starts without it
+  useEffect(() => {
+    if (!hasModel || viewerReady) return
+    let active = true
+    import('@google/model-viewer').then(() => { if (active) setViewerReady(true) }).catch(() => {})
+    return () => { active = false }
+  }, [hasModel, viewerReady])
+
+  if (!hasModel || !viewerReady) return <img className={className} src={imageUrl} alt={alt} />
 
   return (
     <model-viewer

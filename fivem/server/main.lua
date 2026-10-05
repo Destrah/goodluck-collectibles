@@ -394,43 +394,36 @@ local function imageUrlAccepted(url)
 end
 
 -- Inventory icons. 'rarity': one picture per rarity (img/cards/metacard_<rarity>.png, 100x100).
--- 'upload': every card gets one 100x100 icon per rarity it comes in, drawn in a player's NUI and uploaded to Fivemanage
--- (data/card_icons.json remembers them). Missing / outdated icons are made when the resource starts, when a
+-- 'upload': one 100x100 icon per distinct LOOK of a collectable, drawn in a player's NUI and uploaded to Fivemanage
+-- (data/card_icons.json remembers them). Prints / variants that look the same share one icon; a different look (full
+-- art, another plushie colour, ...) gets its own. Icons of looks that no longer exist in the catalog (deleted, or
+-- edited into a new look) are deleted from Fivemanage. Missing icons are made when the resource starts, when a
 -- player joins, when the catalog is saved in-game and when a print is pulled; until then the rarity icon is used.
 local RARITY_ICONS = { common = true, uncommon = true, rare = true, ultra_rare = true, legendary = true }
 local ICON_FILE = 'data/card_icons.json'
 local ICON_STYLE = 1 -- bump when cardIcon.js draws differently, so every icon is redrawn
--- One icon per base card + rarity ('<baseCardId>::<rarityKey>'), so a card has at most one icon per rarity no matter how
--- many variants or copies of it exist.
-local ICON_FORMAT = 2
-local iconUrls = {} -- icon key -> { v = 2, url = <uploaded url>, file = <ox picture file>, sig = <appearance signature>, hash }
+-- Icon key = owner + appearance signature: 'card::<baseCardId>::<sig>' / 'obj::<type>::<definitionId>::<sig>'.
+local ICON_FORMAT = 3
+local iconUrls = {} -- icon key -> { v = 3, url = <uploaded url>, id = <Fivemanage file id>, file = <ox picture file>, sig, hash }
+local legacyIcons = {} -- entries saved by older versions (one per card + rarity / per print): adopted or deleted at start
 do
     local raw = LoadResourceFile(resourceName, ICON_FILE)
     local ok, decoded = pcall(function() return raw and json.decode(raw) or nil end)
-    local dropped = 0
     if ok and type(decoded) == 'table' then
         for key, value in pairs(decoded) do
             if type(value) == 'table' and value.v == ICON_FORMAT then iconUrls[key] = value
-            else dropped = dropped + 1 end -- older per-variant icons: replaced by per-rarity ones
+            elseif type(value) == 'table' then legacyIcons[key] = value end
         end
     end
-    if dropped > 0 then
-        print(('[meta-comic] card icons: %d older per-variant icon entries dropped; one icon per card + rarity is made instead.'):format(dropped))
-    end
 end
-local function saveIconFile() SaveResourceFile(resourceName, ICON_FILE, json.encode(iconUrls), -1) end
-
-local function printKey(card)
-    if type(card) == 'table' and OBJECT_ICON_PREFIX[card.collectableType] then
-        return ('obj::%s::%s::%s'):format(card.collectableType, tostring(card.definitionId or card.id), tostring(card.printId or 'base'))
+local function saveIconFile()
+    local out = iconUrls
+    if next(legacyIcons) ~= nil then -- not adopted / deleted yet (catalog still loading): keep them in the file
+        out = {}
+        for key, value in pairs(legacyIcons) do out[key] = value end
+        for key, value in pairs(iconUrls) do out[key] = value end
     end
-    return card and card.baseCardId and ('%s::%s'):format(card.baseCardId, card.rarityKey or 'common') or nil
-end
-
--- the card an icon is drawn from: the catalog's first variant of this card at this rarity (falls back to the card itself)
-local function iconCard(card)
-    if type(card) == 'table' and OBJECT_ICON_PREFIX[card.collectableType] then return card end
-    return (card and card.baseCardId and MetaComic.Cards.forRarity(card.baseCardId, card.rarityKey or 'common')) or card
+    SaveResourceFile(resourceName, ICON_FILE, json.encode(out), -1)
 end
 local function uploadMode() return Config.CardIcons and Config.CardIcons.Mode == 'upload' end
 
@@ -458,22 +451,73 @@ local function anyFivemanageKey()
 end
 
 
--- everything the icon shows; when any of it changes in the catalog the icon is redrawn
-local function iconSig(card)
-    local parts = { tostring(ICON_STYLE), tostring(card.title), tostring(card.hp), tostring(card.accent),
-        tostring(card.rarityKey), tostring(card.image), tostring(card.imagePositionX or 50), tostring(card.imagePositionY or 50), tostring(card.imageZoom or 100) }
-    if OBJECT_ICON_PREFIX[card.collectableType] then -- everything a coin / plushie icon shows
-        for _, field in ipairs({ 'collectableType', 'printId', 'finish', 'finishStrength', 'rimImage', 'edgeImage', 'edgeStyle', 'tint', 'tintStrength', 'stitchColor', 'stitchPattern', 'stitchWidth', 'backImage' }) do
-            parts[#parts + 1] = tostring(card[field])
-        end
+-- Exactly the fields each icon renderer draws (src/utils/cardIcon.js, renderCollectibleIcon in Container3D.js).
+-- Only these decide whether two prints share an icon, and only these are sent to the NUI that draws it.
+local CARD_ICON_FIELDS = { 'title', 'hp', 'accent', 'rarityKey', 'image', 'imagePositionX', 'imagePositionY', 'imageZoom' }
+local OBJECT_ICON_FIELDS = { 'collectableType', 'title', 'accent', 'image', 'imagePositionX', 'imagePositionY', 'imageZoom',
+    'finish', 'finishStrength', 'rimImage', 'edgeImage', 'edgeStyle', 'tint', 'tintStrength', 'stitchColor', 'stitchPattern', 'stitchWidth', 'backImage' }
+
+local FIELD_DEFAULTS = { imagePositionX = 50, imagePositionY = 50, imageZoom = 100 }
+-- 50, 50.0 and "50" are the same look: item snapshots pass through the inventory's JSON, which may change number types
+local function sigValue(value)
+    local n = type(value) == 'number' and value or (type(value) == 'string' and value:match('^%-?[%d.]+$') and tonumber(value))
+    if n and n == n and n ~= math.huge and n ~= -math.huge then
+        return n == math.floor(n) and ('%d'):format(n) or (('%.4f'):format(n):gsub('0+$', ''))
     end
-    local text = table.concat(parts, '\31')
+    return tostring(value)
+end
+local function hashText(text)
     local h = 5381
     for i = 1, #text, 4096 do
         local bytes = { text:byte(i, math.min(i + 4095, #text)) }
         for j = 1, #bytes do h = (h * 33 + bytes[j]) % 4294967296 end
     end
     return ('%08x%d'):format(h, #text)
+end
+
+-- Artwork saved in the editor can be a multi-MB data: URL. Hashing it in Lua on every lookup made each icon check
+-- slow, so long values are hashed once and remembered.
+local longValueHashes, longValueCount = {}, 0
+local function sigPart(value)
+    if type(value) ~= 'string' or #value <= 512 then return sigValue(value) end
+    local cached = longValueHashes[value]
+    if cached then return cached end
+    if longValueCount >= 512 then longValueHashes, longValueCount = {}, 0 end
+    cached = '#' .. hashText(value)
+    longValueHashes[value], longValueCount = cached, longValueCount + 1
+    return cached
+end
+
+-- everything the icon shows; prints with the same signature share one icon
+local function iconSig(card)
+    local parts = { tostring(ICON_STYLE) }
+    for _, field in ipairs(OBJECT_ICON_PREFIX[card.collectableType] and OBJECT_ICON_FIELDS or CARD_ICON_FIELDS) do
+        local value = card[field]
+        if value == nil or value == '' then value = FIELD_DEFAULTS[field] end
+        parts[#parts + 1] = sigPart(value)
+    end
+    return hashText(table.concat(parts, '\31'))
+end
+
+-- the signature older versions stored for a card + rarity icon (only used to adopt those uploads once)
+local function legacyCardSig(card)
+    return hashText(table.concat({ tostring(ICON_STYLE), tostring(card.title), tostring(card.hp), tostring(card.accent),
+        tostring(card.rarityKey), tostring(card.image), tostring(card.imagePositionX or 50), tostring(card.imagePositionY or 50), tostring(card.imageZoom or 100) }, '\31'))
+end
+
+local function printKey(card)
+    if type(card) ~= 'table' then return nil end
+    if OBJECT_ICON_PREFIX[card.collectableType] then
+        return ('obj::%s::%s::%s'):format(card.collectableType, tostring(card.definitionId or card.id), iconSig(card))
+    end
+    return card.baseCardId and ('card::%s::%s'):format(card.baseCardId, iconSig(card)) or nil
+end
+
+-- what the NUI needs to draw an icon (not the whole snapshot: keeps the latent event small)
+local function iconCard(card)
+    local drawn = {}
+    for _, field in ipairs(OBJECT_ICON_PREFIX[card.collectableType] and OBJECT_ICON_FIELDS or CARD_ICON_FIELDS) do drawn[field] = card[field] end
+    return drawn
 end
 
 -- File mode: ox_inventory would delete the uploaded urls (see above), so each print's icon is ALSO saved as a
@@ -502,11 +546,8 @@ end
 local function needsIcon(card)
     local key = printKey(card)
     if not key then return false end
-    card = iconCard(card)
     local entry = iconUrls[key]
     if not entry then return true end
-    if not entry.sig then entry.sig = iconSig(card) end -- older file: assume it's current
-    if entry.sig ~= iconSig(card) then return true end
     if fileMode() and not entry.file and not entry.fileFailed then return true end -- has a url ox would delete, but no picture file yet
     if not entry.url and uploadMode() and fivemanageKey(objectType(card) or 'trading_card') ~= '' then return true end -- its upload was deleted from Fivemanage
     return false
@@ -547,7 +588,7 @@ local function cardMetadata(card)
         collectableType = 'trading_card',
         cardSnapshotVersion = 1,
         cardSnapshot = MetaComic.Collectables.snapshot('trading_card', card),
-        cardIconSnapshotSignature = iconSig(iconCard(card)),
+        cardIconSnapshotSignature = iconSig(card),
         cardKey = card.cardKey,
         baseCardId = card.baseCardId,
         variantId = card.variantId,
@@ -607,8 +648,8 @@ local function refreshCardItem(source, slot, metadata, inv)
         migrated = true
     end
     if type(metadata.cardSnapshot) == 'table' then
-        local entry = iconUrls[printKey(metadata.cardSnapshot)]
-        if not entry or not metadata.cardIconSnapshotSignature or entry.sig ~= metadata.cardIconSnapshotSignature then return migrated end
+        -- the icon key comes from the snapshot's own look, so an item only ever shows the icon of how it looks;
+        -- when that look's icon was deleted (the card was edited / removed) it falls back to the rarity icon
         local imageurl, image = cardIcon(metadata.cardSnapshot)
         if metadata.imageurl == imageurl and metadata.image == image then return migrated end
         local updated = MetaComic.CopyTable(metadata)
@@ -680,8 +721,9 @@ local function uploadIcon(key, sig, dataUrl, cb)
         if not url then
             print(('[meta-comic] card icon upload failed for %s (HTTP %s): %s'):format(key, tostring(status), tostring(body):sub(1, 200)))
         end
-        cb(url)
-    end, 'POST', json.encode({ base64 = dataUrl, filename = filename, path = folderFor(typeId).path, metadata = json.encode({ card = key, collectableType = typeId }) }), {
+        cb(url, data and data.id and tostring(data.id) or nil)
+    end, 'POST', json.encode({ base64 = dataUrl, filename = filename, path = folderFor(typeId).path, retentionExempt = true,
+        metadata = json.encode({ card = key, collectableType = typeId }) }), {
         ['Content-Type'] = 'application/json',
         ['Authorization'] = apiKey,
     })
@@ -697,9 +739,8 @@ local function requestIcons(source, cards)
     for _, card in ipairs(cards or {}) do
         local key = printKey(card)
         if key and needsIcon(card) and not uploading[key] and not pendingIcons[source][key] and (iconAttempts[key] or 0) < MAX_ATTEMPTS then
-            local drawn = iconCard(card)
-            pendingIcons[source][key] = iconSig(drawn)
-            list[#list + 1] = { key = key, card = drawn }
+            pendingIcons[source][key] = iconSig(card)
+            list[#list + 1] = { key = key, card = iconCard(card) }
             keys[#keys + 1] = key
         end
     end
@@ -709,18 +750,9 @@ local function requestIcons(source, cards)
     return keys
 end
 
--- coin / plushie items: picture from their own print's icon (rarity picture until it is uploaded)
--- an item shows its print's uploaded icon only while that icon still matches the item's own snapshot;
--- after the print is edited, older items keep the rarity picture instead of borrowing the new look
-local function objectIcon(snapshot)
-    local entry = iconUrls[printKey(snapshot)]
-    if entry and entry.sig and entry.sig ~= iconSig(snapshot) then
-        local rarityOnly = MetaComic.CopyTable(snapshot)
-        rarityOnly.printId = '__rarity__' -- no icon entry under this key -> rarity picture
-        return cardIcon(rarityOnly)
-    end
-    return cardIcon(snapshot)
-end
+-- coin / plushie items: the icon of their own snapshot's look (rarity picture until it is uploaded, or once that
+-- look no longer exists in the catalog), so older items never borrow an edited print's new look
+local function objectIcon(snapshot) return cardIcon(snapshot) end
 local function refreshObjectItem(source, item)
     local meta = item and (item.metadata or item.info)
     if type(meta) ~= 'table' or type(meta.collectibleSnapshot) ~= 'table' or not MetaComic.Inventory.setMetadata then return false end
@@ -745,22 +777,16 @@ local function refreshObjectItems(source, typeId, key)
     return count
 end
 
--- after a print's icon changed: update that print's card items for everyone online
-local function refreshItemsForPrint(key)
-    if not MetaComic.Inventory.slotsOf then return end
-    if key:sub(1, 5) == 'obj::' then
-        for _, id in ipairs(GetPlayers()) do refreshObjectItems(tonumber(id), keyType(key), key) end
-        return
-    end
-    for _, id in ipairs(GetPlayers()) do
-        local src = tonumber(id)
-        for _, item in pairs(MetaComic.Inventory.slotsOf(src, Config.Items.TradingCard)) do
-            local meta = item.metadata
-            if type(meta) == 'table' and meta.baseCardId and key:sub(1, #tostring(meta.baseCardId) + 2) == meta.baseCardId .. '::' then
-                if printKey(findCard(src, meta)) == key then refreshCardItem(src, item.slot, meta) end
-            end
-        end
-    end
+-- after icons were uploaded or deleted: update the items of everyone online. Batched, so a sync of many icons
+-- walks the inventories once instead of once per icon.
+local refreshQueued = false
+local function queueRefreshAll()
+    if refreshQueued or not MetaComic.Inventory.slotsOf then return end
+    refreshQueued = true
+    SetTimeout(1500, function()
+        refreshQueued = false
+        for _, id in ipairs(GetPlayers()) do refreshPlayerItems(tonumber(id)) end
+    end)
 end
 
 refreshObjectItemsLater = function(source) return refreshObjectItems(source) end
@@ -823,9 +849,161 @@ local function urlForHash(hash)
     end
 end
 
-local uploadedThisSession = {} -- key..sig -> true: never upload the same print + look twice
+local uploadedThisSession = {} -- icon key -> true: never upload the same look twice
 local fileWriteFailed = false
 local warnedRejected = false
+
+-- ---------- one icon per look: which looks exist, and deleting the uploads of looks that are gone ----------
+local readyWorkers = {} -- players whose NUI has loaded (it draws the icons)
+local syncRunning, syncAgain, syncPreferred = false, false, nil
+
+local function catalogPrints() -- every card print and every coin / plushie print (looks repeat; keys dedupe them)
+    local list = MetaComic.Cards.iconPrints()
+    if MetaComic.Objects and MetaComic.Objects.iconPrints then
+        for _, print in ipairs(MetaComic.Objects.iconPrints()) do list[#list + 1] = print end
+    end
+    return list
+end
+
+-- icon key -> true for every look in the catalog, plus how many card / object looks there are
+local function liveIconKeys()
+    local live, cards, objects = {}, 0, 0
+    for _, card in ipairs(catalogPrints()) do
+        local key = printKey(card)
+        if key and not live[key] then
+            live[key] = true
+            if key:sub(1, 5) == 'obj::' then objects = objects + 1 else cards = cards + 1 end
+        end
+    end
+    return live, cards, objects
+end
+
+-- Fivemanage uploads waiting to be deleted (kept in a file, so a failed delete is retried after a restart)
+local ICON_TRASH_FILE = 'data/card_icons_trash.json'
+local iconTrash = {}
+do
+    local raw = LoadResourceFile(resourceName, ICON_TRASH_FILE)
+    local ok, decoded = pcall(function() return raw and json.decode(raw) or nil end)
+    if ok and type(decoded) == 'table' then iconTrash = decoded end
+end
+local function saveTrash() SaveResourceFile(resourceName, ICON_TRASH_FILE, json.encode(iconTrash), -1) end
+
+local function urlEncode(text)
+    return (text:gsub('[^%w%-%._~]', function(c) return ('%%%02X'):format(c:byte()) end))
+end
+
+local function trashUpload(entry, typeId)
+    if type(entry) ~= 'table' or not entry.url then return end
+    iconTrash[#iconTrash + 1] = { url = entry.url, id = entry.id, typeId = typeId, tries = 0 }
+end
+
+-- DELETE /api/v3/file/{file id or storage key}. Uploads made before ids were saved are deleted by their storage key
+-- (the url path); 404 means it is already gone.
+local trashRunning, warnedDelete = false, false
+local function emptyTrash()
+    if trashRunning or #iconTrash == 0 then return end
+    trashRunning = true
+    local inUse = {}
+    for _, entry in pairs(iconUrls) do if entry.url then inUse[entry.url] = true end end
+    local index = 0
+    local function nextItem()
+        index = index + 1
+        local item = iconTrash[index]
+        if not item then
+            local kept = {}
+            for _, entry in ipairs(iconTrash) do if not entry.done and (entry.tries or 0) < 5 then kept[#kept + 1] = entry end end
+            iconTrash = kept
+            saveTrash()
+            trashRunning = false
+            return
+        end
+        local apiKey = fivemanageKey(item.typeId or 'trading_card')
+        if inUse[item.url] then item.done = true return nextItem() end -- a current look uses this upload again: keep it
+        if apiKey == '' then item.tries = 5 return nextItem() end -- no API key: nothing can delete it
+        local refs = {}
+        if item.id then refs[#refs + 1] = urlEncode(item.id) end
+        local storageKey = item.url:match('^https?://[^/]+/([^?#]+)')
+        if storageKey then refs[#refs + 1] = urlEncode(storageKey) refs[#refs + 1] = storageKey end
+        local function attempt(i)
+            local ref = refs[i]
+            if not ref then
+                item.tries = (item.tries or 0) + 1
+                if not warnedDelete then
+                    warnedDelete = true
+                    print(('[meta-comic] could not delete the unused inventory icon %s from Fivemanage (retried on the next restart); delete it on the dashboard if it stays.'):format(item.url))
+                end
+                return nextItem()
+            end
+            PerformHttpRequest('https://api.fivemanage.com/api/v3/file/' .. ref, function(status)
+                if status == 200 or status == 204 or status == 404 then
+                    item.done = true
+                    MetaComic.Debug('unused card icon deleted from Fivemanage', item.url)
+                    return nextItem()
+                end
+                attempt(i + 1)
+            end, 'DELETE', '', { ['Authorization'] = apiKey })
+        end
+        attempt(1)
+    end
+    nextItem()
+end
+
+-- Older versions saved one icon per card + rarity ('<baseCardId>::<rarity>') / per coin or plushie print. Icons
+-- whose look is exactly a current look are adopted (no new upload); the rest are deleted from Fivemanage.
+local function adoptLegacyIcons()
+    if next(legacyIcons) == nil then return end
+    local prints = catalogPrints()
+    if #prints == 0 then return end -- catalog not loaded: try again later rather than deleting everything
+    local adopted = 0
+    for _, card in ipairs(prints) do
+        local key = printKey(card)
+        local old = card.baseCardId and legacyIcons[('%s::%s'):format(card.baseCardId, card.rarityKey or 'common')]
+        if key and not iconUrls[key] and old and old.sig == legacyCardSig(card) and (old.url or old.file) then
+            iconUrls[key] = { v = ICON_FORMAT, sig = iconSig(card), url = old.url, file = old.file, hash = old.hash }
+            adopted = adopted + 1
+        end
+    end
+    local inUse, trashed = {}, 0
+    for _, entry in pairs(iconUrls) do if entry.url then inUse[entry.url] = true end end
+    for key, old in pairs(legacyIcons) do
+        if old.url and not inUse[old.url] then inUse[old.url] = true trashUpload(old, keyType(key)) trashed = trashed + 1 end
+    end
+    legacyIcons = {}
+    saveIconFile()
+    saveTrash()
+    print(('[meta-comic] inventory icons are now made once per look: %d existing icon%s kept, %d older upload%s will be deleted from Fivemanage.')
+        :format(adopted, adopted == 1 and '' or 's', trashed, trashed == 1 and '' or 's'))
+end
+
+-- Forget (and delete from Fivemanage) the icons of looks that no longer exist: the collectable / variant was deleted,
+-- or saved with a different look. Items still showing one fall back to their rarity icon.
+local function pruneIcons()
+    if not uploadMode() then return 0 end
+    local live, cards, objects = liveIconKeys()
+    local removed = {}
+    for key, entry in pairs(iconUrls) do
+        local object = key:sub(1, 5) == 'obj::'
+        -- an empty catalog half is far more likely a failed load than everything deleted: keep its icons
+        local guarded = (object and (objects == 0 or not MetaComic.Objects)) or (not object and cards == 0)
+        if not live[key] and not guarded and not uploading[key] then
+            iconUrls[key] = nil
+            removed[#removed + 1] = { key = key, entry = entry }
+        end
+    end
+    if #removed == 0 then return 0 end
+    local inUse = {}
+    for _, entry in pairs(iconUrls) do if entry.url then inUse[entry.url] = true end end
+    for _, item in ipairs(removed) do
+        local url = item.entry.url
+        if url and not inUse[url] then inUse[url] = true trashUpload(item.entry, keyType(item.key)) end
+    end
+    saveIconFile()
+    saveTrash()
+    queueRefreshAll()
+    emptyTrash()
+    MetaComic.Debug(('%d unused inventory icon%s removed'):format(#removed, #removed == 1 and '' or 's'))
+    return #removed
+end
 
 RegisterNetEvent('meta_comic:server:cardIcon', function(key, dataUrl)
     local source = source
@@ -837,9 +1015,9 @@ RegisterNetEvent('meta_comic:server:cardIcon', function(key, dataUrl)
         return
     end
     if uploading[key] then return end
+    if not liveIconKeys()[key] then return end -- that look was edited away / deleted while it was being drawn
 
-    local entry = iconUrls[key]
-    if not (entry and entry.sig == sig) then entry = { v = ICON_FORMAT, sig = sig } end -- new icon, or its look changed
+    local entry = iconUrls[key] or { v = ICON_FORMAT, sig = sig }
     iconUrls[key] = entry
 
     if fileMode() and not entry.file then
@@ -861,51 +1039,46 @@ RegisterNetEvent('meta_comic:server:cardIcon', function(key, dataUrl)
     if not entry.url then entry.url = urlForHash(hash) end -- identical picture already uploaded
     saveIconFile()
 
-    local uploadKey = key .. '|' .. sig
-    if entry.url or fivemanageKey(keyType(key)) == '' or uploadedThisSession[uploadKey] then
-        refreshItemsForPrint(key)
+    if entry.url or fivemanageKey(keyType(key)) == '' or uploadedThisSession[key] then
+        queueRefreshAll()
         return
     end
 
     uploading[key] = true
-    uploadedThisSession[uploadKey] = true
-    uploadIcon(key, sig, dataUrl, function(url)
+    uploadedThisSession[key] = true
+    uploadIcon(key, sig, dataUrl, function(url, id)
         uploading[key] = nil
         if not url then
-            uploadedThisSession[uploadKey] = nil
+            uploadedThisSession[key] = nil
             iconAttempts[key] = (iconAttempts[key] or 0) + 1
             return
         end
         local current = iconUrls[key]
-        if not (current and current.sig == sig) then return end -- the card was edited meanwhile; its new look gets its own upload
-        current.url = url
+        if not current then -- the look was removed while uploading: don't keep an unused file
+            trashUpload({ url = url, id = id }, keyType(key))
+            saveTrash()
+            return emptyTrash()
+        end
+        current.url, current.id = url, id
         saveIconFile()
         MetaComic.Debug('card icon uploaded', key, url)
         if not imageUrlAccepted(url) and not warnedRejected and not fileMode() then
             warnedRejected = true
             print(('[meta-comic] ox_inventory will delete the uploaded icon url (%s): add its host to the convar inventory:validhosts.'):format(url))
         end
-        refreshItemsForPrint(key)
+        queueRefreshAll()
     end)
 end)
 
--- ---------- keep every card + rarity icon uploaded ----------
-local readyWorkers = {} -- players whose NUI has loaded (it draws the icons)
-local syncRunning, syncAgain, syncPreferred = false, false, nil
-
-local function catalogPrints() -- one per base card + rarity, plus one per coin / plushie print
-    local list = MetaComic.Cards.rarityPrints()
-    if MetaComic.Objects and MetaComic.Objects.iconPrints then
-        for _, print in ipairs(MetaComic.Objects.iconPrints()) do list[#list + 1] = print end
-    end
-    return list
-end
-
+-- ---------- keep every look's icon uploaded ----------
 local function missingPrints(includeFailed)
-    local list = {}
+    local list, seen = {}, {}
     for _, card in ipairs(catalogPrints()) do
         local key = printKey(card)
-        if needsIcon(card) and (includeFailed or (not uploading[key] and (iconAttempts[key] or 0) < MAX_ATTEMPTS)) then list[#list + 1] = card end
+        if key and not seen[key] then
+            seen[key] = true
+            if needsIcon(card) and (includeFailed or (not uploading[key] and (iconAttempts[key] or 0) < MAX_ATTEMPTS)) then list[#list + 1] = card end
+        end
     end
     return list
 end
@@ -939,7 +1112,8 @@ local function waitForIcons(worker, keys)
 end
 
 -- Check that the saved Fivemanage urls still exist (files deleted on the dashboard -> upload them again).
--- One HEAD request per url, one at a time. Network errors keep the url; only "not found" removes it.
+-- One HEAD request per url, one at a time. Network errors and refusals (403: rate limit / firewall) keep the url;
+-- only "not found" removes it, so a hiccup can't make every icon upload again.
 local checkingUrls = false
 local function checkIconUrls(done)
     if checkingUrls or not anyFivemanageKey() then return done and done(0) end
@@ -955,7 +1129,7 @@ local function checkIconUrls(done)
         if not url then
             checkingUrls = false
             if removed > 0 then
-                uploadedThisSession = {} -- those prints may be uploaded again
+                uploadedThisSession = {} -- those looks may be uploaded again
                 saveIconFile()
                 print(('[meta-comic] card icons: %d saved Fivemanage url%s no longer exist%s; uploading %s again.'):format(
                     removed, removed == 1 and '' or 's', removed == 1 and 's' or '', removed == 1 and 'it' or 'them'))
@@ -964,9 +1138,9 @@ local function checkIconUrls(done)
             return
         end
         PerformHttpRequest(url, function(status)
-            if status == 404 or status == 410 or status == 403 then
+            if status == 404 or status == 410 then
                 for _, entry in pairs(iconUrls) do
-                    if entry.url == url then entry.url = nil entry.hash = nil removed = removed + 1 end
+                    if entry.url == url then entry.url, entry.id, entry.hash = nil, nil, nil removed = removed + 1 end
                 end
             end
             nextUrl()
@@ -976,7 +1150,7 @@ local function checkIconUrls(done)
 end
 
 local function syncIcons(preferred)
-    if not iconsPossible() then return end
+    if not uploadMode() then return end
     if preferred then syncPreferred = preferred end
     syncAgain = true
     if syncRunning then return end
@@ -985,7 +1159,9 @@ local function syncIcons(preferred)
         local done = 0
         while syncAgain do
             syncAgain = false
-            local missing = missingPrints()
+            adoptLegacyIcons() -- only does something once, after an update
+            pruneIcons() -- deleted collectables / looks saved away from: their icons go first
+            local missing = iconsPossible() and missingPrints() or {}
             while #missing > 0 do
                 local worker = pickWorker()
                 if not worker then break end -- carries on when the next player's UI is ready
@@ -1002,7 +1178,7 @@ local function syncIcons(preferred)
         syncPreferred = nil
         if done > 0 then
             local left = #missingPrints(true)
-            print(('[meta-comic] card icons: %d requested, %d card + rarity icon%s still missing%s.'):format(done, left, left == 1 and '' or 's',
+            print(('[meta-comic] card icons: %d requested, %d icon%s still missing%s.'):format(done, left, left == 1 and '' or 's',
                 left > 0 and ' (they keep the rarity icon; /' .. tostring(Config.CardIcons.RefreshCommand or 'cardicons') .. ' in the server console retries)' or ''))
         end
     end)
@@ -1023,10 +1199,14 @@ RegisterNetEvent('meta_comic:server:uiReady', function()
     syncIcons()
 end)
 
--- On start: drop saved urls whose file was deleted from Fivemanage, then redraw + re-upload those prints.
+-- On start: adopt / delete icons saved by older versions, delete icons of looks that are gone, drop saved urls
+-- whose file was deleted from Fivemanage, then redraw + re-upload those looks.
 CreateThread(function()
     Wait(2000)
     if not uploadMode() then return end
+    adoptLegacyIcons()
+    pruneIcons()
+    emptyTrash()
     checkIconUrls(function(removed)
         if removed == 0 then return end
         for _, id in ipairs(GetPlayers()) do refreshPlayerItems(tonumber(id)) end
@@ -1344,6 +1524,7 @@ handlers.deleteCard = function(source, payload)
     freezeOnlineItems()
     local ok, err = MetaComic.Cards.deleteCard(payload.cardId)
     if not ok then return fail(err or 'Could not delete card') end
+    syncIcons(source) -- the deleted card's icons are removed from Fivemanage
     return { ok = true, cardId = payload.cardId }
 end
 
@@ -1614,7 +1795,7 @@ if refreshCommand and refreshCommand ~= '' then
             print('[meta-comic] checking the saved card icon urls on Fivemanage...')
             return checkIconUrls(function()
                 local missing = #missingPrints(true)
-                print(('[meta-comic] %d card + rarity icon%s missing; drawing them on the next player with the UI loaded.'):format(missing, missing == 1 and '' or 's'))
+                print(('[meta-comic] %d inventory icon%s missing; drawing them on the next player with the UI loaded.'):format(missing, missing == 1 and '' or 's'))
                 for _, id in ipairs(GetPlayers()) do refreshPlayerItems(tonumber(id)) end
                 syncIcons()
             end)

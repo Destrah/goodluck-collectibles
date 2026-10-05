@@ -101,7 +101,10 @@ export default function CollectiblesLab({ typeId, activeTab, onNavigate, onDirty
   const saveItem = () => attempt(async () => {
     const first = printsOf(draft)[0]
     const value = { ...draft, rarityKey: rarityKeyOf(first.rarityKey), rarity: RARITIES.find(entry => entry.value === rarityKeyOf(first.rarityKey))?.label }
-    const stored=await commit(saveDefinition(data, value), { kind:'definition', value }); setDraft(withPrints(clone(stored.definitions.find(item => item.id===value.id))))
+    const sent=JSON.stringify(draft)
+    const stored=await commit(saveDefinition(data, value), { kind:'definition', value })
+    // take the server's copy, unless the draft was edited while the save was travelling (it then stays unsaved)
+    setDraft(current => current && JSON.stringify(current) !== sent ? current : withPrints(clone(stored.definitions.find(item => item.id===value.id))))
   })
   const deleteItem = async () => { if (saved && await confirm(`Delete ${saved.title} from definitions? Pulled copies will remain.`, 'Delete')) attempt(async () => { await commit({ ...data, definitions: data.definitions.filter(item => item.id !== saved.id), sets:(data.sets||[]).map(set => ({...set,itemIds:set.itemIds.filter(id => id !== saved.id)})) },{kind:'delete',id:saved.id}); setDraft(null) }) }
   const typeSets = data.sets?.filter(set => set.collectableType === typeId) || []

@@ -27,8 +27,17 @@ export function loadCollectibles(storage = localStorage) {
   return data
 }
 
+const isQuotaError = error => error?.name === 'QuotaExceededError' || error?.name === 'NS_ERROR_DOM_QUOTA_REACHED' || error?.code === 22 || error?.code === 1014
+
 export function saveCollectibles(data, storage = localStorage) {
-  storage.setItem(COLLECTIBLES_KEY, JSON.stringify(data))
+  const json = JSON.stringify(data)
+  try {
+    storage.setItem(COLLECTIBLES_KEY, json)
+  } catch (error) {
+    if (!isQuotaError(error)) throw error
+    const mb = (json.length / 1024 / 1024).toFixed(1)
+    throw new Error(`Not saved: collectables need ${mb} MB but browser storage is full (about 5 MB). Use artwork URLs instead of uploaded files, or upload smaller images.`)
+  }
   return copy(data)
 }
 

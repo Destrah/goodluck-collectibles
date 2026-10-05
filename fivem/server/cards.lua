@@ -180,6 +180,17 @@ function MetaComic.Cards.rarityPrints()
     return list
 end
 
+-- every print of every card, for the inventory icon pipeline (prints that look the same share one icon there)
+function MetaComic.Cards.iconPrints()
+    local list = {}
+    for _, card in ipairs(catalog) do
+        if card.id then
+            for _, variant in ipairs(card.variants or {}) do list[#list + 1] = mergeCard(card, variant) end
+        end
+    end
+    return list
+end
+
 function MetaComic.Cards.reloadCatalog()
     return loadCatalog()
 end

@@ -78,8 +78,8 @@ Config.Items = {
 Config.CardIcons = {
     Enabled = true, -- false: use the card's artwork instead
     -- 'rarity': one picture per rarity (img/cards/metacard_<rarity>.png, 100x100). Nothing to set up.
-    -- 'upload': every card gets one 100x100 icon per rarity it comes in (max 5 per card, shared by all its variants and
-    --           copies), drawn in a player's game UI and uploaded to Fivemanage once.
+    -- 'upload': one 100x100 icon per distinct look (prints that look the same share it; full art / another colour gets
+    --           its own), drawn in a player's game UI and uploaded to Fivemanage once. Icons of deleted looks are deleted.
     --           Missing / outdated icons are made automatically: when the resource starts, when a player joins, when
     --           the catalog is saved in-game (new or edited cards) and when a print is pulled from a pack.
     --           Put your Fivemanage API key in server.cfg (NOT here: this file is sent to players):

@@ -1,5 +1,4 @@
 import React from 'react'
-import '@google/model-viewer'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import { isFiveM } from './runtime'
