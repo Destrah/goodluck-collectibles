@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { resolveCardVariant } from '../cardData'
-import { bridge } from '../runtime'
+import { bridge, isFiveM } from '../runtime'
 
 const slug = value => String(value || 'set')
   .toLowerCase()
@@ -19,6 +19,8 @@ export default function ManagementPanel({ cards, sets, onSetsChange }) {
   const [variantId, setVariantId] = useState(selectedCard?.variants?.[0]?.id || '')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
+  const [containers,setContainers] = useState({count:5,outerCount:12})
+  useEffect(() => {if(!isFiveM) bridge.getCardContainers().then(setContainers)},[])
 
   useEffect(() => {
     if (!sets.some(set => set.id === selectedSetId)) setSelectedSetId(sets[0]?.id || '')
@@ -77,8 +79,9 @@ export default function ManagementPanel({ cards, sets, onSetsChange }) {
     setBusy(true); setMessage('')
     try {
       const result = await bridge.saveSets(clone(sets))
+      if(!isFiveM) await bridge.saveCardContainers(containers)
       if (Array.isArray(result?.sets)) onSetsChange(result.sets)
-      setMessage('Sets saved to the FiveM resource.')
+      setMessage(isFiveM ? 'Sets saved to the FiveM resource.' : 'Sets and containers saved in this browser.')
     } catch (error) {
       setMessage(error?.message || String(error))
     } finally { setBusy(false) }
@@ -110,11 +113,13 @@ export default function ManagementPanel({ cards, sets, onSetsChange }) {
   return (
     <section className="management-page">
       <div className="management-heading">
-        <div><span className="eyebrow">Restricted FiveM tools</span><h2>Sets & production</h2><p>Create card series/sets, assign the cards they can pull, and manufacture metadata-bound packs, boxes, or manual card prints.</p></div>
+        <div><span className="eyebrow">{isFiveM ? 'Restricted FiveM tools' : 'Card sets and containers'}</span><h2>Sets & containers</h2><p>Create sets, choose their cards, and configure or manufacture their sealed containers.</p></div>
         <button className="primary" disabled={busy || !sets.length} onClick={saveSets}>Save sets</button>
+        <button disabled={busy} onClick={async () => {try {const saved=await bridge.getSets();onSetsChange(saved.sets);if(!isFiveM)setContainers(await bridge.getCardContainers())} catch(error) {setMessage(error.message)}}}>Revert</button>
       </div>
 
       {message && <div className="management-message">{message}</div>}
+      {!isFiveM && <div className="management-card"><label className="field"><span>Cards per pack</span><input type="number" min="1" max="24" value={containers.count} onChange={event => setContainers({...containers,count:Math.max(1,Math.min(24,Number(event.target.value)||1))})} /></label><label className="field"><span>Packs per box</span><input type="number" min="1" max="100" value={containers.outerCount} onChange={event => setContainers({...containers,outerCount:Math.max(1,Math.min(100,Number(event.target.value)||1))})} /></label></div>}
 
       <div className="management-grid">
         <aside className="set-list-panel">

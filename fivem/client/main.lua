@@ -27,9 +27,9 @@ local function serverRpc(action, payload, timeoutMs)
     -- saveCatalog is deliberately always latent. Even a modest catalog is much larger
     -- than the other RPCs, and an embedded editor image can make it several megabytes.
     if action == 'saveCatalog' or bytes >= RPC_LATENT_THRESHOLD then
-        TriggerLatentServerEvent('rush_cards:server:rpc', RPC_LATENT_BPS, requestId, action, rpcPayload)
+        TriggerLatentServerEvent('meta_comic:server:rpc', RPC_LATENT_BPS, requestId, action, rpcPayload)
     else
-        TriggerServerEvent('rush_cards:server:rpc', requestId, action, rpcPayload)
+        TriggerServerEvent('meta_comic:server:rpc', requestId, action, rpcPayload)
     end
 
     SetTimeout(timeoutMs or 12000, function()
@@ -42,7 +42,7 @@ local function serverRpc(action, payload, timeoutMs)
     return Citizen.Await(promiseObject)
 end
 
-RegisterNetEvent('rush_cards:client:rpcResult', function(requestId, response)
+RegisterNetEvent('meta_comic:client:rpcResult', function(requestId, response)
     local promiseObject = pending[requestId]
     if not promiseObject then return end
     pending[requestId] = nil
@@ -53,7 +53,7 @@ local function openNui(view, action, overlay, mode)
     nuiOpen = true
     SetNuiFocus(true, true)
     SetNuiFocusKeepInput(false)
-    SendNUIMessage({ type = 'rushCards:open', view = view or Config.Nui.DefaultView, action = action, overlay = overlay == true, mode = mode })
+    SendNUIMessage({ type = 'metaComic:open', view = view or Config.Nui.DefaultView, action = action, overlay = overlay == true, mode = mode })
 end
 
 -- Centre-screen pack opening (no lab UI): the pack animation and the card fan-out play in the middle of the screen.
@@ -70,11 +70,11 @@ local function openManagement()
     -- the server and avoids trapping an unauthorized player in an empty overlay.
     local runtimeInfo = serverRpc('getRuntimeInfo', {}, 12000)
     if not runtimeInfo or runtimeInfo.ok == false then
-        TriggerEvent('rush_cards:client:notify', (runtimeInfo and runtimeInfo.error) or 'Could not verify card-admin permissions.', 'error')
+        TriggerEvent('meta_comic:client:notify', (runtimeInfo and runtimeInfo.error) or 'Could not verify card-admin permissions.', 'error')
         return
     end
     if not runtimeInfo.capabilities or runtimeInfo.capabilities.management ~= true then
-        TriggerEvent('rush_cards:client:notify', 'You do not have permission to manage trading cards.', 'error')
+        TriggerEvent('meta_comic:client:notify', 'You do not have permission to manage trading cards.', 'error')
         return
     end
 
@@ -84,7 +84,7 @@ local function openManagement()
     -- One canonical React route for the full admin UI. The old compatibility-only
     -- managementOpen message intentionally is no longer used.
     SendNUIMessage({
-        type = 'rushCards:open',
+        type = 'metaComic:open',
         view = runtimeInfo.capabilities.editor == true and 'editor' or 'gallery',
         overlay = false,
         mode = 'admin',
@@ -99,7 +99,7 @@ local function closeNui()
     nuiOpen = false
     SetNuiFocus(false, false)
     SetNuiFocusKeepInput(false)
-    SendNUIMessage({ type = 'rushCards:close' })
+    SendNUIMessage({ type = 'metaComic:close' })
 end
 
 local function loadModel(model)
@@ -201,10 +201,14 @@ RegisterNUICallback('resolveRemoteAsset', function(data, cb)
 end)
 
 -- Per-player pack animation preferences, stored in client KVP (speed is clamped to 1.0 .. Config.PackAnimation.MaxSpeed).
-local PREFS_KEY = 'rush_cards:pack_prefs'
+local PREFS_KEY = 'meta_comic:pack_prefs'
 
 RegisterNUICallback('getPackPrefs', function(_, cb)
     local raw = GetResourceKvpString(PREFS_KEY)
+    if not raw then
+        raw = GetResourceKvpString(MetaComic.Legacy.prefsKey)
+        if raw then SetResourceKvp(PREFS_KEY, raw) end
+    end
     local ok, prefs = pcall(function() return raw and json.decode(raw) or nil end)
     if not ok or type(prefs) ~= 'table' then
         prefs = { speed = 1.0, tear = 'random', fan = 'random' }
@@ -226,12 +230,19 @@ RegisterNUICallback('savePackPrefs', function(data, cb)
     if not allowedTears[tear] then tear = 'random' end
     if not allowedFans[fan] then fan = 'random' end
 
-    SetResourceKvp(PREFS_KEY, json.encode({ speed = speed, tear = tear, fan = fan }))
-    cb({ ok = true, prefs = { speed = speed, tear = tear, fan = fan } })
+    local containerAnimations={}
+    local allowed={bag={float=true,pour=true,pop=true},box={lift=true,unfold=true,burst=true},case={lift=true,unfold=true,burst=true}}
+    for kind,choices in pairs(allowed) do
+        local selected=type(prefs.containerAnimations)=='table' and prefs.containerAnimations[kind] or 'random'
+        containerAnimations[kind]=choices[selected] and selected or 'random'
+    end
+    local clean={speed=speed,tear=tear,fan=fan,containerAnimations=containerAnimations}
+    SetResourceKvp(PREFS_KEY, json.encode(clean))
+    cb({ ok = true, prefs = clean })
 end)
 
 RegisterNUICallback('getCatalog', function(_, cb)
-    cb(serverRpc('getCatalog', {}))
+    cb(serverRpc('getCatalog', {}, 120000))
 end)
 
 RegisterNUICallback('saveCatalog', function(data, cb)
@@ -277,6 +288,15 @@ RegisterNUICallback('getCollection', function(_, cb)
     cb(serverRpc('getCollection', {}))
 end)
 
+for _,action in ipairs({'getCollectibles','saveCollectible','openCollectibleContainer','createCollectibleContainer','claimCollectibles'}) do
+    RegisterNUICallback(action,function(data,cb) cb(serverRpc(action,data or {},120000)) end)
+end
+
+RegisterNetEvent('meta_comic:client:openCollectible',function(typeId,slot,outer)
+    openNui('pack')
+    SendNUIMessage({type='metaComic:collectibleContainer',typeId=typeId,slot=slot,outer=outer==true})
+end)
+
 RegisterNUICallback('swapBinderCards', function(data, cb)
     local response = serverRpc('swapBinderCards', data or {}, 12000)
     cb(response)
@@ -286,7 +306,7 @@ RegisterNUICallback('swapBinderCards', function(data, cb)
     if data and data.compatRefresh == true and response and response.ok and response.binder then
         SetTimeout(760, function()
             if not nuiOpen then return end
-            SendNUIMessage({ type = 'rushCards:open', view = 'pack', overlay = true, mode = 'binder', binder = response.binder })
+            SendNUIMessage({ type = 'metaComic:open', view = 'pack', overlay = true, mode = 'binder', binder = response.binder })
         end)
     end
 end)
@@ -304,16 +324,16 @@ end)
 
 -- Card inventory icons (Config.CardIcons.Mode = 'upload'): the server asks this player's NUI to draw icons
 -- for prints that don't have one yet; the result goes back to the server, which uploads it.
-RegisterNetEvent('rush_cards:client:renderIcons', function(items, size, format)
+RegisterNetEvent('meta_comic:client:renderIcons', function(items, size, format)
     if type(items) ~= 'table' or #items == 0 then return end
-    SendNUIMessage({ type = 'rushCards:renderIcons', items = items, size = size, format = format })
+    SendNUIMessage({ type = 'metaComic:renderIcons', items = items, size = size, format = format })
 end)
 
 RegisterNUICallback('cardIcon', function(data, cb)
     cb({ ok = true })
     if type(data) == 'table' and type(data.key) == 'string' then
         -- an empty string tells the server this icon couldn't be drawn, so it moves on
-        TriggerLatentServerEvent('rush_cards:server:cardIcon', 60000, data.key, type(data.data) == 'string' and data.data or '')
+        TriggerLatentServerEvent('meta_comic:server:cardIcon', 60000, data.key, type(data.data) == 'string' and data.data or '')
     end
 end)
 
@@ -327,7 +347,7 @@ RegisterNUICallback('uiReady', function(_, cb)
     CreateThread(function()
         while not NetworkIsPlayerActive(PlayerId()) do Wait(1000) end
         Wait(5000) -- let the inventory load first
-        TriggerServerEvent('rush_cards:server:uiReady')
+        TriggerServerEvent('meta_comic:server:uiReady')
     end)
 end)
 
@@ -336,22 +356,24 @@ RegisterNUICallback('claimCards', function(_, cb)
 end)
 
 RegisterNUICallback('close', function(_, cb)
+    local response=serverRpc('claimCollectibles',{},120000)
+    if response and response.ok==false then TriggerEvent('meta_comic:client:notify',response.error or 'Collectible delivery is pending; free inventory space and retry.','error') end
     closeNui()
     cb({ ok = true })
 end)
 
-RegisterNetEvent('rush_cards:client:open', function(view, action)
+RegisterNetEvent('meta_comic:client:open', function(view, action)
     openNui(view, action)
 end)
 
 -- A booster pack item was used: the server already took the item, open it in the middle of the screen.
-RegisterNetEvent('rush_cards:client:openPackOverlay', function()
+RegisterNetEvent('meta_comic:client:openPackOverlay', function()
     openPackOverlay()
 end)
 
 -- A booster box item was used: the server already handed out Config.Items.PacksPerBox packs.
 -- (Hook for a future box-opening animation; for now just the hand prop.)
-RegisterNetEvent('rush_cards:client:boxOpened', function(packs)
+RegisterNetEvent('meta_comic:client:boxOpened', function(packs)
     CreateThread(function() playPropSequence('box') end)
 end)
 
@@ -366,17 +388,18 @@ local function oxItem(...)
     end
 end
 local function slotOf(...)
-    local item = oxItem(...)
-    if item then return tonumber(item.slot) end
     for i = 1, select('#', ...) do
         local value = select(i, ...)
-        if tonumber(value) then return tonumber(value) end
+        if type(value) == 'table' and tonumber(value.slot) then return tonumber(value.slot) end
+        if type(value) == 'number' or type(value) == 'string' then
+            if tonumber(value) then return tonumber(value) end
+        end
     end
 end
 
-local function usePack(...) TriggerServerEvent('rush_cards:server:useItem', 'pack', slotOf(...)) end
-local function useBox(...) TriggerServerEvent('rush_cards:server:useItem', 'box', slotOf(...)) end
-local function useCard(...) TriggerServerEvent('rush_cards:server:useItem', 'card', slotOf(...)) end
+local function usePack(...) TriggerServerEvent('meta_comic:server:useItem', 'pack', slotOf(...)) end
+local function useBox(...) TriggerServerEvent('meta_comic:server:useItem', 'box', slotOf(...)) end
+local function useCard(...) TriggerServerEvent('meta_comic:server:useItem', 'card', slotOf(...)) end
 
 exports('useBoosterPack', usePack)
 exports('useBoosterBox', useBox)
@@ -385,31 +408,31 @@ exports('ShowCard', useCard)
 
 -- ox_inventory item button "View Binder" on your binder item: opens the binder UI with its cards in slot order.
 exports('ViewBinder', function(...)
-    TriggerServerEvent('rush_cards:server:viewBinder', slotOf(...))
+    TriggerServerEvent('meta_comic:server:viewBinder', slotOf(...))
 end)
 
-RegisterNetEvent('rush_cards:client:viewBinder', function(binder)
+RegisterNetEvent('meta_comic:client:viewBinder', function(binder)
     if type(binder) ~= 'table' then return end
     nuiOpen = true
     SetNuiFocus(true, true)
     SetNuiFocusKeepInput(false)
-    SendNUIMessage({ type = 'rushCards:open', view = 'pack', overlay = true, mode = 'binder', binder = binder })
+    SendNUIMessage({ type = 'metaComic:open', view = 'pack', overlay = true, mode = 'binder', binder = binder })
 end)
 
 -- ox_inventory item button "Show Card": show this card to the players standing near you.
 exports('ShowOthersCard', function(...)
-    TriggerServerEvent('rush_cards:server:showCardToOthers', slotOf(...))
+    TriggerServerEvent('meta_comic:server:showCardToOthers', slotOf(...))
 end)
 
 -- Show a card large in the centre of the screen (own card item, or one another player is showing you).
 local shownToken = 0
-RegisterNetEvent('rush_cards:client:viewCard', function(card, shownBy)
+RegisterNetEvent('meta_comic:client:viewCard', function(card, shownBy)
     if type(card) ~= 'table' then return end
     if shownBy and nuiOpen then return end -- don't interrupt a pack opening / another card with someone else's card
     nuiOpen = true
     SetNuiFocus(true, true)
     SetNuiFocusKeepInput(false)
-    SendNUIMessage({ type = 'rushCards:open', view = 'pack', overlay = true, mode = 'card', card = card, shownBy = shownBy })
+    SendNUIMessage({ type = 'metaComic:open', view = 'pack', overlay = true, mode = 'card', card = card, shownBy = shownBy })
     shownToken = shownToken + 1
     if shownBy then
         -- someone else's card: close it by itself after a few seconds (the player can also close it straight away)
@@ -420,7 +443,7 @@ RegisterNetEvent('rush_cards:client:viewCard', function(card, shownBy)
     end
 end)
 
-RegisterNetEvent('rush_cards:client:notify', function(message, notifyType)
+RegisterNetEvent('meta_comic:client:notify', function(message, notifyType)
     BeginTextCommandThefeedPost('STRING')
     AddTextComponentSubstringPlayerName(('[%s] %s'):format(notifyType or 'info', message or ''))
     EndTextCommandThefeedPostTicker(false, false)
@@ -446,6 +469,23 @@ if managementCommand ~= '' then
     RegisterCommand(managementCommand, function() openManagement() end, false)
 end
 
+-- Canonical collectables commands also work with preserved older configs.
+-- Existing configured names remain aliases; empty values still disable a route.
+local aliases={
+    {key='Open',name='collectables',legacy='cards',action=function() openNui(Config.Nui.DefaultView) end},
+    {key='Pack',name='collectablespack',legacy='cardpack',action=openPackOverlay},
+    {key='Box',name='collectablesbox',legacy='cardbox',action=function() openNui('pack','openBox') end},
+    {key='Options',name='collectablesoptions',legacy='cardoptions',action=openPackOptions},
+    {key='Management',name='collectablesadmin',legacy='cardadmin',action=openManagement},
+}
+for _,entry in ipairs(aliases) do
+    local configured=Config.Commands[entry.key]
+    if configured~='' then
+        if configured~=entry.name then RegisterCommand(entry.name,entry.action,false) end
+        if configured~=entry.legacy then RegisterCommand(entry.legacy,entry.action,false) end
+    end
+end
+
 exports('OpenCards', function(view) openNui(view or Config.Nui.DefaultView) end)
 -- OpenPack / OpenBox: called by ox_inventory for an item -> use that item (server takes it).
 -- Called by another script with no item -> the free test opening, same as /cardpack and /cardbox.
@@ -458,6 +498,7 @@ exports('OpenBox', function(...)
     openNui('pack', 'openBox')
 end)
 exports('CloseCards', closeNui)
+exports('UseCollectible',function(...) local slot=slotOf(...);if slot then TriggerServerEvent('meta_comic:server:useCollectible',slot) end end)
 
 AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end

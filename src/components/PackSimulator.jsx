@@ -22,7 +22,8 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
  *   overlayKey  bump to open another pack in the overlay
  *   onClose     overlay "Done"
  */
-export default function PackSimulator({ cards, overlay = false, overlayKey = 0, onClose }) {
+export default function PackSimulator({ cards, sets = [], overlay = false, overlayKey = 0, onClose }) {
+  const [setId,setSetId] = useState(sets[0]?.id || 'base')
   const [opened, setOpened] = useState([])
   const [revealed, setRevealed] = useState([])
   const [opening, setOpening] = useState(null)
@@ -133,7 +134,9 @@ export default function PackSimulator({ cards, overlay = false, overlayKey = 0, 
     setLastRun({ tear: resolveTear(current.tear), fan: resolveFan(current.fan), speed: clampSpeed(current.speed, maxSpeedRef.current) })
 
     try {
-      const responsePromise = bridge.openPack({ cards, set: 'base' })
+      const responsePromise = bridge.openPack({ cards, set: setId })
+      // Handle a fast server rejection while the existing scene is still running.
+      responsePromise.catch(() => {})
       // overlay (item use): make sure the server accepted the open before ripping anything on screen
       if (overlay) await responsePromise
       // FiveM: the character holds the pack prop from the rip until the cards have fanned out
@@ -167,7 +170,7 @@ export default function PackSimulator({ cards, overlay = false, overlayKey = 0, 
     setOpening('box')
     const started = performance.now()
     try {
-      const response = await bridge.openBox({ cards, set: 'base' })
+      const response = await bridge.openBox({ cards, set: setId })
       const wait = Math.max(0, 1550 - (performance.now() - started))
       if (wait) await sleep(wait)
       setPacksRemaining(Number(response?.packs) || 12)
@@ -183,7 +186,7 @@ export default function PackSimulator({ cards, overlay = false, overlayKey = 0, 
 
   useEffect(() => bridge.subscribe(message => {
     // the centre-screen overlay starts its own opening; the lab must not also spend that pack
-    if (overlay || message?.type !== 'rushCards:open' || message.overlay) return
+    if (overlay || message?.type !== 'metaComic:open' || message.overlay) return
     if (message.action === 'openPack') setTimeout(openPack, 0)
     if (message.action === 'openBox') setTimeout(openBox, 0)
   }), [cards, packsRemaining, overlay])
@@ -371,6 +374,7 @@ export default function PackSimulator({ cards, overlay = false, overlayKey = 0, 
       </div>
 
       {error && <div className="runtime-error">{error}</div>}
+      {!!sets.length && <label className="field"><span>Card set</span><select value={setId} disabled={!!opening} onChange={event => setSetId(event.target.value)}>{sets.map(set => <option key={set.id} value={set.id}>{set.name}</option>)}</select></label>}
 
       <div className="rarity-pills">
         {Object.entries(counts).map(([tier, info]) => (

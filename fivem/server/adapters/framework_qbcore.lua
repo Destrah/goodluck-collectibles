@@ -1,10 +1,10 @@
-RushCards.FrameworkAdapters.qbcore = function()
+MetaComic.FrameworkAdapters.qbcore = function()
     local QBCore = exports['qb-core']:GetCoreObject()
     return {
         name = 'qbcore',
         getIdentifier = function(source)
             local player = QBCore.Functions.GetPlayer(source)
-            return player and player.PlayerData and player.PlayerData.citizenid or RushCards.GetLicense(source)
+            return player and player.PlayerData and player.PlayerData.citizenid or MetaComic.GetLicense(source)
         end,
         getName = function(source)
             local player = QBCore.Functions.GetPlayer(source)

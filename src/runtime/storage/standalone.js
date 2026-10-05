@@ -1,4 +1,6 @@
-const STORAGE_KEY = 'rush-tradingcards-react-v3'
+import { readMigratedStorage } from '../legacyStorage.js'
+
+const STORAGE_KEY = 'meta-comic-collectables-v3'
 let memoryCatalog = []
 
 const clone = value => typeof structuredClone === 'function' ? structuredClone(value) : JSON.parse(JSON.stringify(value))
@@ -6,7 +8,7 @@ const clone = value => typeof structuredClone === 'function' ? structuredClone(v
 export const standaloneStorage = {
   async loadCatalog(fallback) {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY)
+      const saved = readMigratedStorage(STORAGE_KEY)
       memoryCatalog = clone(saved ? JSON.parse(saved) : fallback)
       return clone(memoryCatalog)
     } catch {

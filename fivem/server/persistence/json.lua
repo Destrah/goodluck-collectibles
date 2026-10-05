@@ -1,4 +1,4 @@
-RushCards.PersistenceAdapters.json = function()
+MetaComic.PersistenceAdapters.json = function()
     local resource = GetCurrentResourceName()
     local fileName = Config.JsonPersistence.File
     local collections = {}
@@ -29,7 +29,7 @@ RushCards.PersistenceAdapters.json = function()
             return true
         end,
         getCollection = function(owner)
-            return RushCards.CopyTable(collections[owner] or {})
+            return MetaComic.CopyTable(collections[owner] or {})
         end,
     }
 end

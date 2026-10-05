@@ -1,0 +1,229 @@
+.collectibles-lab { display:block; } /* tabs use the same page layouts as the trading cards (workspace, management-page, gallery-grid, effect-section, pack-lab) */
+.collectibles-lab header p,.collectibles-lab small,.collectibles-opening p { color:#aeb8c9; }
+.collectibles-tabs,.collectibles-actions { display:flex; gap:10px; flex-wrap:wrap; margin:16px 0; }
+.collectibles-tabs .active { background:#5742a6; }
+.collectibles-workspace { display:grid; grid-template-columns:200px minmax(180px,1fr) minmax(250px,1fr); gap:24px; align-items:start; }
+.collectibles-item-button { display:block; width:100%; margin-top:10px; text-align:left; }
+.collectibles-item-button small { display:block; margin-top:4px; }
+/* Coins and plushies render as free-standing objects: no tile behind them. */
+.collectible-object { margin:0; width:100%; max-width:380px; padding:6px 4px; text-align:center; background:none; border:0; }
+.collectible-object-art { position:relative; display:grid; place-items:center; aspect-ratio:1; }
+.collectible-object-art img { display:block; width:100%; height:100%; object-fit:contain; }
+.collectible-object--plush .collectible-object-art img,.collectible-object--plush .collectible-object-art > span { filter:drop-shadow(0 14px 12px #000a); }
+.collectible-object--plush .collectible-object-art > span { font-size:120px; line-height:1; }
+.collectible-object--plush .collectible-object-art.is-mirrored img { transform:scaleX(-1); filter:brightness(.8) drop-shadow(0 14px 12px #000a); }
+.collectible-object--coin .collectible-object-art { width:86%; margin:0 auto; border-radius:50%; overflow:hidden; color:#3b2a10; color:color-mix(in srgb,var(--object-accent),#000 68%);
+  border:6px solid var(--object-accent);
+  background:radial-gradient(circle at 34% 28%,#fff6d0,var(--object-accent) 48%,#2a1d08 100%);
+  box-shadow:inset 0 0 0 2px #fff4,inset 0 -8px 14px #0007,inset 0 8px 12px #fff5,0 0 0 1px #0006,0 5px 0 #5a3f12,0 7px 0 #2a1d08,0 18px 22px #000b;
+  box-shadow:inset 0 0 0 2px #fff4,inset 0 -8px 14px #0007,inset 0 8px 12px #fff5,0 0 0 1px #0006,0 5px 0 color-mix(in srgb,var(--object-accent),#000 45%),0 7px 0 color-mix(in srgb,var(--object-accent),#000 70%),0 18px 22px #000b; }
+.collectible-object--coin .collectible-object-art img { object-fit:cover; }
+.collectible-coin-emblem { width:100%; height:100%; filter:drop-shadow(0 1px 0 #fff6) drop-shadow(0 -1px 0 #0005); }
+.collectible-object figcaption strong,.collectible-object figcaption span { display:block; margin-top:10px; }
+.collectible-object figcaption span { margin-top:4px; color:#ffd23c; font-size:12px; letter-spacing:.12em; text-transform:uppercase; }
+.collectible-object figcaption p { color:#aeb8c9; overflow-wrap:anywhere; }
+.collectible-inspector .collectible-object { padding:0; }
+.collectible-inspector .collectible-object--coin figcaption { display:none; }
+/* Finish layers follow the object outline: the coin's circle, or the plushie artwork's own alpha. */
+.collectible-object-art::after,.collectible-object-glare { content:''; position:absolute; inset:0; pointer-events:none; border-radius:inherit; }
+.collectible-object-art::after { opacity:var(--finish-strength,.6); mix-blend-mode:screen; }
+.collectible-object--plush .collectible-object-art.has-image::after,.collectible-object--plush .collectible-object-art.has-image .collectible-object-glare { -webkit-mask:var(--object-mask) center/contain no-repeat; mask:var(--object-mask) center/contain no-repeat; }
+.collectible-object--plush .collectible-object-art.is-mirrored::after,.collectible-object--plush .collectible-object-art.is-mirrored .collectible-object-glare { transform:scaleX(-1); }
+.collectible-object--plush .collectible-object-art:not(.has-image)::after,.collectible-object--plush .collectible-object-art:not(.has-image) .collectible-object-glare { display:none; }
+.finish-rainbow::after { background:linear-gradient(115deg,transparent,#4df3ff66,#ff4d8d77,#ffe66d55,transparent); background-size:300% 300%; animation:collectible-shimmer 5s ease infinite; }
+.finish-metallic::after { background:linear-gradient(125deg,transparent 25%,#fff8 45%,transparent 65%); background-size:300% 300%; animation:collectible-shimmer 4s ease infinite; }
+.finish-glitter::after { background-image:radial-gradient(circle,#fff 1px,transparent 2px); background-size:17px 21px; animation:collectible-glitter 2s ease infinite alternate; }
+.collectible-object-glare { background:radial-gradient(circle at var(--mx,50%) var(--my,50%),#fffc,#fff3 22%,transparent 48%); mix-blend-mode:overlay; opacity:calc(var(--hover-active,0) * .85); transition:opacity .25s ease; }
+/* In the inspector the finishes track the pointer / rotation instead of looping. */
+.collectible-rotation[data-lit="1"] .collectible-object-art::after { animation:none; background-size:200% 200%; background-position:var(--mx,50%) var(--my,50%); }
+.collectible-rotation[data-lit="1"] .finish-glitter::after { opacity:calc(var(--finish-strength,.6) * (.45 + var(--glint,0) * .55)); }
+@keyframes collectible-shimmer { 0%,100% {background-position:0% 50%} 50% {background-position:100% 50%} }
+@keyframes collectible-glitter { from {opacity:.2} to {opacity:var(--finish-strength,.6)} }
+.collectibles-container-layout { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+.collectibles-opening { display:grid; justify-items:center; align-content:center; text-align:center; }
+.collectibles-box { display:grid; place-items:center; gap:10px; padding:28px; transition:transform .3s; }
+.collectibles-box > span { font-size:100px; }
+.collectibles-box.opened { transform:rotate(-4deg); }
+.collectibles-results { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:20px; grid-column:1/-1; }
+.collectibles-results > * { animation:collectible-reveal .35s ease-out both; }
+.collectibles-checkbox { display:flex !important; align-items:center; gap:10px; }
+.collectibles-checkbox input { width:auto; }
+@keyframes collectible-reveal { from { opacity:0; transform:translateY(20px) scale(.94); } to { opacity:1; transform:none; } }
+@media(max-width:850px) { .collectibles-workspace,.collectibles-container-layout { grid-template-columns:1fr; } }
+.collectible-system-selector { display:flex; align-items:center; gap:16px; margin:20px auto 0; max-width:1376px; padding:0 24px; color:#b9c5d8; }
+.collectible-system-selector select { padding:12px; color:#fff; background:#1a1634; border:1px solid #7d58bc; border-radius:10px; }
+.collectibles-container-config { grid-column:1/-1; max-width:620px; }
+.collectibles-sealed { display:flex; gap:10px; flex-wrap:wrap; }
+.collectible-inspector { width:min(390px,80vw); text-align:center; }
+.collectible-rotation-stage { perspective:1200px; touch-action:none; cursor:grab; }
+.collectible-rotation-stage:active { cursor:grabbing; }
+.collectible-rotation { position:relative; transform-style:preserve-3d; transition:transform .35s ease; width:100%; min-height:400px; }
+.collectible-rotation.dragging { transition:none; }
+.collectible-inspect-face { backface-visibility:hidden; -webkit-backface-visibility:hidden; transform:translateZ(3px); }
+.collectible-inspect-back { position:absolute; inset:0; transform:rotateY(180deg) translateZ(3px); }
+.collectible-card-back { display:block; width:100%; aspect-ratio:5/7; border-radius:18px; object-fit:cover; }
+.collectible-inspect-face .collectible-object { width:100%; max-width:none; }
+.collectible-inspect-controls { display:flex; justify-content:center; gap:8px; margin:14px 0 6px; flex-wrap:wrap; }
+.collectible-inspector > small { color:#c1bfd9; }
+.meta-container { position:relative; width:220px; height:255px; margin:20px auto; filter:drop-shadow(0 16px 20px #0007); }
+.meta-container-brand { display:block; color:#ffe66d; font:bold italic 30px/.95 Arial,sans-serif; letter-spacing:1px; text-shadow:2px 2px #571178,-1px -1px #4df3ff,0 0 14px #ff4d8d88; }
+.meta-container-symbol { display:block; font:bold 64px/1.1 Arial,sans-serif; color:#4df3ff; text-shadow:0 0 18px #4df3ff99; }
+.meta-container small { color:#f5e9ff; font:bold 10px Arial,sans-serif; letter-spacing:1.2px; }
+.meta-pouch { position:absolute; inset:0; width:100%; height:100%; overflow:visible; transform-origin:50% 92%; transition:transform 1s cubic-bezier(.2,.7,.25,1); }
+.meta-pouch-sack,.meta-pouch-ruffle,.meta-pouch-mouth,.meta-pouch-cord,.meta-pouch-beam,.meta-pouch-coins { transform-box:fill-box; transition:transform .9s cubic-bezier(.2,.7,.3,1),opacity .6s ease; }
+.meta-pouch-sack,.meta-pouch-ruffle,.meta-pouch-beam { transform-origin:50% 100%; }
+.meta-pouch-mouth { transform-origin:50% 50%; transform:scale(.25,.2); opacity:0; }
+.meta-pouch-beam { opacity:0; transform:scaleY(.1); mix-blend-mode:screen; transition-delay:.35s; }
+.cord-l { transform-origin:100% 0; } .cord-r { transform-origin:0 0; }
+.meta-pouch-mark { animation:meta-pouch-pulse 2.6s ease-in-out infinite; }
+.meta-bag:hover .meta-pouch-sack { transform:translateY(-2px) rotate(-1deg); }
+/* Opening: the drawstrings pull in, the mouth spreads, and the pouch tips toward the viewer so you look inside. */
+.meta-bag.is-opening .meta-pouch { transform:perspective(700px) rotateX(-24deg) translateY(6px); }
+.meta-bag.is-opening .meta-pouch-ruffle { transform:scale(1.45,.58); }
+.meta-bag.is-opening .meta-pouch-mouth { transform:none; opacity:1; }
+.meta-bag.is-opening .meta-pouch-beam { transform:none; opacity:.85; }
+.meta-bag.is-opening .cord-l { transform:scale(.42) rotate(-8deg); opacity:.85; }
+.meta-bag.is-opening .cord-r { transform:scale(.42) rotate(8deg); opacity:.85; }
+.meta-bag.is-opening .meta-pouch-sack { transform:scaleX(1.04); }
+.meta-bag.is-opening .meta-pouch-coins { opacity:0; transform:translateY(14px); }
+.meta-bag.is-opening .meta-pouch-mark { animation:meta-pouch-burst 1s ease-out both; }
+@keyframes meta-pouch-pulse { 0%,100% { opacity:.82; } 50% { opacity:1; } }
+@keyframes meta-pouch-burst { 0% { opacity:1; } 35% { opacity:1; fill:#fff; } 100% { opacity:.35; } }
+.meta-carton-body { position:absolute; inset:50px 4px 0; display:grid; align-content:center; justify-items:center; gap:16px; border:2px solid #4df3ff88; border-radius:8px; background:linear-gradient(135deg,#ff4d8d33,transparent 55%),linear-gradient(35deg,#31124d,#6a278b,#25133f); box-shadow:inset -20px 0 #0003; }
+.meta-carton-lid { position:absolute; left:-6px;right:-6px;top:33px;height:38px;z-index:3;border:2px solid #4df3ff88;border-radius:7px;background:linear-gradient(135deg,#92278f,#341357);transform-origin:20% 100%;transition:transform 1s cubic-bezier(.2,.7,.3,1),opacity .8s ease .3s; }
+.meta-carton-glow { position:absolute; left:8%; right:8%; top:-70px; height:150px; z-index:2; pointer-events:none; opacity:0; transform:scaleY(.15); transform-origin:50% 100%; background:radial-gradient(ellipse at 50% 100%,#fff,#ff7bf0aa 30%,#4df3ff33 55%,transparent 72%); filter:blur(3px); transition:opacity .6s ease .3s,transform .8s cubic-bezier(.2,.7,.3,1) .3s; }
+.meta-carton { transition:transform 1s cubic-bezier(.2,.7,.25,1); }
+.meta-carton.is-opening { transform:perspective(800px) rotateX(-12deg); }
+.meta-carton.is-opening .meta-carton-lid { transform:translate(30px,-120px) rotate(-28deg); opacity:0; }
+.meta-carton.is-opening .meta-carton-glow { opacity:1; transform:none; }
+.meta-container--outer {width:280px;height:260px}
+.meta-opening { position:relative; padding:30px 0 24px; text-align:center; overflow:hidden; min-height:440px; }
+.meta-opening > p { position:relative; z-index:2; color:#c9bfe6; min-height:22px; }
+.meta-opening > button { position:relative; z-index:2; }
+.meta-opening > .meta-container { z-index:1; animation:meta-container-drop .6s cubic-bezier(.2,.9,.3,1.2) both; }
+.meta-opening-burst { position:absolute; left:50%; top:150px; width:640px; height:640px; margin:-320px 0 0 -320px; pointer-events:none; opacity:0; border-radius:50%;
+  background:repeating-conic-gradient(from 0deg,#ff2bd62e 0 5deg,transparent 5deg 15deg,#ffd23c24 15deg 19deg,transparent 19deg 30deg);
+  -webkit-mask-image:radial-gradient(circle,#000 0,#000 15%,transparent 62%); mask-image:radial-gradient(circle,#000 0,#000 15%,transparent 62%); transition:opacity .8s ease; animation:meta-burst-spin 24s linear infinite; }
+.meta-opening--opening .meta-opening-burst,.meta-opening--emerging .meta-opening-burst { opacity:1; }
+.meta-opening--settled .meta-opening-burst { opacity:.45; }
+.meta-opening--charge > .meta-container { animation:meta-container-wobble .8s ease-in-out both; }
+.meta-opening--settled > .meta-container { opacity:.5; transform:scale(.86); transition:opacity .8s ease,transform .8s ease; }
+.meta-opening-contents { position:relative; z-index:3; display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,200px)); justify-content:center; gap:18px; margin-top:6px; }
+.meta-opening-item { opacity:0; pointer-events:none; }
+.meta-opening--emerging .meta-opening-item,.meta-opening--settled .meta-opening-item { animation:meta-object-emerge 1s cubic-bezier(.2,.75,.3,1) var(--reveal-delay) both; }
+.meta-opening--settled .meta-opening-item { pointer-events:auto; }
+.meta-opening-item .meta-container { transform:scale(.6); margin:-35px auto; }
+.meta-opening-item .meta-container .meta-pouch-coins { display:none; }
+/* Coins flip end over end on the way out; plushies tumble. */
+.collectible-reveal-spin { display:block; }
+.meta-opening--coins.meta-opening--emerging .collectible-reveal-spin,.meta-opening--coins.meta-opening--settled .collectible-reveal-spin { animation:meta-coin-flight 1s cubic-bezier(.25,.7,.3,1) var(--reveal-delay) both; }
+.meta-opening--plush.meta-opening--emerging .collectible-reveal-spin,.meta-opening--plush.meta-opening--settled .collectible-reveal-spin { animation:meta-plush-flight 1s cubic-bezier(.25,.7,.3,1) var(--reveal-delay) both; }
+.collectible-reveal-button { position:relative; display:block; padding:0; width:100%; background:none; border:0; perspective:900px; cursor:pointer; }
+.collectible-reveal-button:disabled { cursor:default; }
+.meta-opening .collectible-object figcaption p { display:none; }
+.collectible-reveal-button .collectible-object-art { transition:filter .3s ease,transform .3s ease; }
+/* Silhouette: hides the collectible until it is clicked, since a coin or plushie has no "back" to hide behind. */
+.collectible-reveal-button.is-hidden .collectible-object-art { filter:brightness(0) drop-shadow(0 0 5px var(--object-accent)) drop-shadow(0 0 16px #ff2bd6aa); }
+.collectible-reveal-button.is-hidden figcaption { visibility:hidden; }
+.collectible-reveal-button.is-hidden::after { content:'?'; position:absolute; left:50%; top:42%; transform:translate(-50%,-50%); color:#ffd23c; font:bold 46px/1 Georgia,serif; text-shadow:0 0 12px #ff9d1f,0 0 26px #ff2bd6; pointer-events:none; opacity:0; transition:opacity .4s ease; }
+.meta-opening--settled .collectible-reveal-button.is-hidden::after { opacity:.9; }
+.meta-opening--settled .collectible-reveal-button.is-hidden { animation:meta-silhouette-bob 2.4s ease-in-out infinite; }
+.collectible-reveal-button.is-hidden:hover:not(:disabled) .collectible-object-art { filter:brightness(0) drop-shadow(0 0 8px var(--object-accent)) drop-shadow(0 0 26px #ff2bd6); transform:scale(1.04); }
+.collectible-reveal-button.is-revealing .collectible-object-art { animation:meta-silhouette-unveil .65s ease-out both; }
+.meta-opening--coins .collectible-reveal-button.is-revealing .collectible-object { animation:meta-coin-reveal .65s cubic-bezier(.2,.7,.3,1) both; }
+.meta-opening--plush .collectible-reveal-button.is-revealing .collectible-object { animation:meta-plush-reveal .65s cubic-bezier(.2,.8,.3,1.3) both; }
+.collectible-reveal-button.is-revealing figcaption,.collectible-reveal-button.is-revealed figcaption { animation:collectible-reveal .4s ease-out .2s both; }
+.collectible-reveal-flash { position:absolute; left:50%; top:42%; width:120%; aspect-ratio:1; transform:translate(-50%,-50%) scale(.2); border-radius:50%; pointer-events:none; opacity:0; background:radial-gradient(circle,#fff,#ffd23c99 22%,#ff2bd655 45%,transparent 68%); }
+.collectible-reveal-button.is-revealing .collectible-reveal-flash { animation:meta-reveal-flash .65s ease-out both; }
+.collectible-reveal-button.is-revealed { cursor:zoom-in; }
+.collectible-reveal-button.is-revealed:hover .collectible-object-art { transform:translateY(-4px) scale(1.03); }
+@keyframes meta-container-drop { from { opacity:0; transform:translateY(-40px) scale(.9); } to { opacity:1; transform:none; } }
+@keyframes meta-container-wobble { 0%,100% { transform:none; } 15% { transform:rotate(-4deg) translateY(-3px); } 30% { transform:rotate(4deg); } 45% { transform:rotate(-3deg) translateY(-5px); } 60% { transform:rotate(3deg); } 78% { transform:rotate(-1.5deg) scale(1.03); } }
+@keyframes meta-burst-spin { to { transform:rotate(360deg); } }
+@keyframes meta-object-emerge {
+  0% { opacity:0; transform:translate(var(--from-x,0px),var(--from-y,-200px)) scale(.15); }
+  12% { opacity:1; }
+  50% { transform:translate(calc(var(--from-x,0px) * .5),calc(var(--from-y,-200px) * .5 - 110px)) scale(.85); }
+  82% { transform:translateY(-8px) scale(1.04); }
+  100% { opacity:1; transform:none; }
+}
+@keyframes meta-coin-flight { 0% { transform:rotateY(-1080deg); } 85% { transform:rotateY(-20deg); } 100% { transform:none; } }
+@keyframes meta-plush-flight { 0% { transform:rotate(-200deg) scale(.8); } 70% { transform:rotate(12deg); } 85% { transform:scale(1.08,.9); } 100% { transform:none; } }
+@keyframes meta-silhouette-bob { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-6px); } }
+@keyframes meta-silhouette-unveil {
+  0% { filter:brightness(0) drop-shadow(0 0 5px var(--object-accent)) drop-shadow(0 0 16px #ff2bd6aa); }
+  45% { filter:brightness(2.6) drop-shadow(0 0 10px #fff) drop-shadow(0 0 30px #ffd23c); }
+  100% { filter:brightness(1) drop-shadow(0 0 0 transparent) drop-shadow(0 0 0 transparent); }
+}
+@keyframes meta-coin-reveal { 0% { transform:rotateY(0) scale(1); } 50% { transform:rotateY(360deg) scale(1.12); } 100% { transform:rotateY(720deg) scale(1); } }
+@keyframes meta-plush-reveal { 0% { transform:scale(1); } 35% { transform:scale(.88,1.08); } 65% { transform:scale(1.14) translateY(-8px); } 100% { transform:none; } }
+@keyframes meta-reveal-flash { 0% { opacity:0; transform:translate(-50%,-50%) scale(.2); } 30% { opacity:1; } 100% { opacity:0; transform:translate(-50%,-50%) scale(1.25); } }
+@media(prefers-reduced-motion:reduce) {
+  .meta-pouch-mark,.meta-bag.is-opening .meta-pouch-mark,.meta-opening-burst,.meta-opening > .meta-container,.meta-opening--charge > .meta-container,.collectible-reveal-spin,.collectible-reveal-button,.collectible-reveal-button .collectible-object,.collectible-reveal-button .collectible-object-art,.collectible-reveal-flash { animation:none !important; }
+  .meta-opening-item,.meta-opening--emerging .meta-opening-item,.meta-opening--settled .meta-opening-item { animation:none; opacity:1; transform:none; }
+  .meta-pouch,.meta-pouch *,.meta-carton,.meta-carton * { transition:none !important; }
+  .collectible-rotation { transition:none; }
+}
+/* 3D coin bag / plushie box opening (Container3D.js) */
+.collectibles-look-picker { display:flex; flex-wrap:wrap; align-items:end; gap:16px; margin:4px 0 12px; }
+.collectibles-look-picker label { margin:0; min-width:220px; }
+.collectibles-look-picker small { flex-basis:100%; }
+.meta-preview3d-canvas { display:block; width:100%; max-width:340px; height:300px; margin:0 auto; }
+.meta-opening3d { position:relative; text-align:center; padding:8px 0 20px; }
+.meta-opening3d-stage { position:relative; width:100%; height:min(560px,70vh); min-height:380px; }
+.meta-opening3d-canvas { display:block; width:100%; height:100%; touch-action:manipulation; }
+.meta-opening3d > p { color:#c9bfe6; min-height:22px; margin:6px 0 10px; }
+.meta-opening3d-label { position:absolute; transform:translate(-50%,0); pointer-events:none; text-align:center; white-space:nowrap; animation:collectible-reveal .4s ease-out both; text-shadow:0 2px 6px #000; }
+.meta-opening3d-label strong { display:block; color:#fff; font-size:14px; }
+.meta-opening3d-label span { display:block; color:#ffd23c; font-size:11px; letter-spacing:.12em; text-transform:uppercase; }
+.meta-opening3d-actions { display:grid; justify-items:center; gap:10px; }
+.meta-opening3d-keys { display:flex; flex-wrap:wrap; justify-content:center; gap:6px; }
+.meta-opening3d-keys button { padding:4px 10px; font-size:12px; opacity:.75; }
+.meta-opening3d-host { position:absolute; inset:0; }
+.meta-preview3d-host { width:100%; }
+.collectible-object--coin .collectible-object-art[data-rim] { border-color:transparent; background:var(--rim-image) center/cover border-box; }
+.collectibles-look-row { display:flex; flex-wrap:wrap; align-items:end; gap:16px; margin:4px 0 14px; }
+.collectibles-look-row > small { flex-basis:100%; }
+.collectibles-look-picker { display:flex; flex-wrap:wrap; gap:12px; margin:0; padding:10px 14px 4px; border:1px solid #ffffff1c; border-radius:12px; }
+.collectibles-look-picker legend { padding:0 6px; color:#ffd23c; font-size:12px; letter-spacing:.08em; text-transform:uppercase; }
+/* card thickness in the enlarged view: stacked card-stock slices between the two faces */
+.collectible-card-edge { position:absolute; left:0; top:0; width:100%; aspect-ratio:5/7; border-radius:18px; background:#e4dccb; box-shadow:inset 0 0 0 1px #00000040; pointer-events:none; }
+/* 3D inspector for coins and plushies */
+.collectible-3d-stage { width:min(420px,82vw); height:min(500px,60vh); margin:0 auto; }
+.collectible-3d-canvas { display:block; width:100%; height:100%; }
+/* coin face art sits in the same inner circle as on the 3D coin, framed with position + zoom */
+.collectible-coin-face { position:absolute; inset:7%; border-radius:50%; overflow:hidden; box-shadow:inset 0 0 0 2px #0006,0 0 0 2px #fff3; }
+.collectible-coin-face img { width:100%; height:100%; object-fit:cover; }
+/* solid card-stock sides (perpendicular to the faces) so a card seen exactly edge-on is closed, not two slits */
+.collectible-card-sides { position:absolute; left:0; top:0; width:100%; aspect-ratio:5/7; transform-style:preserve-3d; pointer-events:none; }
+.collectible-card-sides i { position:absolute; background:linear-gradient(90deg,#b9b0a0,#efe8da 50%,#b9b0a0); }
+.collectible-card-sides .side-left,.collectible-card-sides .side-right { top:16px; bottom:16px; width:6px; }
+.collectible-card-sides .side-left { left:-3px; transform:rotateY(90deg); }
+.collectible-card-sides .side-right { right:-3px; transform:rotateY(90deg); }
+.collectible-card-sides .side-top,.collectible-card-sides .side-bottom { left:16px; right:16px; height:6px; background:linear-gradient(180deg,#b9b0a0,#efe8da 50%,#b9b0a0); }
+.collectible-card-sides .side-top { top:-3px; transform:rotateX(90deg); }
+.collectible-card-sides .side-bottom { bottom:-3px; transform:rotateX(90deg); }
+
+/* coin / plushie thumbnails in the editor list and set picker (same footprint as card thumbnails) */
+.collectible-thumb { flex:0 0 44px; width:44px; height:52px; display:grid; place-items:center; border-radius:7px; background:radial-gradient(circle at 50% 40%,#252e45,#0b0f18); overflow:hidden; }
+.collectible-thumb img { width:100%; height:100%; object-fit:contain; }
+.collectible-thumb.is-coin img,.collectible-thumb.is-coin b { width:40px; height:40px; border-radius:50%; border:3px solid var(--object-accent); object-fit:cover; display:grid; place-items:center; color:var(--object-accent); font-size:18px; background:radial-gradient(circle at 35% 30%,#fff6d0,var(--object-accent) 50%,#2a1d08); }
+.collectible-thumb.is-plush b { font-size:28px; }
+.set-card-option .collectible-thumb { margin:0 auto; }
+.set-card-option span small { display:block; color:#79859b; font-size:9px; }
+/* live 3D preview in the editor's preview column */
+.collectible-preview-column .collectible-inspector { position:relative; z-index:1; width:min(420px,100%); }
+.collectible-preview-column .collectible-3d-stage { height:520px; }
+.collectible-enlarge { position:relative; z-index:1; margin-top:8px; }
+.collectible-acquired { margin-top:10px; }
+.collectible-acquired > .effect-intro { grid-column:1/-1; }
+.collectibles-run-actions { justify-content:flex-end; margin-top:10px; }
+.collectibles-sealed-card { margin-top:22px; }
+.collectible-object-tint { position:absolute; inset:0; pointer-events:none; mix-blend-mode:color; -webkit-mask:var(--object-mask) center/contain no-repeat; mask:var(--object-mask) center/contain no-repeat; }
+.gallery-item .collectible-object,.effect-card .collectible-object { width:230px; }
+
+.gallery-item .collectible-object figcaption,.effect-card .collectible-object figcaption { display:none; }
+.collectible-opening-overlay .pk-overlay-stage { width:min(1400px,96vw); }
+.collectible-opening-overlay .meta-opening3d-stage { height:min(70vh,760px); min-height:240px; }
+.collectible-opening-overlay .meta-opening { background:transparent; border:0; }
+.collectible-opening-status { text-align:center; color:#fff; }

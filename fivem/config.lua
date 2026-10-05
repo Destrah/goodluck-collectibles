@@ -8,7 +8,7 @@ Config.Framework = 'qbcore'
 Config.Inventory = 'ox_inventory'
 
 -- Persistence: none | json | mysql | custom
-Config.Persistence = 'json'
+Config.Persistence = 'mysql'
 
 
 
@@ -18,7 +18,7 @@ Config.Persistence = 'json'
 -- sealed booster packs / boxes. Normal players can still open/use items.
 Config.Management = {
     Enabled = true,
-    Ace = 'rushcards.manage', -- server.cfg: add_ace group.admin rushcards.manage allow
+    Ace = 'metacomic.manage', -- server.cfg: add_ace group.admin metacomic.manage allow
 
     -- QBCore server permissions checked with QBCore.Functions.HasPermission.
     -- Leave empty to rely only on ACE/jobs/identifiers.
@@ -49,7 +49,7 @@ Config.Sets = {
 Config.Catalog = {
     File = 'data/catalog.json',
     AllowWrite = true,
-    WriteAce = 'rushcards.catalog.write',
+    WriteAce = 'metacomic.catalog.write',
 }
 
 Config.Items = {
@@ -77,21 +77,33 @@ Config.Items = {
 -- Inventory icon for card items.
 Config.CardIcons = {
     Enabled = true, -- false: use the card's artwork instead
-    -- 'rarity': one picture per rarity (img/cards/rushcard_<rarity>.png, 100x100). Nothing to set up.
+    -- 'rarity': one picture per rarity (img/cards/metacard_<rarity>.png, 100x100). Nothing to set up.
     -- 'upload': every card gets one 100x100 icon per rarity it comes in (max 5 per card, shared by all its variants and
     --           copies), drawn in a player's game UI and uploaded to Fivemanage once.
     --           Missing / outdated icons are made automatically: when the resource starts, when a player joins, when
     --           the catalog is saved in-game (new or edited cards) and when a print is pulled from a pack.
     --           Put your Fivemanage API key in server.cfg (NOT here: this file is sent to players):
-    --             set rushcards_fivemanage_key "your-api-key"
+    --             set metacomic_fivemanage_key "your-api-key"
     --           Uploaded URLs are remembered in data/card_icons.json. Until a print's icon is uploaded it uses the rarity icon.
     -- ox_inventory note: with the convar inventory:webhook set, ox_inventory deletes item picture urls it doesn't
     -- trust (before 2.45.1 everything except i.imgur.com). The script detects this and falls back to
-    -- ox_inventory/web/images/rushcard_<rarity>.png (copied there for you); update ox_inventory for per-card icons.
+    -- ox_inventory/web/images/metacard_<rarity>.png (copied there for you); update ox_inventory for per-card icons.
     Mode = 'upload',
     Size = 100,
     OxImageFiles = false, -- true: also set metadata.image on every card item (only needed for custom inventory forks)
-    RefreshCommand = 'cardicons', -- in game: updates your card items. Server console: retries missing icons. ('' to disable)
+    RefreshCommand = 'collectablesicons', -- in game: updates item icons. Server console: retries missing icons. ('' to disable)
+}
+
+-- Fivemanage upload settings per collectible: each type's inventory icons go into its own folder (Path) and may
+-- use its own API key. Put keys in server.cfg (this file is sent to players), e.g.
+--   set metacomic_fivemanage_key_coins "api-key"
+-- A type whose own key convar is empty uses metacomic_fivemanage_key. Coins and plushies follow the same
+-- Config.CardIcons settings (Mode / Size / OxImageFiles); their rarity fallback pictures are
+-- img/collectibles/metacoin_<rarity>.png and metaplush_<rarity>.png.
+Config.FivemanageFolders = {
+    trading_card = { Path = 'Collectibles/Trading Cards', KeyConvar = 'metacomic_fivemanage_key_cards' },
+    challenge_coin = { Path = 'Collectibles/Challenge Coins', KeyConvar = 'metacomic_fivemanage_key_coins' },
+    plushie = { Path = 'Collectibles/Plushies', KeyConvar = 'metacomic_fivemanage_key_plushies' },
 }
 
 -- Card binder (an ox_inventory container item). Add a "View Binder" button to it (examples/ox_inventory-items.lua).
@@ -112,7 +124,7 @@ Config.PackAnimation = {
 
 Config.Database = {
     Resource = 'oxmysql',
-    Table = 'rush_trading_card_instances',
+    Table = 'goodluck_collectibles_card_instances',
     AutoCreateSchema = true,
 }
 
@@ -126,11 +138,11 @@ Config.Nui = {
 }
 
 Config.Commands = {
-    Open = 'cards',
-    Pack = 'cardpack',
-    Box = 'cardbox',
-    Options = 'cardoptions', -- per-player tear / fan / speed preferences
-    Management = 'cardadmin', -- restricted set / pack / box / manual print tools
+    Open = 'collectables',
+    Pack = 'collectablespack',
+    Box = 'collectablesbox',
+    Options = 'collectablesoptions', -- per-player pack and collectible animation preferences
+    Management = 'collectablesadmin', -- restricted authoring / item production tools
 }
 
 Config.Props = {

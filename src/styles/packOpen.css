@@ -179,7 +179,7 @@ html.fivem-runtime .card-viewer-backdrop{-webkit-backdrop-filter:none;backdrop-f
 
 /* ---------- FiveM /cardoptions player preferences ---------- */
 .pack-options-overlay{position:fixed;inset:0;z-index:220;display:grid;place-items:center;padding:24px;background:rgba(2,5,10,.48);animation:pk-overlay-in .22s ease-out both}
-.pack-options-panel{width:min(920px,94vw);border:1px solid #ffffff1d;border-radius:24px;background:linear-gradient(180deg,rgba(18,24,36,.98),rgba(8,12,20,.98));box-shadow:0 28px 90px rgba(0,0,0,.62);padding:24px}
+.pack-options-panel{width:min(920px,94vw);max-height:90vh;overflow:auto;border:1px solid #ffffff1d;border-radius:24px;background:linear-gradient(180deg,rgba(18,24,36,.98),rgba(8,12,20,.98));box-shadow:0 28px 90px rgba(0,0,0,.62);padding:24px}
 .pack-options-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:18px}
 .pack-options-head h2{margin:6px 0 8px;font-size:30px;line-height:1}
 .pack-options-head p{margin:0;color:#98a5b9;line-height:1.5;max-width:650px}

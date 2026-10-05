@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { CONTAINER_LOOKS } from '../collectables/container3dOptions.js'
 import { TEAR_INFO, FAN_INFO, RANDOM_INFO, BASE_SECONDS, TEAR_KEYS } from './PackOpenScene'
 import {
   MIN_SPEED,
@@ -17,6 +18,7 @@ export default function PackOptions({ onClose }) {
   const [ready, setReady] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -38,10 +40,12 @@ export default function PackOptions({ onClose }) {
 
   const save = async () => {
     setSaving(true)
-    const clean = await savePackPrefs(prefs, maxSpeed)
-    setPrefs(clean)
-    setSaving(false)
-    setSaved(true)
+    setError('')
+    try {
+      const clean = await savePackPrefs(prefs, maxSpeed, true)
+      setPrefs(clean);setSaved(true)
+    } catch (err) {setError(err.message);setSaved(false)}
+    finally {setSaving(false)}
   }
 
   const seconds = ((prefs.tear === 'random'
@@ -49,18 +53,22 @@ export default function PackOptions({ onClose }) {
     : BASE_SECONDS[prefs.tear] || BASE_SECONDS.seam) / prefs.speed).toFixed(1)
 
   return (
-    <div className="pack-options-overlay" role="dialog" aria-modal="true" aria-label="Card pack opening options">
+    <div className="pack-options-overlay" role="dialog" aria-modal="true" aria-label="Collectable opening options">
       <section className="pack-options-panel">
         <div className="pack-options-head">
           <div>
             <span className="eyebrow">Player preferences</span>
-            <h2>Pack opening options</h2>
-            <p>Choose how your booster packs open. New players default to Random for both animation choices.</p>
+            <h2>Collectable opening options</h2>
+            <p>Choose how your packs, coin bags, plushie boxes, and outer cases open. Container animations default to Random.</p>
           </div>
           <button type="button" className="ghost pack-options-close" onClick={onClose}>Close</button>
         </div>
 
         <div className="pk-settings pack-options-settings">
+          {Object.entries(CONTAINER_LOOKS).map(([kind, options]) => <div className="pk-set-group" key={kind}>
+            <span className="pk-set-title">{{bag:'Coin bags',box:'Plushie boxes',case:'Outer boxes / cases'}[kind]}</span>
+            <div className="pk-set-row">{[{id:'random',label:'Random'},...options.animations].map(entry => <button key={entry.id} type="button" className={`pk-opt ${(prefs.containerAnimations?.[kind] || 'random') === entry.id ? 'selected' : ''}`} disabled={!ready || saving} onClick={() => update({containerAnimations:{...prefs.containerAnimations,[kind]:entry.id}})}>{entry.label}</button>)}</div>
+          </div>)}
           <div className="pk-set-group">
             <span className="pk-set-title">Tear style</span>
             <div className="pk-set-row">
@@ -100,6 +108,7 @@ export default function PackOptions({ onClose }) {
         </div>
 
         <div className="pack-options-footer">
+          {error && <div className="runtime-error" role="alert">{error}</div>}
           <span className={saved ? 'pack-options-saved is-visible' : 'pack-options-saved'}>{saved ? 'Saved for this player' : 'Preferences are saved per player'}</span>
           <div>
             <button type="button" className="ghost" onClick={onClose}>Cancel</button>

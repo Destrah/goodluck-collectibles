@@ -48,7 +48,6 @@ const presetColors = {
 
 export default function CardEditor({ card, selectedVariantId, onSelectVariant, onChange, onDelete, onDuplicate, dirty, isNew, saving, saveError, onSave, onRevert }) {
   const variant = card.variants.find(item => item.id === selectedVariantId) || card.variants[0]
-  const variantUsesDifferentImage = Boolean(String(variant.image || '').trim()) && String(variant.image || '').trim() !== String(card.image || '').trim()
   const patchBase = (key, value) => onChange({ ...card, [key]: value })
   const patchVariant = (key, value) => {
     const variants = card.variants.map(item => item.id === variant.id ? { ...item, [key]: value } : item)
@@ -61,10 +60,7 @@ export default function CardEditor({ card, selectedVariantId, onSelectVariant, o
 
   const setVariantArtwork = (value) => {
     const image = String(value || '')
-    const different = Boolean(image.trim()) && image.trim() !== String(card.image || '').trim()
-    patchVariantObject(different
-      ? { ...variant, image }
-      : { ...variant, image, imagePositionX: undefined, imagePositionY: undefined, imageZoom: undefined })
+    patchVariantObject({ ...variant, image })
   }
 
   const updateAttack = (index, key, value) => {
@@ -162,13 +158,7 @@ export default function CardEditor({ card, selectedVariantId, onSelectVariant, o
         <Field label="Card pull weight"><input type="number" min="1" value={card.chanceWeight || 1} onChange={e => patchBase('chanceWeight', Number(e.target.value))} /></Field>
         <Field label="Base artwork URL"><input value={card.image} onChange={e => patchBase('image', e.target.value)} /></Field>
         <Field label="Base artwork file" className="span-2"><input className="file-input" type="file" accept="image/*" onChange={e => loadFile(value => patchBase('image', value), e.target.files?.[0])} /></Field>
-        <div className="art-position-controls native-art-position span-2">
-          <div className="art-position-heading"><strong>Base artwork crop / position</strong><small>Move the focal point or zoom the image so the correct part shows inside the card frame. Subject/mask layers follow this exact crop.</small></div>
-          <Field label={`Horizontal — ${Math.round(card.imagePositionX ?? 50)}%`} className="range-field"><input type="range" min="0" max="100" step="1" value={card.imagePositionX ?? 50} onChange={e => patchBase('imagePositionX', Number(e.target.value))} /></Field>
-          <Field label={`Vertical — ${Math.round(card.imagePositionY ?? 50)}%`} className="range-field"><input type="range" min="0" max="100" step="1" value={card.imagePositionY ?? 50} onChange={e => patchBase('imagePositionY', Number(e.target.value))} /></Field>
-          <Field label={`Zoom — ${Math.round(card.imageZoom ?? 100)}%`} className="range-field"><input type="range" min="100" max="220" step="1" value={card.imageZoom ?? 100} onChange={e => patchBase('imageZoom', Number(e.target.value))} /></Field>
-          <button className="ghost small-button" type="button" onClick={() => onChange({ ...card, imagePositionX: 50, imagePositionY: 50, imageZoom: 100 })}>Center / reset base art</button>
-        </div>
+
         <Field label="Description" className="span-2"><textarea rows="3" value={card.description} onChange={e => patchBase('description', e.target.value)} /></Field>
       </div>
 
@@ -202,16 +192,16 @@ export default function CardEditor({ card, selectedVariantId, onSelectVariant, o
           </Field>
           <Field label="Variant artwork URL"><input placeholder="Blank = base artwork" value={variant.image || ''} onChange={e => setVariantArtwork(e.target.value)} /></Field>
           <Field label="Variant artwork file"><input className="file-input" type="file" accept="image/*" onChange={e => loadFile(setVariantArtwork, e.target.files?.[0])} /></Field>
-          {variantUsesDifferentImage && <>
-            <button className="ghost span-2" onClick={() => patchVariantObject({ ...variant, image: '', imagePositionX: undefined, imagePositionY: undefined, imageZoom: undefined })}>Use base artwork for this print</button>
+          <>
+            <button className="ghost span-2" onClick={() => patchVariantObject({ ...variant, image: '' })}>Use base artwork for this print</button>
             <div className="art-position-controls native-art-position span-2">
-              <div className="art-position-heading"><strong>Print artwork crop / position</strong><small>This print uses a different image, so it can have its own crop. Subject/mask layers follow this exact crop.</small></div>
+              <div className="art-position-heading"><strong>Print artwork crop / position</strong><small>Every print has its own crop, including prints that share the base artwork. Subject/mask layers follow this exact crop.</small></div>
               <Field label={`Horizontal — ${Math.round(variant.imagePositionX ?? 50)}%`} className="range-field"><input type="range" min="0" max="100" step="1" value={variant.imagePositionX ?? 50} onChange={e => patchVariant('imagePositionX', Number(e.target.value))} /></Field>
               <Field label={`Vertical — ${Math.round(variant.imagePositionY ?? 50)}%`} className="range-field"><input type="range" min="0" max="100" step="1" value={variant.imagePositionY ?? 50} onChange={e => patchVariant('imagePositionY', Number(e.target.value))} /></Field>
               <Field label={`Zoom — ${Math.round(variant.imageZoom ?? 100)}%`} className="range-field"><input type="range" min="100" max="220" step="1" value={variant.imageZoom ?? 100} onChange={e => patchVariant('imageZoom', Number(e.target.value))} /></Field>
               <button className="ghost small-button" type="button" onClick={() => patchVariantObject({ ...variant, imagePositionX: 50, imagePositionY: 50, imageZoom: 100 })}>Center / reset print art</button>
             </div>
-          </>}
+          </>
         </div>
 
         <div className="color-section">

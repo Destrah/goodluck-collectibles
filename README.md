@@ -1,6 +1,8 @@
-# Rush Trading Cards — Standalone React Lab v3
+# Meta Comic Collectables — Standalone React Lab v3
 
 Standalone browser test app derived from your FiveM trading-card resource.
+
+Current branding is **Meta Comic**, with **Meta Comics** on the card back. See [collectable modules](docs/collectable-modules.md) for the server/container and UI extension interfaces for future challenge coins, plushies, and other collectables.
 
 ## Run locally
 

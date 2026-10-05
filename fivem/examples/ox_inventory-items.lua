@@ -11,7 +11,7 @@
     stack = true,
     close = true,
     consume = 0,
-    description = 'A sealed Rush Trading Cards booster pack.'
+    description = 'A sealed Meta Comic Collectables booster pack.'
 },
 ['boosterbox'] = {
     label = 'Trading Card Booster Box',
@@ -32,27 +32,27 @@
 
 -------------------------------------------------------------------------------------------------
 -- B) Any framework + ox_inventory, with item pictures and a "Show Card" button (client exports).
---    'rush-tradingcards' must be your resource folder name. Export names: OpenPack / OpenBox / ShowCard / ShowOthersCard
+--    'meta-comic' must be your resource folder name. Export names: OpenPack / OpenBox / ShowCard / ShowOthersCard
 --    (useBoosterPack / useBoosterBox / useTradingCard also work). The server checks and removes the item itself.
 -------------------------------------------------------------------------------------------------
 -- ['boosterpack'] = {
 --     label = 'Trading Card Booster Pack', weight = 100, stack = true, close = true, consume = 0,
---     description = 'A sealed Rush Trading Cards booster pack.',
---     client = { image = 'boosterpack_item.png', export = 'rush-tradingcards.OpenPack' },
+--     description = 'A sealed Meta Comic Collectables booster pack.',
+--     client = { image = 'boosterpack_item.png', export = 'meta-comic.OpenPack' },
 -- },
 -- ['boosterbox'] = {
 --     label = 'Trading Card Booster Box', weight = 1000, stack = true, close = true, consume = 0,
 --     description = 'A sealed box containing booster packs.',
---     client = { image = 'booster_box_item.png', export = 'rush-tradingcards.OpenBox' },
+--     client = { image = 'booster_box_item.png', export = 'meta-comic.OpenBox' },
 -- },
 -- ['tradingcard'] = {
 --     label = 'Trading Card', weight = 100, stack = false, close = true, consume = 0,
 --     description = 'A trading card',
---     client = { image = 'tradingcard_item_purple.png', export = 'rush-tradingcards.ShowCard' },
+--     client = { image = 'tradingcard_item_purple.png', export = 'meta-comic.ShowCard' },
 --     buttons = {
 --         { label = 'Show Card', action = function(slot)
 --             exports.ox_inventory:closeInventory()
---             exports['rush-tradingcards']:ShowOthersCard(slot)
+--             exports['meta-comic']:ShowOthersCard(slot)
 --         end },
 --     },
 -- },
@@ -69,7 +69,7 @@
 --     buttons = {
 --         { label = 'View Binder', action = function(slot)
 --             exports.ox_inventory:closeInventory()
---             exports['rush-tradingcards']:ViewBinder(slot)
+--             exports['meta-comic']:ViewBinder(slot)
 --         end },
 --     },
 -- },

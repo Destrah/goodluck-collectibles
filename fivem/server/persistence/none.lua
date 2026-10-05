@@ -1,4 +1,4 @@
-RushCards.PersistenceAdapters.none = function()
+MetaComic.PersistenceAdapters.none = function()
     return {
         name = 'none',
         init = function() return true end,

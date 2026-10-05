@@ -1,4 +1,4 @@
-RushCards.InventoryAdapters.ox_inventory = function()
+MetaComic.InventoryAdapters.ox_inventory = function()
     return {
         name = 'ox_inventory',
         count = function(source, item)
@@ -105,6 +105,9 @@ RushCards.InventoryAdapters.ox_inventory = function()
         add = function(source, item, count, metadata)
             local success = exports.ox_inventory:AddItem(source, item, count or 1, metadata)
             return success == true
+        end,
+        canCarry = function(source, item, count)
+            return exports.ox_inventory:CanCarryItem(source, item, count) == true
         end,
     }
 end

@@ -1,0 +1,15 @@
+<!doctype html><html><body><button id="admin">Open admin</button><button id="update">Update saved plushie</button><div id="root"></div><script>
+window.GetParentResourceName=()=> 'test-collectibles';
+const baseFetch=window.fetch;
+let title='Reload Test Bear';
+const info={capabilities:{management:true,editor:true,catalogWrite:true,collectibles:true},packAnimation:{maxSpeed:3}};
+window.fetch=async(input,options)=>{
+ if(!String(input).startsWith('https://test-collectibles/'))return baseFetch(input,options);
+ const endpoint=String(input).split('/').pop();console.log('Test endpoint',endpoint);
+ const data={definitions:[{id:'bear',collectableType:'plushie',title,prints:[{id:'base',name:'Standard',rarityKey:'common',chanceWeight:100}]}],sets:[],containers:{},sealed:[],instances:[]};
+ const payload=endpoint==='getRuntimeInfo'?info:endpoint==='getCatalog'?{cards:[],sets:[]}:endpoint==='getCollectibles'?{data}:endpoint==='getSets'?{sets:[]}:endpoint==='getPackPrefs'?{prefs:{}}:{};
+ return new Response(JSON.stringify({ok:true,...payload}),{headers:{'Content-Type':'application/json'}});
+};
+document.getElementById('admin').onclick=()=>window.postMessage({type:'metaComic:open',mode:'admin',runtimeInfo:info},'*');
+document.getElementById('update').onclick=()=>{title='Updated Reload Bear';};
+</script><script type="module" src="/src/main.jsx"></script></body></html>

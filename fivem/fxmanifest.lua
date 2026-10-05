@@ -2,7 +2,7 @@ fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
 
-author 'Rush Trading Cards modular integration'
+author 'Meta Comic Collectables modular integration'
 description 'Standalone React trading cards with optional FiveM/QBCore/Qbox/database adapters'
 
 ui_page 'web/index.html'
@@ -10,6 +10,8 @@ ui_page 'web/index.html'
 shared_scripts {
     'config.lua',
     'shared/utils.lua',
+    'shared/legacy.lua',
+    'shared/collectables.lua',
 }
 
 client_scripts {
@@ -31,6 +33,8 @@ server_scripts {
     'server/runtime.lua',
     'server/sets.lua',
     'server/cards.lua',
+    'server/modules/trading_cards.lua',
+    'server/modules/objects.lua',
     'server/main.lua',
 }
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import TradingCard from './TradingCard'
+import RotatableCollectible from '../collectables/RotatableCollectible'
+import '../collectables/collectibles.css'
 
 const VIEWER_W = 390
 const VIEWER_H = 546
@@ -38,8 +39,8 @@ export default function CardViewer({ card, originRect, onClose, title = 'Card de
         }}
         onClick={event => event.stopPropagation()}
       >
-        <button className="viewer-close" onClick={close} aria-label="Close large card">×</button>
-        <TradingCard card={card} size="viewer" interactive />
+        <button className="viewer-close" onClick={close} aria-label="Close collectible view">×</button>
+        <RotatableCollectible item={card} />
       </div>
     </div>
   )

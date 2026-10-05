@@ -25,31 +25,31 @@ local function detectPersistence()
 end
 
 local frameworkName = detectFramework()
-local frameworkFactory = RushCards.FrameworkAdapters[frameworkName]
-if not frameworkFactory then error(('Unknown Rush Cards framework adapter: %s'):format(frameworkName)) end
-RushCards.Framework = frameworkFactory()
+local frameworkFactory = MetaComic.FrameworkAdapters[frameworkName]
+if not frameworkFactory then error(('Unknown Meta Comic framework adapter: %s'):format(frameworkName)) end
+MetaComic.Framework = frameworkFactory()
 
 local inventoryName = detectInventory(frameworkName)
-local inventoryFactory = RushCards.InventoryAdapters[inventoryName]
-if not inventoryFactory then error(('Unknown Rush Cards inventory adapter: %s'):format(inventoryName)) end
-RushCards.Inventory = inventoryFactory()
+local inventoryFactory = MetaComic.InventoryAdapters[inventoryName]
+if not inventoryFactory then error(('Unknown Meta Comic inventory adapter: %s'):format(inventoryName)) end
+MetaComic.Inventory = inventoryFactory()
 
 local persistenceName = detectPersistence()
-local persistenceFactory = RushCards.PersistenceAdapters[persistenceName]
-if not persistenceFactory then error(('Unknown Rush Cards persistence adapter: %s'):format(persistenceName)) end
-RushCards.Persistence = persistenceFactory()
-RushCards.Persistence.init()
+local persistenceFactory = MetaComic.PersistenceAdapters[persistenceName]
+if not persistenceFactory then error(('Unknown Meta Comic persistence adapter: %s'):format(persistenceName)) end
+MetaComic.Persistence = persistenceFactory()
+MetaComic.Persistence.init()
 
-RushCards.RuntimeInfo = {
+MetaComic.RuntimeInfo = {
     runtime = 'fivem',
-    framework = RushCards.Framework.name,
-    inventory = RushCards.Inventory.name,
-    persistence = RushCards.Persistence.name,
+    framework = MetaComic.Framework.name,
+    inventory = MetaComic.Inventory.name,
+    persistence = MetaComic.Persistence.name,
     capabilities = {
         editor = Config.Nui.AllowEditor == true,
         catalogWrite = Config.Catalog.AllowWrite == true,
-        collection = RushCards.Persistence.name ~= 'none',
+        collection = MetaComic.Persistence.name ~= 'none',
     }
 }
 
-RushCards.Debug('framework', RushCards.Framework.name, 'inventory', RushCards.Inventory.name, 'persistence', RushCards.Persistence.name)
+MetaComic.Debug('framework', MetaComic.Framework.name, 'inventory', MetaComic.Inventory.name, 'persistence', MetaComic.Persistence.name)

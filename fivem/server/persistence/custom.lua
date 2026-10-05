@@ -1,6 +1,6 @@
 -- Optional template for custom persistence.
 -- Set Config.Persistence = 'custom' after implementing these methods.
-RushCards.PersistenceAdapters.custom = function()
+MetaComic.PersistenceAdapters.custom = function()
     return {
         name = 'custom',
         init = function() return true end,

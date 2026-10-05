@@ -1,0 +1,48 @@
+Update 003 - MySQL catalog and sets (apply after updates 001 and 002)
+
+INSTALL
+1. Back up your resource data and database.
+2. Stop the trading-card resource.
+3. Copy the CONTENTS of this ZIP's fivem folder into your existing resource,
+   overwriting the included files. Keep your config.lua and all saved JSON data.
+4. Keep Config.Persistence = 'mysql' and start oxmysql before this resource.
+5. If Config.Database.AutoCreateSchema is true, start the resource: it creates
+   the new table and imports existing catalog.json and sets.json automatically.
+   If false, apply the included data/mysql.sql first. Adjust table names for
+   custom Config.Database.Table / Config.Database.DefinitionsTable values.
+6. Open /cardadmin, save a test edit, restart the resource, and verify the edit.
+
+STORAGE
+The default new table is rush_trading_card_instances_definitions. It contains
+catalog and sets rows, each with its ordered list in definition_json.
+For a customized instance table, the default is <instance table>_definitions.
+An optional Config.Database.DefinitionsTable overrides that name.
+No config changes are required with the existing default settings.
+
+Existing database rows take precedence. JSON is imported only when a definitions
+row is absent. Admin Save/Delete writes to MySQL only; local JSON is left alone.
+Missing/corrupt initial seed files or database failures produce errors instead
+of silently switching to JSON. Restart/reload reads the database definitions.
+JSON and other persistence modes retain their existing file-based definitions.
+
+Acquired-card history stays in the existing instance table, unchanged. Inventory
+items keep their snapshots, so catalog edits do not alter already printed cards.
+History records original acquisitions, rather than current ownership after trades.
+This update does not import collections.json into the acquired-card table.
+
+The database definitions use JSON columns stored as LONGTEXT; this preserves all
+nested prints, masks, effects, remote URLs, ordering and set membership together.
+Switching to JSON mode reads the old JSON seed files, not current database edits.
+
+VERIFICATION
+Eight tests executed the actual Lua 5.4 modules with mocked oxmysql/file APIs:
+one-time import, restart, set save/card delete, full catalog save, old resolved
+copy independence, failed writes preserving memory/files, empty stored catalog,
+corruption/read failure, competing import, and JSON-mode compatibility.
+No live FiveM/MySQL instance was available for an integration test.
+Frontend files are unchanged, so no frontend rebuild is needed for this update.
+
+SOURCE TESTS
+scripts/test-mysql-persistence.py requires Python and lupa (Lua 5.4).
+Run: python scripts/test-mysql-persistence.py
+The scripts folder is for the local source checkout, not the server resource.

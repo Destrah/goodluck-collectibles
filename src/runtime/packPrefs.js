@@ -1,5 +1,7 @@
 import { bridge } from './bridge'
 import { isFiveM } from './env'
+import { readMigratedStorage } from './legacyStorage.js'
+import { sanitizeContainerAnimations } from '../collectables/containerPrefs.js'
 
 export const MIN_SPEED = 1 // 1x is the original pace and is the slowest allowed
 export const DEFAULT_MAX_SPEED = 3
@@ -29,6 +31,7 @@ export function sanitizePrefs(raw, maxSpeed = DEFAULT_MAX_SPEED) {
     speed: clampSpeed(p.speed ?? defaults.speed, maxSpeed),
     tear: TEARS.includes(p.tear) ? p.tear : (RETIRED_TEARS[p.tear] || defaults.tear),
     fan: FANS.includes(p.fan) ? p.fan : defaults.fan,
+    containerAnimations: sanitizeContainerAnimations(p.containerAnimations),
   }
 }
 
@@ -53,21 +56,22 @@ export async function loadPackPrefs(maxSpeed = DEFAULT_MAX_SPEED) {
       const res = await bridge.getPackPrefs()
       return sanitizePrefs(res?.prefs, maxSpeed)
     }
-    const saved = localStorage.getItem(KEY)
+    const saved = readMigratedStorage(KEY)
     return sanitizePrefs(saved ? JSON.parse(saved) : null, maxSpeed)
   } catch {
     return defaultPackPrefs()
   }
 }
 
-const KEY = 'rush-tradingcards-pack-prefs-v1'
+const KEY = 'meta-comic-pack-prefs-v1'
 
-export async function savePackPrefs(prefs, maxSpeed = DEFAULT_MAX_SPEED) {
+export async function savePackPrefs(prefs, maxSpeed = DEFAULT_MAX_SPEED, throwOnError = false) {
   const clean = sanitizePrefs(prefs, maxSpeed)
   try {
     if (isFiveM) await bridge.savePackPrefs(clean)
     else localStorage.setItem(KEY, JSON.stringify(clean))
   } catch (error) {
+    if (throwOnError) throw error
     console.warn('Could not save pack animation preferences.', error)
   }
   return clean

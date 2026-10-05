@@ -1,4 +1,4 @@
-RushCards.Sets = RushCards.Sets or {}
+MetaComic.Sets = MetaComic.Sets or {}
 
 local resource = GetCurrentResourceName()
 local sets = {}
@@ -37,20 +37,26 @@ end
 
 local function loadSets()
     local fileName = (Config.Sets and Config.Sets.File) or 'data/sets.json'
-    local raw = LoadResourceFile(resource, fileName)
-    if not raw or raw == '' then
-        sets = {}
-        print(('[rush-tradingcards] sets file missing: %s'):format(fileName))
-        return sets
-    end
+    local decoded
+    if MetaComic.Persistence.name == 'mysql' then
+        decoded = MetaComic.Persistence.loadSets(fileName)
+    else
+        local raw = LoadResourceFile(resource, fileName)
+        if not raw or raw == '' then
+            sets = {}
+            print(('[meta-comic] sets file missing: %s'):format(fileName))
+            return sets
+        end
 
-    local ok, decoded = pcall(json.decode, raw)
-    if not ok or type(decoded) ~= 'table' then
-        sets = {}
-        print('[rush-tradingcards] sets.json could not be decoded')
-        return sets
-    end
+        local ok
+        ok, decoded = pcall(json.decode, raw)
+        if not ok or type(decoded) ~= 'table' then
+            sets = {}
+            print('[meta-comic] sets.json could not be decoded')
+            return sets
+        end
 
+    end
     local normalized, used = {}, {}
     for index, item in ipairs(decoded) do
         local set = normalizeSet(item, index)
@@ -59,45 +65,65 @@ local function loadSets()
             normalized[#normalized + 1] = set
         end
     end
+    -- Recover missing memberships from real saved definitions after an incomplete migration.
+    if #normalized == 0 and MetaComic.Persistence.name == 'mysql' then
+        local cards=MetaComic.Persistence.loadCatalog()
+        if #cards>0 then
+            local members={};for _,card in ipairs(cards) do members[#members+1]=card.id end
+            local recovered=normalizeSet({id=(Config.Sets and Config.Sets.Default) or 'base',name='Base Set',cardIds=members},1)
+            local ok,err=MetaComic.Persistence.saveSets({recovered})
+            if not ok then error('Could not restore missing card set: '..tostring(err)) end
+            normalized={recovered}
+            print('[meta-comic] restored missing card set from persisted definitions')
+        end
+    end
     sets = normalized
     return sets
 end
 
 local function saveSets(list)
     local fileName = (Config.Sets and Config.Sets.File) or 'data/sets.json'
-    SaveResourceFile(resource, fileName, json.encode(list), -1)
+    if MetaComic.Persistence.name == 'mysql' then
+        return MetaComic.Persistence.saveSets(list)
+    end
+    if not SaveResourceFile(resource, fileName, json.encode(list), -1) then
+        return false, 'Could not save sets JSON file'
+    end
+    return true
 end
 
-function RushCards.Sets.reload()
+function MetaComic.Sets.reload()
     return loadSets()
 end
 
-function RushCards.Sets.getAll()
-    return RushCards.CopyTable(sets)
+function MetaComic.Sets.getAll()
+    return MetaComic.CopyTable(sets)
 end
 
-function RushCards.Sets.get(id)
+function MetaComic.Sets.get(id)
     id = tostring(id or '')
     for _, set in ipairs(sets) do
-        if set.id == id then return RushCards.CopyTable(set) end
+        if set.id == id then return MetaComic.CopyTable(set) end
     end
     return nil
 end
 
-function RushCards.Sets.defaultId()
-    return tostring((Config.Sets and Config.Sets.Default) or 'base')
+function MetaComic.Sets.defaultId()
+    local configured=tostring((Config.Sets and Config.Sets.Default) or 'base')
+    if MetaComic.Sets.get(configured) then return configured end
+    return sets[1] and sets[1].id or configured
 end
 
-function RushCards.Sets.resolveId(id)
+function MetaComic.Sets.resolveId(id)
     local requested = tostring(id or '')
-    if requested ~= '' and RushCards.Sets.get(requested) then return requested end
-    local fallback = RushCards.Sets.defaultId()
-    if RushCards.Sets.get(fallback) then return fallback end
+    if requested ~= '' and MetaComic.Sets.get(requested) then return requested end
+    local fallback = MetaComic.Sets.defaultId()
+    if MetaComic.Sets.get(fallback) then return fallback end
     return sets[1] and sets[1].id or nil
 end
 
-function RushCards.Sets.cardAllowed(setId, cardId)
-    local set = RushCards.Sets.get(setId)
+function MetaComic.Sets.cardAllowed(setId, cardId)
+    local set = MetaComic.Sets.get(setId)
     if not set then return false end
     for _, allowed in ipairs(set.cardIds or {}) do
         if allowed == cardId then return true end
@@ -105,11 +131,11 @@ function RushCards.Sets.cardAllowed(setId, cardId)
     return false
 end
 
-function RushCards.Sets.save(list)
+function MetaComic.Sets.save(list)
     if type(list) ~= 'table' then return false, 'sets must be an array' end
     local knownCards = {}
-    if RushCards.Cards and RushCards.Cards.getCatalog then
-        for _, card in ipairs(RushCards.Cards.getCatalog() or {}) do
+    if MetaComic.Cards and MetaComic.Cards.getCatalog then
+        for _, card in ipairs(MetaComic.Cards.getCatalog() or {}) do
             if card.id then knownCards[card.id] = true end
         end
     end
@@ -127,7 +153,8 @@ function RushCards.Sets.save(list)
         normalized[#normalized + 1] = set
     end
     if #normalized == 0 then return false, 'At least one card set is required.' end
-    saveSets(normalized)
+    local ok, err = saveSets(normalized)
+    if not ok then return false, err end
     sets = normalized
     return true
 end

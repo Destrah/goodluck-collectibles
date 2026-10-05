@@ -1,6 +1,22 @@
-# Rush Trading Cards — FiveM integration
+# Meta Comic Collectables — FiveM integration
 
 This folder is an optional FiveM host for the same React application.
+
+## Existing installation upgrade
+
+The main commands are now `/collectables`, `/collectablesadmin`, `/collectablesoptions`, `/collectablespack`, `/collectablesbox`, and `/collectablesicons`. Existing `/card...` commands remain aliases, and older configuration files still work. `/collectablesrestoreseed` is console-only.
+
+Coin bags, plushie boxes, and outer cases roll and consume their container on the server, but deliver the frozen contents only after everything is revealed or the opening is closed. Pending deliveries use `goodluck_collectibles_openings` in MySQL (or `data/collectible_openings.json` with JSON persistence). Restart recovery uses the character identifier. Full inventories keep their pending delivery for retry. With `AutoCreateSchema = true`, the new table is created at resource startup; otherwise apply the updated `data/collectibles.sql` first.
+
+Deploy the updated `client/main.lua`, `server/main.lua`, `server/modules/objects.lua`, `data/collectibles.sql`, and rebuilt `web` folder together. Container animation preferences are per player in `/collectablesoptions`; Random is the default for bags, plushie boxes, and cases. The sealed design and inventory snapshot are preserved.
+
+Keep your existing resource folder name during the upgrade to preserve resource-scoped JSON files and player KVP preferences. New installations can use `meta-comic` as shown below. Preserve your configured framework, inventory, commands, item names, and gameplay values.
+
+At startup, the MySQL adapter automatically transfers the old table prefix to `goodluck_collectibles_` using one table rename statement before schema creation and catalog loading. Existing definitions, memberships, acquisition snapshots, and migration markers stay in those tables. Do not pre-create the new tables on an existing installation: if both names exist the adapter stops and logs the conflicting table, preserving both copies for manual review. The database account needs table-renaming permissions. Back up the database before upgrading.
+
+Current ACE names are `metacomic.manage` and `metacomic.catalog.write`; the upload key convar is `metacomic_fivemanage_key`. Upgrade-only aliases preserve existing grants/keys and migrate saved player preferences. Internal events and NUI messages now use `meta_comic` / `metaComic`; update any custom integrations that referenced the previous event names. Existing inventory item names remain unchanged. Copy the updated example inventory images if you manage those images manually.
+
+See [collectable modules](../docs/collectable-modules.md) for the trading card module and future container/type extension points.
 
 ## Build the NUI
 From the project root:
@@ -12,16 +28,18 @@ npm run build:fivem
 
 This builds the React app into `fivem/web` and synchronizes `public/img` into `fivem/img`.
 
+The build does not deploy Lua or the manifest to your running server. For an upgrade, copy the complete updated `fivem` resource, including `fxmanifest.lua`, `shared`, `server`, `client`, `web`, and `img`, into the existing server resource directory. Preserve server-owned configuration values and data files; update the table prefix or let the adapter normalize the previous prefix. Copying only `web` leaves the old backend running. The migration is now internal to `server/persistence/mysql.lua`, with no separate migration-script startup dependency.
+
 Then copy/rename the `fivem` folder into your FiveM resources directory, for example:
 
 ```text
-resources/[custom]/rush-tradingcards/
+resources/[custom]/meta-comic/
 ```
 
 and add:
 
 ```cfg
-ensure rush-tradingcards
+ensure meta-comic
 ```
 
 ## Runtime modes
@@ -71,7 +89,36 @@ Config.Persistence = 'mysql'
 Config.Database.Resource = 'oxmysql'
 ```
 
-`AutoCreateSchema = true` creates the owned-card table automatically. The same schema is also in `data/mysql.sql`.
+`AutoCreateSchema = true` creates the relational tables automatically from `data/mysql.sql`. When disabled, apply that schema manually before starting the resource. Start `oxmysql` before this resource.
+
+The default tables are:
+
+| Table | Purpose |
+| --- | --- |
+| `goodluck_collectibles_cards` | One row per base card, with title, stats, text, artwork URL and colors in individual columns. |
+| `goodluck_collectibles_card_prints` | One row per print, linked to its base card, with rarity, layout, foil settings, artwork and its own framing columns. |
+| `goodluck_collectibles_card_sets` | One row per set, with name, code and description. |
+| `goodluck_collectibles_card_set_cards` | One row per set/card membership; supports cards in multiple sets and preserves membership order. |
+| `goodluck_collectibles_card_storage` | Internal schema/migration marker; prevents repeated imports, including intentionally empty catalogs. |
+| `goodluck_collectibles_card_instances` | Original acquisition history and immutable card snapshots. |
+
+Each print belongs to one base card. Set membership refers to base cards, so a set can pull their eligible print variants. IDs use a case-sensitive collation. Composite primary keys prevent duplicate prints within a card and duplicate set memberships; foreign keys prevent orphaned links. Deleting a definition cascades to its prints and memberships, while physical item snapshots and acquisition history remain independent. Only variable nested content (moves, subject-effect layers and additional extensible fields) uses JSON; set membership is stored as rows, not a JSON list.
+
+**Migration:** On first startup, the adapter migrates update 003's `catalog` and `sets` records from the legacy definitions table, if present. Otherwise it imports your configured JSON seed files. The marker and all imported rows commit in one transaction. Existing legacy database documents and local JSON files are preserved. Stale memberships referencing already deleted cards are skipped with a server log message. Invalid seed data or database failures stop the migration instead of falling back to JSON. If populated relational tables have no migration marker, the adapter refuses to overwrite them. Once initialized, restarts use the relational tables; seed files no longer override them.
+
+**FiveM runtime:** Four bulk reads populate the catalog/set cache at startup, avoiding per-card queries and joins that repeat large artwork or effect data. Pack rolling, previews and set selection use that cache. Admin Save/Delete compares against the cache and writes only changed rows and columns in a single [oxmysql transaction](https://coxdocs.dev/oxmysql/Functions/transaction). A crop-only edit updates framing columns without resending unchanged artwork or mask JSON. Cache updates happen only after commit; failed transactions leave both the cache and rows unchanged. Overlapping admin writes receive a retry message. Acquired cards from a pack are inserted together in a separate transaction. Changes made directly in SQL require a resource restart to refresh the cache; use `/cardadmin` for normal edits. One running resource should manage a given set of tables.
+
+Existing `Config.Database.Table`, `Resource` and `AutoCreateSchema` values are preserved. Optional table-name overrides are `CardsTable`, `PrintsTable`, `SetsTable`, `SetCardsTable`, and `StorageTable`. Default names derive from `Config.Database.Table` with a trailing `_instances` removed; the standard instance table uses the names above. `DefinitionsTable` selects the legacy migration source only. For manual schema installation with custom names, adjust the SQL table names and foreign-key references consistently. Names must be distinct and contain only letters, digits and underscores, up to 55 characters.
+
+The acquired-card table records original pulls/manual prints, rather than current inventory ownership. Trading or removing an item does not update that history. Your inventory system persists physical cards and binders; item metadata snapshots remain the display source of truth after catalog edits. Existing acquired-card records are untouched by migration, and `collections.json` is not imported into that table.
+
+Switching back to JSON mode reads the old JSON files; it does not export current database edits. Back up the database and resource data before changing storage modes.
+
+### Catalog display and recovery
+
+FiveM displays only the server's persisted catalog. Bundled standalone demo cards/prints are not inserted into the FiveM editor, and a failed or empty catalog load does not fall back to demo data. Saving one card uses the persistence adapter's current catalog to preserve unrelated records, even if the editor/domain cache is stale. Full JSON Import and the confirmed demo Reset remain explicit catalog replacements.
+
+If cards were missing from the database while the old UI still showed bundled demos, rebuild/deploy the updated NUI and restart the resource. Then run `cardrestoreseed` in the **server console**, and reopen `/cardadmin`. This MySQL-only command merges missing cards, prints, sets and membership links from the preserved legacy definitions table and configured JSON seeds in one transaction. Existing relational IDs, card/print edits, set details, and new cards are kept; no records are deleted. It prints the recovery counts, and repeating it does not duplicate records. It can also restore deliberately deleted seed entries, so recovery is explicit rather than automatic. Recovery depends on those preserved sources containing the missing records.
 
 ## JSON persistence
 `Config.Persistence = 'json'` stores owned card instances in `data/collections.json`.
@@ -105,7 +152,7 @@ The pack roll is always done on the FiveM server. The NUI only receives the resu
 - **Booster pack:** the server checks and removes one pack, then the opening plays in the **centre of the player's screen**
   (no lab UI): the selected tear style, the cards fanned out in the middle of the screen, **Flip all** and **Done**. Players can also press the configured `Config.PackAnimation.FlipAllKey` (default **F**) to flip all remaining cards.
 - **Booster box:** the server removes one box and adds `Config.Items.PacksPerBox` booster packs to the player's inventory
-  (refunds the box if the packs don't fit). A produced box carries `setId` / `setName` metadata and every pack created from it inherits that same set metadata. A box-opening animation can hook into `rush_cards:client:boxOpened` later.
+  (refunds the box if the packs don't fit). A produced box carries `setId` / `setName` metadata and every pack created from it inherits that same set metadata. A box-opening animation can hook into `meta_comic:client:boxOpened` later.
 - **Booster pack set filtering:** a produced pack carries its series/set metadata. When that exact inventory slot is used, the server removes that exact pack and rolls only cards assigned to that set in `data/sets.json`. Pulled card items also record the source set.
 - **Trading cards:** with `GiveCardItems = true` (default) every pulled card becomes a `tradingcard` item: 5 per pack, labelled
   with the card name / print / rarity (ox_inventory also shows the card art). They're handed over once all five are flipped or the
@@ -122,16 +169,16 @@ How item use is wired (`Config.Items.UseMethod`, default `'auto'` = both routes)
 | --- | --- | --- |
 | QBCore + qb-inventory | framework | `examples/qbcore-items.lua` |
 | QBCore or Qbox + ox_inventory | framework (ox passes the use to QBCore / Qbox) | block **A** of `examples/ox_inventory-items.lua` (`consume = 0`, no client export) |
-| Standalone + ox_inventory | ox_export | block **B** of `examples/ox_inventory-items.lua` (client export; rename `rush-tradingcards` if needed) |
+| Standalone + ox_inventory | ox_export | block **B** of `examples/ox_inventory-items.lua` (client export; rename `meta-comic` if needed) |
 | Custom framework | `framework` | Fill in `registerUsableItem` in `server/adapters/framework_custom.lua`. |
 
 ## Card inventory icons (ox_inventory)
 `Config.CardIcons.Mode`:
-- `'rarity'` (default): one 100x100 icon per rarity (`img/cards/rushcard_<rarity>.png`). Nothing to set up.
+- `'rarity'` (default): one 100x100 icon per rarity (`img/cards/metacard_<rarity>.png`). Nothing to set up.
 - `'upload'`: every card gets **one icon per rarity it comes in** (at most 5 per card; all variants and copies of that card at
   that rarity share it), a 100x100 icon (frame in the card's colour, artwork, name, HP, rarity stars),
   drawn in a player's game UI, uploaded to Fivemanage by the server and remembered in `data/card_icons.json`.
-  Add your key to **server.cfg** (never config.lua, which players receive): `set rushcards_fivemanage_key "your-api-key"`.
+  Add your key to **server.cfg** (never config.lua, which players receive): `set metacomic_fivemanage_key "your-api-key"`.
   Each icon is uploaded once; opening packs or giving items never uploads anything new. On start (and with `cardicons` in
   the server console) the saved urls are checked, and icons deleted from Fivemanage are uploaded again.
   Missing icons are made automatically, 8 at a time, by the first player online whose UI has loaded:
@@ -153,7 +200,7 @@ card and then turn back into the item's default picture when the card was moved.
 - **Older** ox_inventory: only `i.imgur.com`, so Fivemanage urls are always deleted.
 
 When ox would delete the urls, the script switches to **picture files**: each print's icon is also saved into
-`ox_inventory/web/images/rushcard_<print>_<version>.png` and given to the item as `metadata.image`, which ox never checks.
+`ox_inventory/web/images/metacard_<print>_<version>.png` and given to the item as `metadata.image`, which ox never checks.
 FiveM only lets players download files that existed when ox_inventory started, so a new or redrawn icon shows **after the
 next server restart** (the card keeps its rarity icon until then; items switch over automatically when their owner joins).
 The 5 rarity pictures are copied there too. The server console prints which case you're in on every start
@@ -192,18 +239,18 @@ Without `RequireForOpen = true` the pack/box commands are free test commands and
 Client:
 
 ```lua
-exports['rush-tradingcards']:OpenCards('pack')
-exports['rush-tradingcards']:OpenPack()
-exports['rush-tradingcards']:OpenBox()
-exports['rush-tradingcards']:CloseCards()
+exports['meta-comic']:OpenCards('pack')
+exports['meta-comic']:OpenPack()
+exports['meta-comic']:OpenBox()
+exports['meta-comic']:CloseCards()
 ```
 
 Server:
 
 ```lua
-local collection = exports['rush-tradingcards']:GetCollection(source)
-local result = exports['rush-tradingcards']:OpenPackForPlayer(source) -- rolls + saves a pack, no animation
-exports['rush-tradingcards']:GivePackOpening(source)                -- plays a free pack opening on the player's screen
+local collection = exports['meta-comic']:GetCollection(source)
+local result = exports['meta-comic']:OpenPackForPlayer(source) -- rolls + saves a pack, no animation
+exports['meta-comic']:GivePackOpening(source)                -- plays a free pack opening on the player's screen
 ```
 
 ## Card catalog
@@ -240,7 +287,7 @@ Configure access in `config.lua`:
 ```lua
 Config.Management = {
     Enabled = true,
-    Ace = 'rushcards.manage',
+    Ace = 'metacomic.manage',
     QBCorePermissions = { 'admin', 'god' },
     Jobs = {
         -- cardshop = 0,
@@ -255,10 +302,10 @@ Config.Management = {
 ACE example:
 
 ```cfg
-add_ace group.admin rushcards.manage allow
+add_ace group.admin metacomic.manage allow
 ```
 
-The older `rushcards.catalog.write` ACE is still accepted for backwards compatibility. `Config.Catalog.AllowWrite` must also be `true` for card-editor saves; set management and item production are still governed by `Config.Management`.
+The older `metacomic.catalog.write` ACE is still accepted for backwards compatibility. `Config.Catalog.AllowWrite` must also be `true` for card-editor saves; set management and item production are still governed by `Config.Management`.
 
 ### Series / sets and sealed-item metadata
 
@@ -300,3 +347,7 @@ See:
 examples/qbcore-items.lua
 examples/ox_inventory-items.lua
 ```
+
+## Plushies and challenge coins
+
+The shared editor now supports plushie boxes/cases and challenge coin bags/boxes with server-owned opening and immutable inventory snapshots. Deploy all updated Lua files and the manifest as well as the NUI build, and register the items from `examples/ox_inventory-collectibles.lua`. See [collectable systems](../docs/collectable-modules.md) for schema, defaults, setup, and extension details.

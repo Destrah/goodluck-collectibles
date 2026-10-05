@@ -34,14 +34,10 @@ async function flushCatalogQueue() {
 }
 
 export const fivemStorage = {
-  async loadCatalog(fallback) {
-    try {
-      const result = await bridge.getCatalog()
-      return Array.isArray(result?.cards) && result.cards.length ? result.cards : fallback
-    } catch (error) {
-      console.warn('Could not load FiveM catalog, using bundled cards.', error)
-      return fallback
-    }
+  async loadCatalog() {
+    const result = await bridge.getCatalog()
+    if (!Array.isArray(result?.cards)) throw new Error('The server returned an invalid card catalog.')
+    return result.cards
   },
 
   async saveCard(card) {

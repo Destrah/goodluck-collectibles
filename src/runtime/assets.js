@@ -141,7 +141,7 @@ async function fiveMProxy(url) {
 }
 
 async function viteProxy(url) {
-  const endpoint = `/__rush_cards_asset?url=${encodeURIComponent(url)}`
+  const endpoint = `/__meta_comic_asset?url=${encodeURIComponent(url)}`
   let response
   try {
     response = await fetch(endpoint, { method: 'GET', cache: 'force-cache' })

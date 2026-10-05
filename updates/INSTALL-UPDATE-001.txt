@@ -1,0 +1,64 @@
+Update 001 - Per-print framing and immutable physical cards
+
+INSTALL ON YOUR FIVEM SERVER
+1. Back up your existing trading-card resource folder.
+2. Stop the trading-card resource.
+3. Extract this ZIP somewhere temporary.
+4. Copy the CONTENTS of its fivem folder into your existing resource folder,
+   preserving the server/ and web/ paths. Overwrite matching files.
+   Example: fivem/server/main.lua goes to <your-resource>/server/main.lua.
+5. Start the resource again. No npm build is required on the server.
+
+This update intentionally excludes config.lua, catalog.json, sets.json,
+collections.json, and other runtime data. Keep your existing versions.
+The old hashed JavaScript files may remain; web/index.html loads the new files.
+
+LOCAL CODEX / SOURCE PROJECT
+The source changes have already been applied in this workspace. The ZIP also
+includes src/ files and scripts/test-print-framing.mjs for another checkout.
+For future updates, ask Codex to implement the changes and produce the next
+numbered drop-in ZIP. You can review the workspace diff before deploying it.
+
+CHANGES
+- Every print has independent horizontal position, vertical position and zoom,
+  including prints sharing the same base image. Base positioning controls are removed.
+- Existing base crops migrate to prints using base artwork; separate artwork keeps
+  its own crop. Migration does not rewrite the catalog during server startup.
+- Changing a print's image or returning to base artwork retains its print crop.
+- Save/Revert remains explicit.
+- New pulled and manually printed inventory items contain cardSnapshot, a deep copy
+  of the fully resolved card including artwork/mask URLs, layers, framing, stats,
+  text, colors, rarity, layout and acquisition information.
+- Physical card viewers, nearby Show Card and binders use the item snapshot first,
+  including after transfer or deletion of the catalog definition.
+- Snapshot card labels and appearance remain frozen. A pending inventory icon can
+  finish loading only when its signature matches the appearance captured at creation.
+- Card, binder and icon-render payloads use latent server events.
+
+LEGACY ITEMS
+Existing ox_inventory items are frozen when refreshed/used, and online players'
+card items and binders are frozen before catalog Save/Delete. The owner's saved
+collection is preferred, with the current catalog as a fallback. Offline/stash items
+without snapshots migrate when encountered. If original metadata was never stored
+and no saved collection copy exists, historical edits cannot be reconstructed.
+
+VERIFICATION
+- Three Node framing regression tests passed:
+  node --test scripts/test-print-framing.mjs
+- Standalone and FiveM production builds passed. npm is unavailable in this
+  environment, so the package build commands were executed directly through Node:
+  node node_modules/vite/bin/vite.js build
+  node scripts/sync-fivem-assets.mjs
+  node node_modules/vite/bin/vite.js build --mode fivem
+- git diff --check passed. Vite reports its existing large-chunk warning.
+- No live FiveM/ox_inventory runtime was available for integration testing.
+
+IN-GAME ACCEPTANCE CHECK
+1. Make two prints share an image. Set different crops and Save. Reopen /cardadmin
+   and confirm they keep their own crops; verify mask alignment in each preview.
+2. Pull a card and manually print another. Edit title, image, crop, layout and masks
+   in /cardadmin, then Save. Old cards must retain their appearance and metadata;
+   newly created cards must show the new definition.
+3. Transfer an old card, place it in a binder, Show Card to another player, then
+   restart the resource. All views should retain its original snapshot.
+4. Delete a test card definition and confirm its already printed item still displays.

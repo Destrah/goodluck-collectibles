@@ -22,7 +22,7 @@ Includes every earlier Back peel / flip-effects / overlay change, so it is safe 
 ## Latest round (v10): no duplicate uploads
 - Each card print + look is uploaded to Fivemanage **once**: the upload is skipped when that print already has a url, when an
   identical picture was already uploaded, or when it was already sent this session. File names are now fixed per print + look
-  (`rushcard_<print>_<look>.webp`) instead of time-stamped.
+  (`metacard_<print>_<look>.webp`) instead of time-stamped.
 - Fixed the cause of the repeats: when a picture file couldn't be written into ox_inventory's images folder, the same card
   was redrawn and re-uploaded over and over. Writes are now verified, and a failed one is logged once and not retried until
   the next start.
@@ -90,7 +90,7 @@ If a pack still isn't taken, set `Config.Debug = true`, use one and send the ser
 - **Inventory icons** (`Config.CardIcons.Mode`):
   - `'rarity'` (default) — 5 icons, one per rarity, no setup.
   - `'upload'` — each print gets its own 100x100 icon, drawn in-game on its first pull and uploaded to **Fivemanage**
-    (`set rushcards_fivemanage_key "..."` in server.cfg). URLs are kept in `fivem/data/card_icons.json`.
+    (`set metacomic_fivemanage_key "..."` in server.cfg). URLs are kept in `fivem/data/card_icons.json`.
   - `/cardicons` refreshes the icons of the card items you already hold (server console: retries missing icons).
 - **Binder:** `Config.Items.Binder` now defaults to `{ 'trading_card_binder', 'cardbinder' }`. The binder must be an ox_inventory
   container (`setContainerProperties('trading_card_binder', ...)` in ox_inventory's `modules/items/containers.lua`) and must be
@@ -107,7 +107,7 @@ Delete `scripts/render-card-thumbs.mjs` and the 38 per-card PNGs + `index.json` 
 | `src/components/PeelTear3D.js`, `src/utils/rarityFx.js` | new |
 | `src/components/PackOpenScene.jsx`, `src/components/PackSimulator.jsx`, `src/components/CardViewer.jsx`, `src/App.jsx` | changed |
 | `src/components/BinderView.jsx`, `src/styles/binder.css`, `src/utils/cardIcon.js` | new (binder UI, in-game icon drawing) |
-| `public/img/cards/rushcard_*.png`, `fivem/img/cards/rushcard_*.png`, `fivem/examples/ox_inventory_images/*` | new (rarity icons) |
+| `public/img/cards/metacard_*.png`, `fivem/img/cards/metacard_*.png`, `fivem/examples/ox_inventory_images/*` | new (rarity icons) |
 | `package.json` | unchanged from your project (restores it if you applied v5) |
 | `src/runtime/packPrefs.js`, `src/runtime/bridge/fivem.js`, `src/runtime/bridge/standalone.js` | changed |
 | `src/styles/packOpen.css`, `src/styles.css` | changed |

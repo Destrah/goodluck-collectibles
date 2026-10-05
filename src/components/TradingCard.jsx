@@ -78,7 +78,7 @@ function SubjectLayer({ layer, active, framing }) {
   )
 }
 
-function TradingCard({ card: inputCard, size = 'large', interactive = true }) {
+function TradingCard({ card: inputCard, size = 'large', interactive = true, driver }) {
   const card = inputCard?.variantId ? inputCard : resolveCardVariant(inputCard)
   const ref = useRef(null)
   const raf = useRef(0)
@@ -120,6 +120,15 @@ function TradingCard({ card: inputCard, size = 'large', interactive = true }) {
     setActive(false)
   }
   useEffect(() => () => cancelAnimationFrame(raf.current), [])
+  // An enclosing inspector can drive the foil/mask light (already mapped to this face) while it owns the tilt.
+  useEffect(() => {
+    if (!driver) return
+    return driver.subscribe(light => {
+      pending.current = { x: light.x, y: light.y, rx: 0, ry: 0, tx: 0, ty: 0 }
+      if (!raf.current) raf.current = requestAnimationFrame(applyVars)
+      if (light.active !== activeRef.current) { activeRef.current = light.active; setActive(light.active) }
+    })
+  }, [driver, applyVars])
   const pointer = { active }
   const strength = clamp(Number(card.holoStrength ?? 55), 0, 100) / 100
   const hasSubjectEffects = Array.isArray(card.subjectLayers) && card.subjectLayers.some(layer => layer.image)
@@ -223,7 +232,7 @@ function TradingCard({ card: inputCard, size = 'large', interactive = true }) {
         </section>
 
         <footer className="card-footer">
-          <span>RUSH • {card.variantName || 'PRINT'} • 001/{String(card.hp).padStart(3, '0')}</span>
+          <span>META COMICS • {card.variantName || 'PRINT'} • 001/{String(card.hp).padStart(3, '0')}</span>
           <span>★</span>
         </footer>
       </article>

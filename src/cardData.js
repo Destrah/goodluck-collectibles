@@ -1,3 +1,5 @@
+import { isFiveM } from './runtime/env.js'
+
 export const CARD_TYPES = [
   'civilian', 'police', 'medical', 'legal', 'farmer',
   'criminal', 'vehicle', 'structure', 'location'
@@ -84,9 +86,9 @@ export function makeVariant(overrides = {}) {
     holo: 'none',
     holoStrength: 55,
     image: '',
-    imagePositionX: undefined,
-    imagePositionY: undefined,
-    imageZoom: undefined,
+    imagePositionX: 50,
+    imagePositionY: 50,
+    imageZoom: 100,
     accent: '',
     foilA: '',
     foilB: '',
@@ -264,17 +266,27 @@ function repairHoloMaskLab(normalized) {
 }
 
 export function normalizeCard(card) {
+  // Migrate legacy base framing once; prints with separate artwork used centered defaults.
+  const framing = variant => {
+    const separateArt = String(variant.image || '').trim() && String(variant.image).trim() !== String(card.image || '').trim()
+    const value = (key, fallback) => {
+      const raw = variant[key] ?? (separateArt ? fallback : card[key]) ?? fallback
+      return Number.isFinite(Number(raw)) ? Number(raw) : fallback
+    }
+    return { imagePositionX: value('imagePositionX', 50), imagePositionY: value('imagePositionY', 50), imageZoom: value('imageZoom', 100) }
+  }
   const variants = Array.isArray(card.variants) && card.variants.length
     ? card.variants.map(variant => ({
         ...makeVariant(),
         ...variant,
+        ...framing(variant),
         id: variant.id || uuid(),
         holoStrength: variant.holoStrength ?? 55,
         subjectLayers: Array.isArray(variant.subjectLayers)
           ? variant.subjectLayers.map(layer => ({ ...makeSubjectLayer(), ...layer, id: layer.id || uuid() }))
           : [],
       }))
-    : [legacyVariant(card)]
+    : [{ ...legacyVariant(card), ...framing({}) }]
 
   const normalized = {
     id: card.id || uuid(),
@@ -284,9 +296,6 @@ export function normalizeCard(card) {
     type: card.type || 'civilian',
     chanceWeight: Number(card.baseChanceWeight ?? card.chanceWeight) || 100,
     image: card.image || '/img/template.jpg',
-    imagePositionX: Number.isFinite(Number(card.imagePositionX)) ? Number(card.imagePositionX) : 50,
-    imagePositionY: Number.isFinite(Number(card.imagePositionY)) ? Number(card.imagePositionY) : 50,
-    imageZoom: Number.isFinite(Number(card.imageZoom)) ? Number(card.imageZoom) : 100,
     description: card.description || '',
     accent: card.accent || '#f59e0b',
     foilA: card.foilA || '#ff4d8d',
@@ -296,7 +305,7 @@ export function normalizeCard(card) {
     variants,
   }
 
-  return repairHoloMaskLab(normalized)
+  return isFiveM ? normalized : repairHoloMaskLab(normalized)
 }
 
 export function normalizeCards(cards) {
@@ -306,7 +315,7 @@ export function normalizeCards(cards) {
 export function resolveCardVariant(card, variantOrId) {
   const normalized = normalizeCard(card)
   const variant = typeof variantOrId === 'object'
-    ? variantOrId
+    ? normalized.variants.find(item => item.id === variantOrId?.id) || variantOrId
     : normalized.variants.find(item => item.id === variantOrId) || normalized.variants[0]
 
   const variantImage = String(variant.image || '').trim()
@@ -321,9 +330,9 @@ export function resolveCardVariant(card, variantOrId) {
     variantId: variant.id,
     variantName: variant.name,
     image: usesVariantImage ? variant.image : normalized.image,
-    imagePositionX: usesVariantImage ? (variant.imagePositionX ?? 50) : normalized.imagePositionX,
-    imagePositionY: usesVariantImage ? (variant.imagePositionY ?? 50) : normalized.imagePositionY,
-    imageZoom: usesVariantImage ? (variant.imageZoom ?? 100) : normalized.imageZoom,
+    imagePositionX: variant.imagePositionX ?? 50,
+    imagePositionY: variant.imagePositionY ?? 50,
+    imageZoom: variant.imageZoom ?? 100,
     accent: variant.accent || normalized.accent,
     foilA: variant.foilA || normalized.foilA,
     foilB: variant.foilB || normalized.foilB,

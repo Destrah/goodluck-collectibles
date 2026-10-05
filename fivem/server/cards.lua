@@ -1,4 +1,4 @@
-RushCards.Cards = RushCards.Cards or {}
+MetaComic.Cards = MetaComic.Cards or {}
 
 local resource = GetCurrentResourceName()
 local catalog = {}
@@ -11,20 +11,50 @@ local function slug(value)
 end
 
 local function loadCatalog()
-    local raw = LoadResourceFile(resource, Config.Catalog.File)
-    if not raw or raw == '' then
-        catalog = {}
-        print(('[rush-tradingcards] catalog file missing: %s'):format(Config.Catalog.File))
-        return catalog
-    end
-    local ok, decoded = pcall(json.decode, raw)
-    if not ok or type(decoded) ~= 'table' then
-        catalog = {}
-        print('[rush-tradingcards] catalog.json could not be decoded')
-        return catalog
+    local decoded
+    if MetaComic.Persistence.name == 'mysql' then
+        decoded = MetaComic.Persistence.loadCatalog(Config.Catalog.File)
+    else
+        local raw = LoadResourceFile(resource, Config.Catalog.File)
+        if not raw or raw == '' then
+            catalog = {}
+            print(('[meta-comic] catalog file missing: %s'):format(Config.Catalog.File))
+            return catalog
+        end
+        local ok
+        ok, decoded = pcall(json.decode, raw)
+        if not ok or type(decoded) ~= 'table' then
+            catalog = {}
+            print('[meta-comic] catalog.json could not be decoded')
+            return catalog
+        end
     end
     catalog = decoded
+    -- Move legacy base framing into prints without rewriting the saved catalog on load.
+    for _, card in ipairs(catalog) do
+        for _, variant in ipairs(card.variants or {}) do
+            local image = tostring(variant.image or ''):match('^%s*(.-)%s*$')
+            local baseImage = tostring(card.image or ''):match('^%s*(.-)%s*$')
+            local separateArt = image ~= '' and image ~= baseImage
+            for key, default in pairs({ imagePositionX = 50, imagePositionY = 50, imageZoom = 100 }) do
+                variant[key] = tonumber(variant[key]) or (not separateArt and tonumber(card[key])) or default
+            end
+        end
+        card.imagePositionX, card.imagePositionY, card.imageZoom = nil, nil, nil
+    end
     return catalog
+end
+
+local function persistCatalog(cards)
+    if MetaComic.Persistence.name == 'mysql' then
+        local ok, err = MetaComic.Persistence.saveCatalog(cards)
+        if ok and MetaComic.Sets and MetaComic.Sets.reload then MetaComic.Sets.reload() end
+        return ok, err
+    end
+    if not SaveResourceFile(resource, Config.Catalog.File, json.encode(cards), -1) then
+        return false, 'Could not save catalog JSON file'
+    end
+    return true
 end
 
 local function weightOf(item)
@@ -52,11 +82,11 @@ local function variantsForTier(card, tier)
 end
 
 local function mergeCard(card, variant)
-    local resolved = RushCards.CopyTable(card)
+    local resolved = MetaComic.CopyTable(card)
     resolved.variants = nil
     for key, value in pairs(variant or {}) do
         if value ~= '' and value ~= nil then
-            resolved[key] = type(value) == 'table' and RushCards.CopyTable(value) or value
+            resolved[key] = type(value) == 'table' and MetaComic.CopyTable(value) or value
         end
     end
     resolved.baseCardId = card.id
@@ -91,7 +121,7 @@ local function pullFromTier(tier, fallbacks, sourceCatalog)
 end
 
 local function catalogForSet(setId)
-    local set = RushCards.Sets and RushCards.Sets.get(setId)
+    local set = MetaComic.Sets and MetaComic.Sets.get(setId)
     if not set then return nil, nil end
     local allowed = {}
     for _, cardId in ipairs(set.cardIds or {}) do allowed[cardId] = true end
@@ -102,13 +132,13 @@ local function catalogForSet(setId)
     return filtered, set
 end
 
-function RushCards.Cards.countForSet(setId)
+function MetaComic.Cards.countForSet(setId)
     local filtered, set = catalogForSet(setId)
     return filtered and #filtered or 0, set
 end
 
 -- Rebuild a printed card from its base card id + variant id (used when a card item is viewed).
-function RushCards.Cards.resolve(baseCardId, variantId)
+function MetaComic.Cards.resolve(baseCardId, variantId)
     for _, card in ipairs(catalog) do
         if card.id == baseCardId then
             for _, variant in ipairs(card.variants or {}) do
@@ -122,7 +152,7 @@ end
 
 -- The card that stands for one base card at one rarity (its first variant of that rarity). Inventory icons are made
 -- per base card + rarity, so every variant of the same rarity shares this one's icon.
-function RushCards.Cards.forRarity(baseCardId, rarityKey)
+function MetaComic.Cards.forRarity(baseCardId, rarityKey)
     for _, card in ipairs(catalog) do
         if card.id == baseCardId then
             for _, variant in ipairs(card.variants or {}) do
@@ -135,7 +165,7 @@ function RushCards.Cards.forRarity(baseCardId, rarityKey)
 end
 
 -- every base card + rarity that exists in the catalog
-function RushCards.Cards.rarityPrints()
+function MetaComic.Cards.rarityPrints()
     local list = {}
     for _, card in ipairs(catalog) do
         local seen = {}
@@ -150,46 +180,65 @@ function RushCards.Cards.rarityPrints()
     return list
 end
 
-function RushCards.Cards.reloadCatalog()
+function MetaComic.Cards.reloadCatalog()
     return loadCatalog()
 end
 
-function RushCards.Cards.getCatalog()
-    return RushCards.CopyTable(catalog)
+function MetaComic.Cards.getCatalog()
+    return MetaComic.CopyTable(catalog)
 end
 
-function RushCards.Cards.saveCatalog(cards)
+function MetaComic.Cards.saveCatalog(cards)
     if type(cards) ~= 'table' then return false, 'catalog must be an array' end
-    SaveResourceFile(resource, Config.Catalog.File, json.encode(cards), -1)
+    local ok, err = persistCatalog(cards)
+    if not ok then return false, err end
     loadCatalog()
     return true
 end
 
-function RushCards.Cards.saveCard(card)
+function MetaComic.Cards.saveCard(card)
     if type(card) ~= 'table' then return false, 'card must be an object' end
     local id = tostring(card.id or '')
     if id == '' then return false, 'card id is required' end
     if type(card.variants) ~= 'table' or #card.variants == 0 then return false, 'card must contain at least one print variant' end
 
-    local nextCatalog = RushCards.CopyTable(catalog)
+    if MetaComic.Persistence.name == 'mysql' and MetaComic.Persistence.saveCard then
+        local ok, err = MetaComic.Persistence.saveCard(card)
+        if ok then
+            loadCatalog()
+            MetaComic.Sets.reload()
+        end
+        return ok, err
+    end
+
+    local nextCatalog = MetaComic.CopyTable(catalog)
     local replaced = false
     for index, existing in ipairs(nextCatalog) do
         if tostring(existing.id or '') == id then
-            nextCatalog[index] = RushCards.CopyTable(card)
+            nextCatalog[index] = MetaComic.CopyTable(card)
             replaced = true
             break
         end
     end
-    if not replaced then nextCatalog[#nextCatalog + 1] = RushCards.CopyTable(card) end
+    if not replaced then nextCatalog[#nextCatalog + 1] = MetaComic.CopyTable(card) end
 
-    SaveResourceFile(resource, Config.Catalog.File, json.encode(nextCatalog), -1)
+    local ok, err = persistCatalog(nextCatalog)
+    if not ok then return false, err end
     loadCatalog()
     return true
 end
 
-function RushCards.Cards.deleteCard(cardId)
+function MetaComic.Cards.deleteCard(cardId)
     local id = tostring(cardId or '')
     if id == '' then return false, 'card id is required' end
+    if MetaComic.Persistence.name == 'mysql' and MetaComic.Persistence.deleteCard then
+        local ok, err = MetaComic.Persistence.deleteCard(id)
+        if ok then
+            loadCatalog()
+            MetaComic.Sets.reload()
+        end
+        return ok, err
+    end
     if #catalog <= 1 then return false, 'at least one card must remain in the catalog' end
 
     local nextCatalog, removed = {}, false
@@ -197,18 +246,19 @@ function RushCards.Cards.deleteCard(cardId)
         if tostring(existing.id or '') == id then
             removed = true
         else
-            nextCatalog[#nextCatalog + 1] = RushCards.CopyTable(existing)
+            nextCatalog[#nextCatalog + 1] = MetaComic.CopyTable(existing)
         end
     end
     if not removed then return false, 'card was not found' end
 
-    SaveResourceFile(resource, Config.Catalog.File, json.encode(nextCatalog), -1)
+    local ok, err = persistCatalog(nextCatalog)
+    if not ok then return false, err end
     loadCatalog()
     return true
 end
 
-function RushCards.Cards.openPack(owner, setId)
-    if setId == nil or tostring(setId) == '' then setId = RushCards.Sets and RushCards.Sets.defaultId() or 'base' end
+function MetaComic.Cards.openPack(owner, setId)
+    if setId == nil or tostring(setId) == '' then setId = MetaComic.Sets and MetaComic.Sets.defaultId() or 'base' end
     local sourceCatalog, set = catalogForSet(setId)
     if not set then return nil, ('Unknown card set: %s'):format(tostring(setId)) end
     if not sourceCatalog or #sourceCatalog == 0 then return nil, ('Card set "%s" has no assigned cards.'):format(set.name or set.id) end

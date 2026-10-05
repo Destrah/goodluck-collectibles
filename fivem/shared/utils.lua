@@ -1,18 +1,18 @@
-RushCards = RushCards or {}
-RushCards.FrameworkAdapters = RushCards.FrameworkAdapters or {}
-RushCards.InventoryAdapters = RushCards.InventoryAdapters or {}
-RushCards.PersistenceAdapters = RushCards.PersistenceAdapters or {}
+MetaComic = MetaComic or {}
+MetaComic.FrameworkAdapters = MetaComic.FrameworkAdapters or {}
+MetaComic.InventoryAdapters = MetaComic.InventoryAdapters or {}
+MetaComic.PersistenceAdapters = MetaComic.PersistenceAdapters or {}
 
-function RushCards.Debug(...)
+function MetaComic.Debug(...)
     if not Config.Debug then return end
-    print('[rush-tradingcards]', ...)
+    print('[meta-comic]', ...)
 end
 
-function RushCards.CopyTable(source)
+function MetaComic.CopyTable(source)
     local target = {}
     for key, value in pairs(source or {}) do
         if type(value) == 'table' then
-            target[key] = RushCards.CopyTable(value)
+            target[key] = MetaComic.CopyTable(value)
         else
             target[key] = value
         end
@@ -20,7 +20,7 @@ function RushCards.CopyTable(source)
     return target
 end
 
-function RushCards.GetLicense(source)
+function MetaComic.GetLicense(source)
     for _, identifier in ipairs(GetPlayerIdentifiers(source)) do
         if identifier:sub(1, 9) == 'license2:' then return identifier end
     end

@@ -1,5 +1,30 @@
 math.randomseed(os.time())
 
+-- These are loaded by fxmanifest.lua before this file. An fxmanifest.lua kept from an older version doesn't list
+-- them, which crashed here with "attempt to index a nil value (field 'Legacy' / 'Objects')". Say so clearly and
+-- keep the trading cards working; coins and plushies stay off until the manifest is updated.
+do
+    local missing = {}
+    if not MetaComic.Legacy then missing[#missing + 1] = 'shared/legacy.lua' end
+    if not MetaComic.Collectables then missing[#missing + 1] = 'shared/collectables.lua' end
+    if not MetaComic.Objects then missing[#missing + 1] = 'server/modules/objects.lua' end
+    if #missing > 0 then
+        print(('^1[meta-comic] fxmanifest.lua is out of date: %s %s not loaded. Replace fxmanifest.lua with the one from this version (keep your config.lua) and restart the resource.^7')
+            :format(table.concat(missing, ', '), #missing == 1 and 'is' or 'are'))
+    end
+    MetaComic.Legacy = MetaComic.Legacy or {
+        prefsKey = 'rush_cards:pack_prefs', uploadConvar = 'rushcards_fivemanage_key',
+        manageAce = 'rushcards.manage', catalogAce = 'rushcards.catalog.write',
+        fallbackIcon = function(value) return value end,
+    }
+    MetaComic.Collectables = MetaComic.Collectables or { snapshot = function(typeId, item) local copy = MetaComic.CopyTable(item); copy.collectableType = typeId; return copy end }
+end
+local function objectTypes() return MetaComic.Objects and MetaComic.Objects.types or {} end
+-- (declared up here: printKey / iconCard further down use them) coins and plushies share the card icon pipeline: one icon per definition + print
+local OBJECT_ICON_PREFIX = { challenge_coin = 'metacoin', plushie = 'metaplush' }
+local function objectType(card) return type(card) == 'table' and OBJECT_ICON_PREFIX[card.collectableType] and card.collectableType or nil end
+local function keyType(key) return type(key) == 'string' and key:match('^obj::([%w_]+)::') or 'trading_card' end
+
 local function fail(message)
     return { ok = false, error = message }
 end
@@ -147,7 +172,7 @@ local function fetchRemoteAsset(url)
         deferred:resolve({ ok = true, dataUrl = dataUrl, contentType = contentType, bytes = #body, cached = false })
     end, 'GET', '', {
         ['Accept'] = 'image/avif,image/webp,image/png,image/jpeg,image/*,*/*;q=0.8',
-        ['User-Agent'] = 'RushTradingCards/5 remote-asset-resolver'
+        ['User-Agent'] = 'MetaComic/5 remote-asset-resolver'
     }, { followLocation = true })
 
     return Citizen.Await(deferred)
@@ -158,9 +183,9 @@ local function configuredIdentifierAllowed(source)
     local allowed = management.Identifiers or {}
     if type(allowed) ~= 'table' then return false end
     local ids = {}
-    local frameworkId = RushCards.Framework.getIdentifier and RushCards.Framework.getIdentifier(source)
+    local frameworkId = MetaComic.Framework.getIdentifier and MetaComic.Framework.getIdentifier(source)
     if frameworkId then ids[tostring(frameworkId)] = true end
-    local license = RushCards.GetLicense(source)
+    local license = MetaComic.GetLicense(source)
     if license then ids[tostring(license)] = true end
     for _, identifier in ipairs(GetPlayerIdentifiers(source) or {}) do ids[tostring(identifier)] = true end
     for _, configured in ipairs(allowed) do
@@ -175,29 +200,31 @@ local function canManage(source)
     if management.Enabled == false then return true end
 
     if management.Ace and management.Ace ~= '' and IsPlayerAceAllowed(source, management.Ace) then return true end
+    if management.Ace == 'metacomic.manage' and IsPlayerAceAllowed(source, MetaComic.Legacy.manageAce) then return true end
     -- Backwards compatibility: anyone who already had the older catalog-write ACE keeps management access.
     local legacyAce = Config.Catalog and Config.Catalog.WriteAce
     if legacyAce and legacyAce ~= '' and IsPlayerAceAllowed(source, legacyAce) then return true end
+    if legacyAce == 'metacomic.catalog.write' and IsPlayerAceAllowed(source, MetaComic.Legacy.catalogAce) then return true end
     if configuredIdentifierAllowed(source) then return true end
 
-    if RushCards.Framework.name == 'qbcore' and RushCards.Framework.hasPermission then
+    if MetaComic.Framework.name == 'qbcore' and MetaComic.Framework.hasPermission then
         -- Older preserved configs predate Config.Management. Keep the intended
         -- admin/god restriction in that case; an explicit Management table always wins.
         local permissions = management.QBCorePermissions
         if permissions == nil and Config.Management == nil then permissions = { 'admin', 'god' } end
         for _, permission in ipairs(permissions or {}) do
-            if RushCards.Framework.hasPermission(source, permission) then return true end
+            if MetaComic.Framework.hasPermission(source, permission) then return true end
         end
     end
 
-    if RushCards.Framework.name == 'qbox' and RushCards.Framework.hasGroup then
+    if MetaComic.Framework.name == 'qbox' and MetaComic.Framework.hasGroup then
         local groups = management.QboxGroups
         if groups == nil and Config.Management == nil then groups = { admin = 0 } end
         groups = groups or {}
-        if next(groups) and RushCards.Framework.hasGroup(source, groups) then return true end
+        if next(groups) and MetaComic.Framework.hasGroup(source, groups) then return true end
     end
 
-    local job = RushCards.Framework.getJob and RushCards.Framework.getJob(source)
+    local job = MetaComic.Framework.getJob and MetaComic.Framework.getJob(source)
     local jobs = management.Jobs or {}
     if job and job.name and jobs[job.name] ~= nil then
         local configured = jobs[job.name]
@@ -216,10 +243,10 @@ local function requireManage(source)
 end
 
 local function setById(setId)
-    if not RushCards.Sets then return nil end
+    if not MetaComic.Sets then return nil end
     local requested = tostring(setId or '')
-    if requested == '' then requested = RushCards.Sets.defaultId() end
-    return RushCards.Sets.get(requested)
+    if requested == '' then requested = MetaComic.Sets.defaultId() end
+    return MetaComic.Sets.get(requested)
 end
 
 local function sealedMetadata(kind, set)
@@ -237,23 +264,23 @@ end
 
 local function metadataSetId(metadata)
     metadata = type(metadata) == 'table' and metadata or {}
-    return tostring(metadata.setId or metadata.seriesId or metadata.set or ((Config.Sets and Config.Sets.Default) or 'base'))
+    return tostring(metadata.setId or metadata.seriesId or metadata.set or MetaComic.Sets.defaultId())
 end
 
 local function maybeRemoveOpenItem(source, itemName)
     if not Config.Items.RequireForOpen then return true, nil end
-    if RushCards.Inventory.name == 'none' then return false, 'Pack item validation is enabled but no inventory adapter is active.' end
-    if not RushCards.Inventory.has(source, itemName, 1) then return false, ('You do not have %s.'):format(itemName) end
+    if MetaComic.Inventory.name == 'none' then return false, 'Pack item validation is enabled but no inventory adapter is active.' end
+    if not MetaComic.Inventory.has(source, itemName, 1) then return false, ('You do not have %s.'):format(itemName) end
 
     local chosen
-    if RushCards.Inventory.slotsOf then
-        local slots = RushCards.Inventory.slotsOf(source, itemName) or {}
+    if MetaComic.Inventory.slotsOf then
+        local slots = MetaComic.Inventory.slotsOf(source, itemName) or {}
         local _, first = next(slots)
         chosen = first
     end
     local metadata = chosen and (chosen.metadata or chosen.info) or nil
     local slot = chosen and chosen.slot or nil
-    if not RushCards.Inventory.remove(source, itemName, 1, metadata, slot) then return false, ('Could not remove %s.'):format(itemName) end
+    if not MetaComic.Inventory.remove(source, itemName, 1, metadata, slot) then return false, ('Could not remove %s.'):format(itemName) end
     return true, { metadata = metadata, slot = slot }
 end
 
@@ -275,17 +302,17 @@ local function popPackCredit(source)
 end
 
 local function notify(source, message, notifyType)
-    if RushCards.Framework.notify then RushCards.Framework.notify(source, message, notifyType) end
+    if MetaComic.Framework.notify then MetaComic.Framework.notify(source, message, notifyType) end
 end
 
 local function giveBoxPacks(source, count, setId)
     if not Config.Items.BoxGivesPackItems then return false, 'Box opening is disabled (Config.Items.BoxGivesPackItems = false).' end
-    if RushCards.Inventory.name == 'none' then return false, 'Box opening needs an inventory adapter to hand out pack items.' end
+    if MetaComic.Inventory.name == 'none' then return false, 'Box opening needs an inventory adapter to hand out pack items.' end
     local set = setById(setId)
     if not set then return false, ('Unknown card set: %s'):format(tostring(setId)) end
-    local setCardCount = RushCards.Cards.countForSet and RushCards.Cards.countForSet(set.id) or #(set.cardIds or {})
+    local setCardCount = MetaComic.Cards.countForSet and MetaComic.Cards.countForSet(set.id) or #(set.cardIds or {})
     if setCardCount < 1 then return false, ('Card set "%s" has no valid assigned cards.'):format(set.name or set.id) end
-    if RushCards.Inventory.add(source, Config.Items.BoosterPack, count, sealedMetadata('pack', set)) ~= true then
+    if MetaComic.Inventory.add(source, Config.Items.BoosterPack, count, sealedMetadata('pack', set)) ~= true then
         return false, 'Could not add booster packs to your inventory (is it full?).'
     end
     return true
@@ -294,18 +321,18 @@ end
 -- Remove one item and confirm the inventory really changed (guards against adapters that report success but don't remove).
 -- metadata + slot ensure a set-specific pack/box removes the exact item that was used.
 local function takeOne(source, item, metadata, slot)
-    local inv = RushCards.Inventory
+    local inv = MetaComic.Inventory
     local before = inv.count and inv.count(source, item) or nil
     if before ~= nil and before < 1 then return false end
     if not inv.remove(source, item, 1, metadata, slot) then return false end
     if before ~= nil then
         local after = inv.count(source, item)
         if after >= before then
-            print(('[rush-tradingcards] %s reported %s removed for player %s but the count did not change (%s -> %s).'):format(inv.name, item, source, before, after))
+            print(('[meta-comic] %s reported %s removed for player %s but the count did not change (%s -> %s).'):format(inv.name, item, source, before, after))
             return false
         end
     end
-    RushCards.Debug('took', item, 'from', source, before, '->', before and before - 1, 'set', metadataSetId(metadata))
+    MetaComic.Debug('took', item, 'from', source, before, '->', before and before - 1, 'set', metadataSetId(metadata))
     return true
 end
 
@@ -340,7 +367,7 @@ end
 
 local function getOxRules()
     if oxRules then return oxRules end
-    if RushCards.Inventory.name ~= 'ox_inventory' then oxRules = { checks = false } return oxRules end
+    if MetaComic.Inventory.name ~= 'ox_inventory' then oxRules = { checks = false } return oxRules end
     local version = GetResourceMetadata('ox_inventory', 'version', 0) or '?'
     if GetConvar('inventory:webhook', '') == '' then oxRules = { checks = false, version = version } return oxRules end
     local modern = versionAtLeast(version, '2.45.1')
@@ -366,7 +393,7 @@ local function imageUrlAccepted(url)
     return host ~= nil and rules.hosts[host] == true and VALID_EXT[ext] == true
 end
 
--- Inventory icons. 'rarity': one picture per rarity (img/cards/rushcard_<rarity>.png, 100x100).
+-- Inventory icons. 'rarity': one picture per rarity (img/cards/metacard_<rarity>.png, 100x100).
 -- 'upload': every card gets one 100x100 icon per rarity it comes in, drawn in a player's NUI and uploaded to Fivemanage
 -- (data/card_icons.json remembers them). Missing / outdated icons are made when the resource starts, when a
 -- player joins, when the catalog is saved in-game and when a print is pulled; until then the rarity icon is used.
@@ -388,26 +415,59 @@ do
         end
     end
     if dropped > 0 then
-        print(('[rush-tradingcards] card icons: %d older per-variant icon entries dropped; one icon per card + rarity is made instead.'):format(dropped))
+        print(('[meta-comic] card icons: %d older per-variant icon entries dropped; one icon per card + rarity is made instead.'):format(dropped))
     end
 end
 local function saveIconFile() SaveResourceFile(resourceName, ICON_FILE, json.encode(iconUrls), -1) end
 
 local function printKey(card)
+    if type(card) == 'table' and OBJECT_ICON_PREFIX[card.collectableType] then
+        return ('obj::%s::%s::%s'):format(card.collectableType, tostring(card.definitionId or card.id), tostring(card.printId or 'base'))
+    end
     return card and card.baseCardId and ('%s::%s'):format(card.baseCardId, card.rarityKey or 'common') or nil
 end
 
 -- the card an icon is drawn from: the catalog's first variant of this card at this rarity (falls back to the card itself)
 local function iconCard(card)
-    return (card and card.baseCardId and RushCards.Cards.forRarity(card.baseCardId, card.rarityKey or 'common')) or card
+    if type(card) == 'table' and OBJECT_ICON_PREFIX[card.collectableType] then return card end
+    return (card and card.baseCardId and MetaComic.Cards.forRarity(card.baseCardId, card.rarityKey or 'common')) or card
 end
 local function uploadMode() return Config.CardIcons and Config.CardIcons.Mode == 'upload' end
-local function fivemanageKey() return GetConvar('rushcards_fivemanage_key', '') end
+
+-- Each collectible type uploads its icons into its own Fivemanage folder and may use its own API key
+-- (Config.FivemanageFolders; a type without its own key uses metacomic_fivemanage_key).
+local FOLDER_DEFAULTS = {
+    trading_card = { Path = 'meta-comics/trading-cards', KeyConvar = 'metacomic_fivemanage_key_cards' },
+    challenge_coin = { Path = 'meta-comics/challenge-coins', KeyConvar = 'metacomic_fivemanage_key_coins' },
+    plushie = { Path = 'meta-comics/plushies', KeyConvar = 'metacomic_fivemanage_key_plushies' },
+}
+local function folderFor(typeId)
+    local defaults = FOLDER_DEFAULTS[typeId] or FOLDER_DEFAULTS.trading_card
+    local configured = type(Config.FivemanageFolders) == 'table' and Config.FivemanageFolders[typeId] or {}
+    return { path = configured.Path or defaults.Path, convar = configured.KeyConvar or defaults.KeyConvar }
+end
+local function fivemanageKey(typeId)
+    local own = GetConvar(folderFor(typeId or 'trading_card').convar, '')
+    if own ~= '' then return own end
+    local key = GetConvar('metacomic_fivemanage_key', '')
+    return key ~= '' and key or GetConvar(MetaComic.Legacy.uploadConvar, '')
+end
+local function anyFivemanageKey()
+    for typeId in pairs(FOLDER_DEFAULTS) do if fivemanageKey(typeId) ~= '' then return true end end
+    return false
+end
+
 
 -- everything the icon shows; when any of it changes in the catalog the icon is redrawn
 local function iconSig(card)
-    local text = table.concat({ tostring(ICON_STYLE), tostring(card.title), tostring(card.hp), tostring(card.accent),
-        tostring(card.rarityKey), tostring(card.image), tostring(card.imagePositionX or 50), tostring(card.imagePositionY or 50), tostring(card.imageZoom or 100) }, '\31')
+    local parts = { tostring(ICON_STYLE), tostring(card.title), tostring(card.hp), tostring(card.accent),
+        tostring(card.rarityKey), tostring(card.image), tostring(card.imagePositionX or 50), tostring(card.imagePositionY or 50), tostring(card.imageZoom or 100) }
+    if OBJECT_ICON_PREFIX[card.collectableType] then -- everything a coin / plushie icon shows
+        for _, field in ipairs({ 'collectableType', 'printId', 'finish', 'finishStrength', 'rimImage', 'edgeImage', 'edgeStyle', 'tint', 'tintStrength', 'stitchColor', 'stitchPattern', 'stitchWidth', 'backImage' }) do
+            parts[#parts + 1] = tostring(card[field])
+        end
+    end
+    local text = table.concat(parts, '\31')
     local h = 5381
     for i = 1, #text, 4096 do
         local bytes = { text:byte(i, math.min(i + 4095, #text)) }
@@ -436,7 +496,7 @@ local function fileMode()
 end
 
 local function oxFileName(key, sig)
-    return ('rushcard_%s_%s'):format((key:gsub('[^%w_-]+', '_')), sig:sub(1, 8))
+    return ('%s_%s_%s'):format(OBJECT_ICON_PREFIX[keyType(key)] or 'metacard', (key:gsub('[^%w_-]+', '_')), sig:sub(1, 8))
 end
 
 local function needsIcon(card)
@@ -448,12 +508,13 @@ local function needsIcon(card)
     if not entry.sig then entry.sig = iconSig(card) end -- older file: assume it's current
     if entry.sig ~= iconSig(card) then return true end
     if fileMode() and not entry.file and not entry.fileFailed then return true end -- has a url ox would delete, but no picture file yet
-    if not entry.url and uploadMode() and fivemanageKey() ~= '' then return true end -- its upload was deleted from Fivemanage
+    if not entry.url and uploadMode() and fivemanageKey(objectType(card) or 'trading_card') ~= '' then return true end -- its upload was deleted from Fivemanage
     return false
 end
 
 local function rarityName(card)
-    return 'rushcard_' .. (RARITY_ICONS[card.rarityKey] and card.rarityKey or 'common')
+    if objectType(card) then return OBJECT_ICON_PREFIX[card.collectableType] .. '_' .. (RARITY_ICONS[card.rarityKey] and card.rarityKey or 'common') end
+    return 'metacard_' .. (RARITY_ICONS[card.rarityKey] and card.rarityKey or 'common')
 end
 
 -- returns imageurl, image (metadata.image = file name in ox_inventory/web/images, used when there's no imageurl)
@@ -470,7 +531,7 @@ local function cardIcon(card)
     local entry = uploadMode() and key and iconUrls[key]
     if entry and entry.url and imageUrlAccepted(entry.url) then return entry.url, nil end
     if entry and entry.file and not writtenThisSession[entry.file] then return nil, entry.file end -- picture in ox_inventory/web/images
-    local rarityUrl = ('nui://%s/img/cards/%s.png'):format(resourceName, name)
+    local rarityUrl = ('nui://%s/img/%s/%s.png'):format(resourceName, objectType(card) and 'collectibles' or 'cards', name)
     if imageUrlAccepted(rarityUrl) then return rarityUrl, fileName end
     return nil, name -- ox_inventory would delete the url: use the picture copied into ox_inventory/web/images
 end
@@ -483,6 +544,10 @@ local function cardMetadata(card)
     local prefix = manual and 'MANUAL PRINT · ' or ''
     return {
         instanceId = card.instanceId,
+        collectableType = 'trading_card',
+        cardSnapshotVersion = 1,
+        cardSnapshot = MetaComic.Collectables.snapshot('trading_card', card),
+        cardIconSnapshotSignature = iconSig(iconCard(card)),
         cardKey = card.cardKey,
         baseCardId = card.baseCardId,
         variantId = card.variantId,
@@ -503,17 +568,20 @@ local function cardMetadata(card)
     }
 end
 
--- Find the exact print a card item stands for (the owner's saved copy first, then the catalog).
+-- The physical item's server-created snapshot remains authoritative after transfers/deletion.
 local function findCard(source, metadata)
     if type(metadata) ~= 'table' then return nil end
-    local owner = RushCards.Framework.getIdentifier(source)
+    if type(metadata.cardSnapshot) == 'table' then
+        return MetaComic.CopyTable(metadata.cardSnapshot)
+    end
+    local owner = MetaComic.Framework.getIdentifier(source)
     if metadata.instanceId then
-        for _, owned in ipairs(RushCards.Persistence.getCollection(owner) or {}) do
+        for _, owned in ipairs(MetaComic.Persistence.getCollection(owner) or {}) do
             if owned.instanceId == metadata.instanceId then return owned end
         end
     end
     if metadata.baseCardId then
-        local card = RushCards.Cards.resolve(metadata.baseCardId, metadata.variantId)
+        local card = MetaComic.Cards.resolve(metadata.baseCardId, metadata.variantId)
         if card then
             -- Acquisition/print information belongs to the physical item and must survive inventory transfers.
             for _, key in ipairs({ 'setId', 'seriesId', 'setName', 'acquisitionSource', 'manualPrint', 'printedBy', 'printedByIdentifier', 'printedAt', 'instanceId' }) do
@@ -525,29 +593,72 @@ local function findCard(source, metadata)
     return nil
 end
 
--- Bring an existing card item's icon / label up to date. inv: the inventory holding it (default: the player;
--- a binder's container id for cards in a binder). Writes a NEW table, and clears a url that no longer applies.
+-- Freeze legacy data and allow pending icons only for the appearance captured at creation.
+-- inv is the player inventory or binder container. All writes remain server-side.
 local function refreshCardItem(source, slot, metadata, inv)
-    if not RushCards.Inventory.setMetadata or type(metadata) ~= 'table' or not slot then return false end
+    if not MetaComic.Inventory.setMetadata or type(metadata) ~= 'table' or not slot then return false end
+    local migrated = false
+    local image = MetaComic.Legacy.fallbackIcon(metadata.image)
+    local imageurl = MetaComic.Legacy.fallbackIcon(metadata.imageurl)
+    if image ~= metadata.image or imageurl ~= metadata.imageurl then
+        metadata = MetaComic.CopyTable(metadata)
+        metadata.image, metadata.imageurl = image, imageurl
+        MetaComic.Inventory.setMetadata(inv or source, tonumber(slot), metadata)
+        migrated = true
+    end
+    if type(metadata.cardSnapshot) == 'table' then
+        local entry = iconUrls[printKey(metadata.cardSnapshot)]
+        if not entry or not metadata.cardIconSnapshotSignature or entry.sig ~= metadata.cardIconSnapshotSignature then return migrated end
+        local imageurl, image = cardIcon(metadata.cardSnapshot)
+        if metadata.imageurl == imageurl and metadata.image == image then return migrated end
+        local updated = MetaComic.CopyTable(metadata)
+        updated.imageurl, updated.image = imageurl, image
+        MetaComic.Inventory.setMetadata(inv or source, tonumber(slot), updated)
+        return true
+    end
     local card = findCard(source, metadata)
-    if not card then return false end
+    if not card then return migrated end
     local fresh = cardMetadata(card)
-    if metadata.imageurl == fresh.imageurl and metadata.image == fresh.image and metadata.label == fresh.label then return false end
-    local updated = RushCards.CopyTable(metadata)
+    local updated = MetaComic.CopyTable(metadata)
     for key, value in pairs(fresh) do updated[key] = value end
-    updated.imageurl = fresh.imageurl -- pairs() skips nils, so clear these explicitly
-    updated.image = fresh.image
-    RushCards.Inventory.setMetadata(inv or source, tonumber(slot), updated)
+    -- Legacy icons have no historical signature. Keep the existing picture rather than
+    -- claiming a current catalog icon belongs to the original print.
+    updated.cardIconSnapshotSignature = nil
+    updated.imageurl, updated.image = metadata.imageurl, metadata.image
+    MetaComic.Inventory.setMetadata(inv or source, tonumber(slot), updated)
     return true
 end
 
+local refreshObjectItemsLater -- defined with the icon pipeline below
 local function refreshPlayerItems(source)
-    if not RushCards.Inventory.slotsOf then return 0 end
-    local updated = 0
-    for _, item in pairs(RushCards.Inventory.slotsOf(source, Config.Items.TradingCard)) do
+    if not MetaComic.Inventory.slotsOf then return 0 end
+    local updated = refreshObjectItemsLater and refreshObjectItemsLater(source) or 0
+    for _, item in pairs(MetaComic.Inventory.slotsOf(source, Config.Items.TradingCard)) do
         if refreshCardItem(source, item.slot, item.metadata) then updated = updated + 1 end
     end
+    if MetaComic.Inventory.getContainer then
+        local binders = type(Config.Items.Binder) == 'table' and Config.Items.Binder or { Config.Items.Binder }
+        for _, name in ipairs(binders) do
+            for _, binder in pairs(MetaComic.Inventory.slotsOf(source, name)) do
+                if binder.metadata and binder.metadata.container then
+                    local container = MetaComic.Inventory.getContainer(source, binder.slot)
+                    if container and container.id then
+                        for index, item in pairs(container.items or {}) do
+                            if item.name == Config.Items.TradingCard and refreshCardItem(source, item.slot or tonumber(index), item.metadata, container.id) then
+                                updated = updated + 1
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
     return updated
+end
+
+local function freezeOnlineItems()
+    -- Capture online players' legacy items before an administrator edits/deletes definitions.
+    for _, id in ipairs(GetPlayers()) do refreshPlayerItems(tonumber(id)) end
 end
 
 -- ---------- uploaded card icons ----------
@@ -555,7 +666,8 @@ local pendingIcons, uploading, iconAttempts = {}, {}, {}
 local MAX_ATTEMPTS = 3
 
 local function uploadIcon(key, sig, dataUrl, cb)
-    local apiKey = fivemanageKey()
+    local typeId = keyType(key)
+    local apiKey = fivemanageKey(typeId)
     if apiKey == '' then return cb(nil) end
     local ext = dataUrl:match('^data:image/(%a+);') or 'png'
     local filename = ('%s.%s'):format(oxFileName(key, sig), ext) -- same print + same look = same name
@@ -566,17 +678,17 @@ local function uploadIcon(key, sig, dataUrl, cb)
         -- custom CDN domain: 'url' uses it, 'originalUrl' is the r2.fivemanage.com one ox_inventory trusts by default
         if url and data.originalUrl and not imageUrlAccepted(url) and imageUrlAccepted(data.originalUrl) then url = data.originalUrl end
         if not url then
-            print(('[rush-tradingcards] card icon upload failed for %s (HTTP %s): %s'):format(key, tostring(status), tostring(body):sub(1, 200)))
+            print(('[meta-comic] card icon upload failed for %s (HTTP %s): %s'):format(key, tostring(status), tostring(body):sub(1, 200)))
         end
         cb(url)
-    end, 'POST', json.encode({ base64 = dataUrl, filename = filename, metadata = json.encode({ card = key }) }), {
+    end, 'POST', json.encode({ base64 = dataUrl, filename = filename, path = folderFor(typeId).path, metadata = json.encode({ card = key, collectableType = typeId }) }), {
         ['Content-Type'] = 'application/json',
         ['Authorization'] = apiKey,
     })
 end
 
 -- ask this player's NUI to draw icons for prints that have no (current) uploaded icon; returns the keys asked for
-local function iconsPossible() return uploadMode() and (fivemanageKey() ~= '' or fileMode()) end
+local function iconsPossible() return uploadMode() and (anyFivemanageKey() or fileMode()) end
 
 local function requestIcons(source, cards)
     if not iconsPossible() then return {} end
@@ -592,23 +704,71 @@ local function requestIcons(source, cards)
         end
     end
     if #list > 0 then
-        TriggerClientEvent('rush_cards:client:renderIcons', source, list, (Config.CardIcons and Config.CardIcons.Size) or 100, fileMode() and 'png' or 'webp')
+        TriggerLatentClientEvent('meta_comic:client:renderIcons', source, 512 * 1024, list, (Config.CardIcons and Config.CardIcons.Size) or 100, fileMode() and 'png' or 'webp')
     end
     return keys
 end
 
+-- coin / plushie items: picture from their own print's icon (rarity picture until it is uploaded)
+-- an item shows its print's uploaded icon only while that icon still matches the item's own snapshot;
+-- after the print is edited, older items keep the rarity picture instead of borrowing the new look
+local function objectIcon(snapshot)
+    local entry = iconUrls[printKey(snapshot)]
+    if entry and entry.sig and entry.sig ~= iconSig(snapshot) then
+        local rarityOnly = MetaComic.CopyTable(snapshot)
+        rarityOnly.printId = '__rarity__' -- no icon entry under this key -> rarity picture
+        return cardIcon(rarityOnly)
+    end
+    return cardIcon(snapshot)
+end
+local function refreshObjectItem(source, item)
+    local meta = item and (item.metadata or item.info)
+    if type(meta) ~= 'table' or type(meta.collectibleSnapshot) ~= 'table' or not MetaComic.Inventory.setMetadata then return false end
+    local imageurl, image = objectIcon(meta.collectibleSnapshot)
+    if meta.imageurl == imageurl and meta.image == image then return false end
+    local updated = MetaComic.CopyTable(meta)
+    updated.imageurl, updated.image = imageurl, image
+    MetaComic.Inventory.setMetadata(source, tonumber(item.slot), updated)
+    return true
+end
+local function refreshObjectItems(source, typeId, key)
+    if not MetaComic.Inventory.slotsOf then return 0 end
+    local count = 0
+    for id, names in pairs(objectTypes()) do
+        if not typeId or typeId == id then
+            for _, item in pairs(MetaComic.Inventory.slotsOf(source, names.item)) do
+                local meta = item.metadata or item.info
+                if (not key or (type(meta) == 'table' and printKey(meta.collectibleSnapshot) == key)) and refreshObjectItem(source, item) then count = count + 1 end
+            end
+        end
+    end
+    return count
+end
+
 -- after a print's icon changed: update that print's card items for everyone online
 local function refreshItemsForPrint(key)
-    if not RushCards.Inventory.slotsOf then return end
+    if not MetaComic.Inventory.slotsOf then return end
+    if key:sub(1, 5) == 'obj::' then
+        for _, id in ipairs(GetPlayers()) do refreshObjectItems(tonumber(id), keyType(key), key) end
+        return
+    end
     for _, id in ipairs(GetPlayers()) do
         local src = tonumber(id)
-        for _, item in pairs(RushCards.Inventory.slotsOf(src, Config.Items.TradingCard)) do
+        for _, item in pairs(MetaComic.Inventory.slotsOf(src, Config.Items.TradingCard)) do
             local meta = item.metadata
             if type(meta) == 'table' and meta.baseCardId and key:sub(1, #tostring(meta.baseCardId) + 2) == meta.baseCardId .. '::' then
                 if printKey(findCard(src, meta)) == key then refreshCardItem(src, item.slot, meta) end
             end
         end
     end
+end
+
+refreshObjectItemsLater = function(source) return refreshObjectItems(source) end
+
+-- hooks used by server/modules/objects.lua: item pictures, icons for new pulls, icons after catalogue saves
+if MetaComic.Objects then
+    MetaComic.Objects.icon = function(snapshot) return objectIcon(snapshot) end
+    MetaComic.Objects.onPulled = function(source, snapshots) requestIcons(source, snapshots) end
 end
 
 local B64 = {}
@@ -667,7 +827,7 @@ local uploadedThisSession = {} -- key..sig -> true: never upload the same print 
 local fileWriteFailed = false
 local warnedRejected = false
 
-RegisterNetEvent('rush_cards:server:cardIcon', function(key, dataUrl)
+RegisterNetEvent('meta_comic:server:cardIcon', function(key, dataUrl)
     local source = source
     local sig = type(key) == 'string' and pendingIcons[source] and pendingIcons[source][key]
     if not sig then return end -- only icons we asked this player for
@@ -686,12 +846,12 @@ RegisterNetEvent('rush_cards:server:cardIcon', function(key, dataUrl)
         local file = saveOxPicture(key, sig, dataUrl)
         if file then
             entry.file = file
-            RushCards.Debug('card icon saved as picture file', key, file)
+            MetaComic.Debug('card icon saved as picture file', key, file)
         else
             entry.fileFailed = true -- don't ask for it again this session
             if not fileWriteFailed then
                 fileWriteFailed = true
-                print(('[rush-tradingcards] could not write card pictures into %s/%s (folder missing or not writable?).'):format(OX_IMG_RES, OX_IMAGES))
+                print(('[meta-comic] could not write card pictures into %s/%s (folder missing or not writable?).'):format(OX_IMG_RES, OX_IMAGES))
             end
         end
     end
@@ -702,7 +862,7 @@ RegisterNetEvent('rush_cards:server:cardIcon', function(key, dataUrl)
     saveIconFile()
 
     local uploadKey = key .. '|' .. sig
-    if entry.url or fivemanageKey() == '' or uploadedThisSession[uploadKey] then
+    if entry.url or fivemanageKey(keyType(key)) == '' or uploadedThisSession[uploadKey] then
         refreshItemsForPrint(key)
         return
     end
@@ -720,10 +880,10 @@ RegisterNetEvent('rush_cards:server:cardIcon', function(key, dataUrl)
         if not (current and current.sig == sig) then return end -- the card was edited meanwhile; its new look gets its own upload
         current.url = url
         saveIconFile()
-        RushCards.Debug('card icon uploaded', key, url)
+        MetaComic.Debug('card icon uploaded', key, url)
         if not imageUrlAccepted(url) and not warnedRejected and not fileMode() then
             warnedRejected = true
-            print(('[rush-tradingcards] ox_inventory will delete the uploaded icon url (%s): add its host to the convar inventory:validhosts.'):format(url))
+            print(('[meta-comic] ox_inventory will delete the uploaded icon url (%s): add its host to the convar inventory:validhosts.'):format(url))
         end
         refreshItemsForPrint(key)
     end)
@@ -733,7 +893,13 @@ end)
 local readyWorkers = {} -- players whose NUI has loaded (it draws the icons)
 local syncRunning, syncAgain, syncPreferred = false, false, nil
 
-local function catalogPrints() return RushCards.Cards.rarityPrints() end -- one per base card + rarity
+local function catalogPrints() -- one per base card + rarity, plus one per coin / plushie print
+    local list = MetaComic.Cards.rarityPrints()
+    if MetaComic.Objects and MetaComic.Objects.iconPrints then
+        for _, print in ipairs(MetaComic.Objects.iconPrints()) do list[#list + 1] = print end
+    end
+    return list
+end
 
 local function missingPrints(includeFailed)
     local list = {}
@@ -776,7 +942,7 @@ end
 -- One HEAD request per url, one at a time. Network errors keep the url; only "not found" removes it.
 local checkingUrls = false
 local function checkIconUrls(done)
-    if checkingUrls or fivemanageKey() == '' then return done and done(0) end
+    if checkingUrls or not anyFivemanageKey() then return done and done(0) end
     checkingUrls = true
     local urls, seen = {}, {}
     for _, entry in pairs(iconUrls) do
@@ -791,7 +957,7 @@ local function checkIconUrls(done)
             if removed > 0 then
                 uploadedThisSession = {} -- those prints may be uploaded again
                 saveIconFile()
-                print(('[rush-tradingcards] card icons: %d saved Fivemanage url%s no longer exist%s; uploading %s again.'):format(
+                print(('[meta-comic] card icons: %d saved Fivemanage url%s no longer exist%s; uploading %s again.'):format(
                     removed, removed == 1 and '' or 's', removed == 1 and 's' or '', removed == 1 and 'it' or 'them'))
             end
             if done then done(removed) end
@@ -836,16 +1002,23 @@ local function syncIcons(preferred)
         syncPreferred = nil
         if done > 0 then
             local left = #missingPrints(true)
-            print(('[rush-tradingcards] card icons: %d requested, %d card + rarity icon%s still missing%s.'):format(done, left, left == 1 and '' or 's',
+            print(('[meta-comic] card icons: %d requested, %d card + rarity icon%s still missing%s.'):format(done, left, left == 1 and '' or 's',
                 left > 0 and ' (they keep the rarity icon; /' .. tostring(Config.CardIcons.RefreshCommand or 'cardicons') .. ' in the server console retries)' or ''))
         end
     end)
 end
 
+-- a coin / plushie catalogue save: new or edited prints get their icon drawn (by the saving admin) and uploaded
+if MetaComic.Objects then MetaComic.Objects.afterSave = function(source) syncIcons(source) end end
+
 -- the client says its NUI is loaded (on join, and on every resource restart for players already online)
-RegisterNetEvent('rush_cards:server:uiReady', function()
+RegisterNetEvent('meta_comic:server:uiReady', function()
     local source = source
     readyWorkers[source] = true
+    if MetaComic.Objects then
+        local ok,err=pcall(MetaComic.Objects.claim,source)
+        if not ok then MetaComic.Debug('Pending collectible delivery: '..tostring(err)) end
+    end
     refreshPlayerItems(source) -- card items get the current icon (also fixes items made before an icon existed)
     syncIcons()
 end)
@@ -871,10 +1044,10 @@ end)
 CreateThread(function()
     Wait(1000)
     local rules = getOxRules()
-    if RushCards.Inventory.name ~= 'ox_inventory' then return end
+    if MetaComic.Inventory.name ~= 'ox_inventory' then return end
     local sample
     for _, entry in pairs(iconUrls) do if entry.url then sample = entry.url break end end
-    print(('[rush-tradingcards] card pictures: ox_inventory %s, inventory:webhook %s%s%s'):format(tostring(rules.version),
+    print(('[meta-comic] card pictures: ox_inventory %s, inventory:webhook %s%s%s'):format(tostring(rules.version),
         rules.checks and 'SET (ox deletes picture urls it does not trust)' or 'not set (all picture urls kept)',
         sample and (', Fivemanage urls ' .. (imageUrlAccepted(sample) and 'accepted' or 'NOT accepted')) or '',
         fileMode() and (' -> per-card icons are saved as picture files in %s/%s (new ones show after a full server restart)'):format(OX_IMG_RES, OX_IMAGES) or ''))
@@ -883,10 +1056,10 @@ CreateThread(function()
         for _, entry in pairs(iconUrls) do if entry.file and writtenThisSession[entry.file] then waiting = waiting + 1 end end
         local ready = 0
         for _, entry in pairs(iconUrls) do if entry.file then ready = ready + 1 end end
-        print(('[rush-tradingcards] card pictures: %d per-card picture files ready to show this session.'):format(ready - waiting))
+        print(('[meta-comic] card pictures: %d per-card picture files ready to show this session.'):format(ready - waiting))
     end
     if fileMode() then
-        print('[rush-tradingcards] for per-card icons that show straight away: remove "inventory:webhook" from server.cfg (ox_inventory only uses it to log picture urls to Discord) or update ox_inventory to 2.45.1+.')
+        print('[meta-comic] for per-card icons that show straight away: remove "inventory:webhook" from server.cfg (ox_inventory only uses it to log picture urls to Discord) or update ox_inventory to 2.45.1+.')
     end
 
     local missingFiles = false
@@ -899,17 +1072,26 @@ CreateThread(function()
     end
     if missingFiles then saveIconFile() end
 
-    if not rules.checks or imageUrlAccepted(('nui://%s/img/cards/rushcard_common.png'):format(resourceName)) then return end
+    if not rules.checks or imageUrlAccepted(('nui://%s/img/cards/metacard_common.png'):format(resourceName)) then return end
     local copied = 0
     for tier in pairs(RARITY_ICONS) do
-        local target = OX_IMAGES .. ('rushcard_%s.png'):format(tier)
+        local target = OX_IMAGES .. ('metacard_%s.png'):format(tier)
         if not LoadResourceFile(OX_IMG_RES, target) then
-            local data = LoadResourceFile(resourceName, ('img/cards/rushcard_%s.png'):format(tier))
+            local data = LoadResourceFile(resourceName, ('img/cards/metacard_%s.png'):format(tier))
             if data and SaveResourceFile(OX_IMG_RES, target, data, #data) then copied = copied + 1 end
         end
     end
+    for _, prefix in pairs(OBJECT_ICON_PREFIX) do
+        for tier in pairs(RARITY_ICONS) do
+            local target = OX_IMAGES .. ('%s_%s.png'):format(prefix, tier)
+            if not LoadResourceFile(OX_IMG_RES, target) then
+                local data = LoadResourceFile(resourceName, ('img/collectibles/%s_%s.png'):format(prefix, tier))
+                if data and SaveResourceFile(OX_IMG_RES, target, data, #data) then copied = copied + 1 end
+            end
+        end
+    end
     if copied > 0 then
-        print(('[rush-tradingcards] copied %d rarity card pictures into ox_inventory/web/images. Restart the server once so players download them.'):format(copied))
+        print(('[meta-comic] copied %d rarity card pictures into ox_inventory/web/images. Restart the server once so players download them.'):format(copied))
     end
 end)
 
@@ -926,7 +1108,7 @@ local function viewCard(source, metadata)
     if type(metadata) ~= 'table' then return notify(source, 'This card has no card data.', 'error') end
     local card = findCard(source, metadata)
     if not card then return notify(source, 'That card is no longer in the catalog.', 'error') end
-    TriggerClientEvent('rush_cards:client:viewCard', source, card)
+    TriggerLatentClientEvent('meta_comic:client:viewCard', source, 512 * 1024, card)
 end
 
 -- "Show Card" button: show a card from your inventory to the players standing near you.
@@ -945,14 +1127,14 @@ local function showCardToOthers(source, metadata)
     local myPed = GetPlayerPed(source)
     if not myPed or myPed == 0 then return end
     local myCoords = GetEntityCoords(myPed)
-    local name = RushCards.Framework.getName and RushCards.Framework.getName(source) or GetPlayerName(source)
+    local name = MetaComic.Framework.getName and MetaComic.Framework.getName(source) or GetPlayerName(source)
     local shown = 0
     for _, id in ipairs(GetPlayers()) do
         local target = tonumber(id)
         if target ~= source then
             local ped = GetPlayerPed(target)
             if ped and ped ~= 0 and #(GetEntityCoords(ped) - myCoords) <= maxDistance then
-                TriggerClientEvent('rush_cards:client:viewCard', target, card, name)
+                TriggerLatentClientEvent('meta_comic:client:viewCard', target, 512 * 1024, card, name)
                 shown = shown + 1
             end
         end
@@ -967,11 +1149,11 @@ end
 -- Called when a player uses a booster pack / booster box item (framework usable item or ox_inventory client export).
 local function useItem(source, kind, slot, passedItem)
     local now = GetGameTimer()
-    RushCards.Debug('useItem', kind, 'player', source, 'inventory', RushCards.Inventory.name, 'slot', slot)
-    if lastUse[source] and now - lastUse[source] < 1200 then RushCards.Debug('useItem ignored: repeat within 1.2 s') return end
+    MetaComic.Debug('useItem', kind, 'player', source, 'inventory', MetaComic.Inventory.name, 'slot', slot)
+    if lastUse[source] and now - lastUse[source] < 1200 then MetaComic.Debug('useItem ignored: repeat within 1.2 s') return end
     lastUse[source] = now
 
-    if RushCards.Inventory.name == 'none' then
+    if MetaComic.Inventory.name == 'none' then
         notify(source, 'Trading card items need an inventory adapter (Config.Inventory).', 'error')
         return
     end
@@ -979,7 +1161,7 @@ local function useItem(source, kind, slot, passedItem)
     local expected = kind == 'box' and Config.Items.BoosterBox or Config.Items.BoosterPack
     local item = nil
     slot = tonumber(slot or (type(passedItem) == 'table' and passedItem.slot))
-    if slot and RushCards.Inventory.getSlot then item = RushCards.Inventory.getSlot(source, slot) end
+    if slot and MetaComic.Inventory.getSlot then item = MetaComic.Inventory.getSlot(source, slot) end
     if not item and type(passedItem) == 'table' then item = passedItem end
     if item and item.name and item.name ~= expected then return end
 
@@ -987,25 +1169,25 @@ local function useItem(source, kind, slot, passedItem)
     local setId = metadataSetId(metadata)
     local set = setById(setId)
     if not set then return notify(source, ('This sealed item references an unknown card set: %s.'):format(setId), 'error') end
-    local setCardCount = RushCards.Cards.countForSet and RushCards.Cards.countForSet(set.id) or #(set.cardIds or {})
+    local setCardCount = MetaComic.Cards.countForSet and MetaComic.Cards.countForSet(set.id) or #(set.cardIds or {})
     if setCardCount < 1 then return notify(source, ('The %s set has no valid assigned cards.'):format(set.name or set.id), 'error') end
 
     if kind == 'pack' then
-        if not RushCards.Inventory.has(source, expected, 1) then return notify(source, 'You do not have a booster pack.', 'error') end
+        if not MetaComic.Inventory.has(source, expected, 1) then return notify(source, 'You do not have a booster pack.', 'error') end
         if not takeOne(source, expected, metadata, slot) then return notify(source, 'Could not use the booster pack.', 'error') end
         pushPackCredit(source, set.id)
-        TriggerClientEvent('rush_cards:client:openPackOverlay', source, set.id, set.name)
+        TriggerClientEvent('meta_comic:client:openPackOverlay', source, set.id, set.name)
     elseif kind == 'box' then
-        local count = math.max(1, math.floor(tonumber(Config.Items.PacksPerBox) or 12))
-        if not RushCards.Inventory.has(source, expected, 1) then return notify(source, 'You do not have a booster box.', 'error') end
+        local count = MetaComic.Collectables.containerCount('booster_box')
+        if not MetaComic.Inventory.has(source, expected, 1) then return notify(source, 'You do not have a booster box.', 'error') end
         if not takeOne(source, expected, metadata, slot) then return notify(source, 'Could not open the booster box.', 'error') end
         local ok, err = giveBoxPacks(source, count, set.id)
         if not ok then
-            RushCards.Inventory.add(source, expected, 1, sealedMetadata('box', set)) -- refund the exact set box
+            MetaComic.Inventory.add(source, expected, 1, sealedMetadata('box', set)) -- refund the exact set box
             return notify(source, err, 'error')
         end
         notify(source, ('You opened a %s booster box: +%d %s packs.'):format(set.name, count, set.name), 'success')
-        TriggerClientEvent('rush_cards:client:boxOpened', source, count, set.id, set.name)
+        TriggerClientEvent('meta_comic:client:boxOpened', source, count, set.id, set.name)
     end
 end
 
@@ -1018,17 +1200,17 @@ local function giveCardItems(source)
     pendingCardItems[source] = nil
     if not list then return 0 end
     for _, card in ipairs(list) do
-        if RushCards.Inventory.add(source, Config.Items.TradingCard, 1, cardMetadata(card)) ~= true then
-            print(('[rush-tradingcards] could not add card item %s to player %s (inventory full?)'):format(card.cardKey or '?', source))
+        if MetaComic.Inventory.add(source, Config.Items.TradingCard, 1, cardMetadata(card)) ~= true then
+            print(('[meta-comic] could not add card item %s to player %s (inventory full?)'):format(card.cardKey or '?', source))
         end
     end
     return #list
 end
 
 local function queueCardItems(source, cards)
-    if not Config.Items.GiveCardItems or RushCards.Inventory.name == 'none' then return end
+    if not Config.Items.GiveCardItems or MetaComic.Inventory.name == 'none' then return end
     if pendingCardItems[source] then giveCardItems(source) end -- an earlier pack nobody claimed
-    local list = RushCards.CopyTable(cards)
+    local list = MetaComic.CopyTable(cards)
     pendingCardItems[source] = list
     SetTimeout(120000, function()
         if pendingCardItems[source] == list then giveCardItems(source) end
@@ -1048,21 +1230,49 @@ end)
 
 local handlers = {}
 
+handlers.getCollectibles = function(source)
+    if not MetaComic.Objects then return fail('Coins and plushies are off: update fxmanifest.lua (see the server console).') end
+    return {ok=true,data=MetaComic.Objects.get(source)}
+end
+handlers.saveCollectible = function(source,payload)
+    local allowed,err=requireManage(source);if not allowed then return fail(err) end
+    if not MetaComic.Objects then return fail('Coins and plushies are off: update fxmanifest.lua (see the server console).') end
+    MetaComic.Objects.save(payload)
+    if MetaComic.Objects.afterSave then MetaComic.Objects.afterSave(source) end
+    return {ok=true,data=MetaComic.Objects.get(source)}
+end
+handlers.openCollectibleContainer = function(source,payload)
+    if not MetaComic.Objects then return fail('Coins and plushies are off: update fxmanifest.lua (see the server console).') end
+    local result=MetaComic.Objects.open(source,payload,canManage(source))
+    result.ok=true;return result
+end
+handlers.claimCollectibles = function(source)
+    if not MetaComic.Objects then return fail('Collectibles are unavailable') end
+    return {ok=true,given=MetaComic.Objects.claim(source)}
+end
+handlers.createCollectibleContainer = function(source,payload)
+    local allowed,err=requireManage(source);if not allowed then return fail(err) end
+    if MetaComic.Inventory.name=='none' then return fail('A physical inventory is required') end
+    if not MetaComic.Objects then return fail('Coins and plushies are off: update fxmanifest.lua (see the server console).') end
+    return {ok=true,data=MetaComic.Objects.create(source,payload)}
+end
+
 handlers.getRuntimeInfo = function(source)
     local management = canManage(source)
-    local capabilities = RushCards.CopyTable(RushCards.RuntimeInfo.capabilities or {})
+    local capabilities = MetaComic.CopyTable(MetaComic.RuntimeInfo.capabilities or {})
     capabilities.management = management
     capabilities.editor = management and Config.Nui.AllowEditor == true
     capabilities.catalogWrite = management and Config.Catalog.AllowWrite == true
     capabilities.setManagement = management
-    capabilities.manualPrint = management and RushCards.Inventory.name ~= 'none'
-    capabilities.createSealed = management and RushCards.Inventory.name ~= 'none'
+    capabilities.manualPrint = management and MetaComic.Inventory.name ~= 'none'
+    capabilities.createSealed = management and MetaComic.Inventory.name ~= 'none'
+    capabilities.collectibles = MetaComic.Objects ~= nil
     return {
         ok = true,
-        runtime = RushCards.RuntimeInfo.runtime,
-        framework = RushCards.RuntimeInfo.framework,
-        inventory = RushCards.RuntimeInfo.inventory,
-        persistence = RushCards.RuntimeInfo.persistence,
+        runtime = MetaComic.RuntimeInfo.runtime,
+        framework = MetaComic.RuntimeInfo.framework,
+        inventory = MetaComic.RuntimeInfo.inventory,
+        persistence = MetaComic.RuntimeInfo.persistence,
         capabilities = capabilities,
         packAnimation = {
             maxSpeed = (Config.PackAnimation and Config.PackAnimation.MaxSpeed) or 3.0,
@@ -1079,14 +1289,38 @@ handlers.resolveRemoteAsset = function(_, payload)
 end
 
 handlers.getCatalog = function()
-    return { ok = true, cards = RushCards.Cards.getCatalog() }
+    -- Administrative reads refresh persisted definitions; normal pulls still use the cache.
+    if MetaComic.Persistence.reloadDefinitions then
+        local ok,err=MetaComic.Persistence.reloadDefinitions()
+        if not ok then return fail(tostring(err)) end
+        MetaComic.Cards.reloadCatalog()
+        MetaComic.Sets.reload()
+    end
+    return { ok = true, cards = MetaComic.Cards.getCatalog(), sets = MetaComic.Sets.getAll() }
 end
+
+-- Explicit recovery only; never automatically resurrect intentionally deleted definitions.
+local function restoreSeed(source)
+    if source ~= 0 then return notify(source, 'Run collectablesrestoreseed from the server console.', 'error') end
+    if MetaComic.Persistence.name ~= 'mysql' or not MetaComic.Persistence.restoreMissingDefinitions then
+        return print('[meta-comic] cardrestoreseed requires MySQL persistence.')
+    end
+    local ok, result = MetaComic.Persistence.restoreMissingDefinitions()
+    if not ok then return print('[meta-comic] recovery failed: ' .. tostring(result)) end
+    MetaComic.Cards.reloadCatalog()
+    MetaComic.Sets.reload()
+    print(('[meta-comic] recovered %d cards, %d prints, %d sets, %d memberships; existing records were kept. Reopen /cardadmin.'):format(result.cards, result.prints, result.sets, result.memberships))
+    syncIcons()
+end
+RegisterCommand('collectablesrestoreseed',restoreSeed,true)
+RegisterCommand('cardrestoreseed',restoreSeed,true)
 
 handlers.saveCatalog = function(source, payload)
     local allowed, permissionError = requireManage(source)
     if not allowed then return fail(permissionError) end
     if not Config.Catalog.AllowWrite then return fail('FiveM catalog write is disabled in config.lua') end
-    local ok, err = RushCards.Cards.saveCatalog(payload.cards)
+    freezeOnlineItems()
+    local ok, err = MetaComic.Cards.saveCatalog(payload.cards)
     if not ok then return fail(err or 'Could not save catalog') end
     syncIcons(source) -- new / changed prints get their inventory icon drawn (by this player) and uploaded
     return { ok = true }
@@ -1096,7 +1330,8 @@ handlers.saveCard = function(source, payload)
     local allowed, permissionError = requireManage(source)
     if not allowed then return fail(permissionError) end
     if not Config.Catalog.AllowWrite then return fail('FiveM catalog write is disabled in config.lua') end
-    local ok, err = RushCards.Cards.saveCard(payload.card)
+    freezeOnlineItems()
+    local ok, err = MetaComic.Cards.saveCard(payload.card)
     if not ok then return fail(err or 'Could not save card') end
     syncIcons(source)
     return { ok = true, cardId = payload.card and payload.card.id or nil }
@@ -1106,34 +1341,35 @@ handlers.deleteCard = function(source, payload)
     local allowed, permissionError = requireManage(source)
     if not allowed then return fail(permissionError) end
     if not Config.Catalog.AllowWrite then return fail('FiveM catalog write is disabled in config.lua') end
-    local ok, err = RushCards.Cards.deleteCard(payload.cardId)
+    freezeOnlineItems()
+    local ok, err = MetaComic.Cards.deleteCard(payload.cardId)
     if not ok then return fail(err or 'Could not delete card') end
     return { ok = true, cardId = payload.cardId }
 end
 
 handlers.getSets = function()
-    return { ok = true, sets = RushCards.Sets.getAll(), defaultSet = RushCards.Sets.defaultId() }
+    return { ok = true, sets = MetaComic.Sets.getAll(), defaultSet = MetaComic.Sets.defaultId() }
 end
 
 handlers.saveSets = function(source, payload)
     local allowed, permissionError = requireManage(source)
     if not allowed then return fail(permissionError) end
-    local ok, err = RushCards.Sets.save(payload.sets)
+    local ok, err = MetaComic.Sets.save(payload.sets)
     if not ok then return fail(err or 'Could not save card sets') end
-    return { ok = true, sets = RushCards.Sets.getAll() }
+    return { ok = true, sets = MetaComic.Sets.getAll() }
 end
 
 handlers.printCard = function(source, payload)
     local allowed, permissionError = requireManage(source)
     if not allowed then return fail(permissionError) end
-    if RushCards.Inventory.name == 'none' then return fail('Manual printing needs an inventory adapter.') end
+    if MetaComic.Inventory.name == 'none' then return fail('Manual printing needs an inventory adapter.') end
 
-    local card = RushCards.Cards.resolve(payload.baseCardId, payload.variantId)
+    local card = MetaComic.Cards.resolve(payload.baseCardId, payload.variantId)
     if not card then return fail('That card print no longer exists in the server catalog.') end
 
     local set = payload.setId and setById(payload.setId) or nil
-    local owner = RushCards.Framework.getIdentifier(source)
-    local printedBy = RushCards.Framework.getName and RushCards.Framework.getName(source) or GetPlayerName(source)
+    local owner = MetaComic.Framework.getIdentifier(source)
+    local printedBy = MetaComic.Framework.getName and MetaComic.Framework.getName(source) or GetPlayerName(source)
     local now = os.date('!%Y-%m-%dT%H:%M:%SZ')
     card.instanceId = ('manual-%s-%06d-%06d'):format(os.time(), math.random(0, 999999), math.random(0, 999999))
     card.ownerIdentifier = owner
@@ -1146,11 +1382,11 @@ handlers.printCard = function(source, payload)
     card.printedAt = now
     if set then card.setId, card.seriesId, card.setName = set.id, set.id, set.name end
 
-    if RushCards.Inventory.add(source, Config.Items.TradingCard, 1, cardMetadata(card)) ~= true then
+    if MetaComic.Inventory.add(source, Config.Items.TradingCard, 1, cardMetadata(card)) ~= true then
         return fail('Could not add the printed card to your inventory (is it full?).')
     end
-    RushCards.Persistence.addCards(owner, { card })
-    local catalogPrint = RushCards.Cards.resolve(card.baseCardId, card.variantId)
+    MetaComic.Persistence.addCards(owner, { card })
+    local catalogPrint = MetaComic.Cards.resolve(card.baseCardId, card.variantId)
     if catalogPrint then requestIcons(source, { catalogPrint }) end -- shared icon must not include the MANUAL PRINT stamp
     return { ok = true, card = card }
 end
@@ -1158,13 +1394,13 @@ end
 handlers.createSealed = function(source, payload)
     local allowed, permissionError = requireManage(source)
     if not allowed then return fail(permissionError) end
-    if RushCards.Inventory.name == 'none' then return fail('Creating packs/boxes needs an inventory adapter.') end
+    if MetaComic.Inventory.name == 'none' then return fail('Creating packs/boxes needs an inventory adapter.') end
 
     local kind = payload.kind == 'box' and 'box' or 'pack'
     local itemName = kind == 'box' and Config.Items.BoosterBox or Config.Items.BoosterPack
     local set = setById(payload.setId)
     if not set then return fail('Choose a valid card set first.') end
-    local setCardCount = RushCards.Cards.countForSet and RushCards.Cards.countForSet(set.id) or #(set.cardIds or {})
+    local setCardCount = MetaComic.Cards.countForSet and MetaComic.Cards.countForSet(set.id) or #(set.cardIds or {})
     if setCardCount < 1 then return fail(('Assign at least one valid card to %s before creating sealed items.'):format(set.name or set.id)) end
 
     local maxAmount = math.max(1, math.floor(tonumber((Config.Management or {}).MaxCreateAmount) or 100))
@@ -1172,7 +1408,7 @@ handlers.createSealed = function(source, payload)
     if amount < 1 then amount = 1 end
     if amount > maxAmount then amount = maxAmount end
 
-    if RushCards.Inventory.add(source, itemName, amount, sealedMetadata(kind, set)) ~= true then
+    if MetaComic.Inventory.add(source, itemName, amount, sealedMetadata(kind, set)) ~= true then
         return fail(('Could not add %d %s%s to your inventory.'):format(amount, kind, amount == 1 and '' or 's'))
     end
     return { ok = true, kind = kind, amount = amount, set = set }
@@ -1194,19 +1430,19 @@ handlers.openPack = function(source, payload)
         if Config.Items.RequireForOpen and itemContext and itemContext.metadata then
             setId = metadataSetId(itemContext.metadata)
         elseif not Config.Items.RequireForOpen and canManage(source) and payload and payload.set then
-            setId = RushCards.Sets.resolveId(payload.set)
+            setId = MetaComic.Sets.resolveId(payload.set)
         else
-            setId = RushCards.Sets.defaultId()
+            setId = MetaComic.Sets.defaultId()
         end
     end
 
-    local owner = RushCards.Framework.getIdentifier(source)
-    local cards, packError, set = RushCards.Cards.openPack(owner, setId)
+    local owner = MetaComic.Framework.getIdentifier(source)
+    local cards, packError, set = MetaComic.Collectables.open('booster_pack', { owner = owner, setId = setId })
     if not cards then
-        if consumedContext then RushCards.Inventory.add(source, Config.Items.BoosterPack, 1, consumedContext.metadata) end
+        if consumedContext then MetaComic.Inventory.add(source, Config.Items.BoosterPack, 1, consumedContext.metadata) end
         return fail(packError or 'Could not roll this card set.')
     end
-    RushCards.Persistence.addCards(owner, cards)
+    MetaComic.Persistence.addCards(owner, cards)
 
     -- card items only for packs that were paid for (free /cardpack test opens don't hand out items)
     if paid then
@@ -1220,10 +1456,10 @@ end
 -- Lab / command box opening. Real pack items are only handed out when a real box item was consumed
 -- (RequireForOpen = true); otherwise the lab just shows a virtual box with PacksPerBox packs.
 handlers.openBox = function(source, payload)
-    local packs = math.max(1, math.floor(tonumber(Config.Items.PacksPerBox) or 12))
-    local setId = RushCards.Sets.defaultId()
+    local packs = MetaComic.Collectables.containerCount('booster_box')
+    local setId = MetaComic.Sets.defaultId()
     if not Config.Items.RequireForOpen and canManage(source) and payload and payload.set then
-        setId = RushCards.Sets.resolveId(payload.set) or setId
+        setId = MetaComic.Sets.resolveId(payload.set) or setId
     end
     local set = setById(setId)
     if not set then return fail('No valid default card set exists.') end
@@ -1238,14 +1474,14 @@ handlers.openBox = function(source, payload)
         local itemSetId = metadataSetId(itemContext.metadata)
         local itemSet = setById(itemSetId)
         if not itemSet then
-            RushCards.Inventory.add(source, Config.Items.BoosterBox, 1, itemContext.metadata)
+            MetaComic.Inventory.add(source, Config.Items.BoosterBox, 1, itemContext.metadata)
             return fail(('This booster box references an unknown card set: %s.'):format(itemSetId))
         end
         set = itemSet
     end
     local given, giveErr = giveBoxPacks(source, packs, set.id)
     if not given then
-        RushCards.Inventory.add(source, Config.Items.BoosterBox, 1, sealedMetadata('box', set)) -- refund the box
+        MetaComic.Inventory.add(source, Config.Items.BoosterBox, 1, sealedMetadata('box', set)) -- refund the box
         return fail(giveErr)
     end
     return { ok = true, packs = packs, addedToInventory = true, set = set }
@@ -1257,8 +1493,8 @@ handlers.claimCards = function(source)
 end
 
 handlers.getCollection = function(source)
-    local owner = RushCards.Framework.getIdentifier(source)
-    return { ok = true, cards = RushCards.Persistence.getCollection(owner) }
+    local owner = MetaComic.Framework.getIdentifier(source)
+    return { ok = true, cards = MetaComic.Persistence.getCollection(owner) }
 end
 
 local RPC_LATENT_THRESHOLD = 16 * 1024
@@ -1275,13 +1511,13 @@ local function sendRpcResult(target, requestId, response)
     -- Mirror the client-side large-RPC handling so reopening /cardadmin cannot later
     -- overflow in the opposite direction.
     if estimatedRpcResponseBytes(requestId, response) >= RPC_LATENT_THRESHOLD then
-        TriggerLatentClientEvent('rush_cards:client:rpcResult', target, RPC_LATENT_BPS, requestId, response)
+        TriggerLatentClientEvent('meta_comic:client:rpcResult', target, RPC_LATENT_BPS, requestId, response)
     else
-        TriggerClientEvent('rush_cards:client:rpcResult', target, requestId, response)
+        TriggerClientEvent('meta_comic:client:rpcResult', target, requestId, response)
     end
 end
 
-RegisterNetEvent('rush_cards:server:rpc', function(requestId, action, payload)
+RegisterNetEvent('meta_comic:server:rpc', function(requestId, action, payload)
     local source = source
     local handler = handlers[action]
     if not handler then
@@ -1291,7 +1527,7 @@ RegisterNetEvent('rush_cards:server:rpc', function(requestId, action, payload)
 
     local ok, response = pcall(handler, source, payload or {})
     if not ok then
-        print(('[rush-tradingcards] RPC %s failed: %s'):format(action, response))
+        print(('[meta-comic] RPC %s failed: %s'):format(action, response))
         response = fail('Server error while processing card request.')
     end
     sendRpcResult(source, requestId, response)
@@ -1305,13 +1541,13 @@ end)
 -- Using an item through both routes at once can't double-open: useItem() ignores repeats within 1.2 s.
 local method = Config.Items.UseMethod or 'auto'
 local frameworkRoute = Config.Items.RegisterUsableItems ~= false and (method == 'auto' or method == 'framework')
-local exportRoute = (method == 'auto' and RushCards.Inventory.name == 'ox_inventory') or method == 'ox_export'
+local exportRoute = (method == 'auto' and MetaComic.Inventory.name == 'ox_inventory') or method == 'ox_export'
 
 local frameworkRegistered = false
 if frameworkRoute then
-    local a = RushCards.Framework.registerUsableItem(Config.Items.BoosterPack, function(source, item) useItem(source, 'pack', item and item.slot, item) end)
-    local b = RushCards.Framework.registerUsableItem(Config.Items.BoosterBox, function(source, item) useItem(source, 'box', item and item.slot, item) end)
-    local c = RushCards.Framework.registerUsableItem(Config.Items.TradingCard, function(source, item)
+    local a = MetaComic.Framework.registerUsableItem(Config.Items.BoosterPack, function(source, item) useItem(source, 'pack', item and item.slot, item) end)
+    local b = MetaComic.Framework.registerUsableItem(Config.Items.BoosterBox, function(source, item) useItem(source, 'box', item and item.slot, item) end)
+    local c = MetaComic.Framework.registerUsableItem(Config.Items.TradingCard, function(source, item)
         -- QBCore passes item.info, ox_inventory / Qbox pass item.metadata
         if item and item.metadata then refreshCardItem(source, item.slot, item.metadata) end
         viewCard(source, item and (item.metadata or item.info))
@@ -1320,29 +1556,47 @@ if frameworkRoute then
 end
 
 local routes = {}
+local function useObjectItem(source,slot)
+    local item=MetaComic.Inventory.getSlot and MetaComic.Inventory.getSlot(source,tonumber(slot))
+    if not item then return end
+    local metadata=item.metadata or item.info or {}
+    for typeId,names in pairs(objectTypes()) do
+        if item.name==names.item and type(metadata.collectibleSnapshot)=='table' then
+            return TriggerLatentClientEvent('meta_comic:client:viewCard',source,512*1024,metadata.collectibleSnapshot)
+        elseif item.name==names.inner or item.name==names.outer then
+            return TriggerClientEvent('meta_comic:client:openCollectible',source,typeId,item.slot,item.name==names.outer)
+        end
+    end
+end
+if frameworkRoute then
+    for _,names in pairs(objectTypes()) do
+        for _,name in pairs(names) do MetaComic.Framework.registerUsableItem(name,function(source,item) useObjectItem(source,item and item.slot) end) end
+    end
+end
+RegisterNetEvent('meta_comic:server:useCollectible',function(slot) useObjectItem(source,slot) end)
 if frameworkRegistered then routes[#routes + 1] = 'framework' end
 if exportRoute then routes[#routes + 1] = 'ox_export' end
-print(('[rush-tradingcards] framework=%s inventory=%s persistence=%s itemUse=%s cardItems=%s cardIcons=%s binder=%s'):format(
-    RushCards.Framework.name, RushCards.Inventory.name, RushCards.Persistence.name,
+print(('[meta-comic] framework=%s inventory=%s persistence=%s itemUse=%s cardItems=%s cardIcons=%s binder=%s'):format(
+    MetaComic.Framework.name, MetaComic.Inventory.name, MetaComic.Persistence.name,
     #routes > 0 and table.concat(routes, '+') or 'NONE', tostring(Config.Items.GiveCardItems),
-    (Config.CardIcons and Config.CardIcons.Enabled == false) and 'artwork' or (uploadMode() and (fivemanageKey() ~= '' and 'upload' or 'upload(NO KEY: set rushcards_fivemanage_key)') or 'rarity'),
+    (Config.CardIcons and Config.CardIcons.Enabled == false) and 'artwork' or (uploadMode() and (anyFivemanageKey() and 'upload' or 'upload(NO KEY: set metacomic_fivemanage_key)') or 'rarity'),
     type(Config.Items.Binder) == 'table' and table.concat(Config.Items.Binder, ',') or tostring(Config.Items.Binder)))
-if RushCards.Inventory.name == 'none' then
-    print('[rush-tradingcards] no inventory adapter: booster pack / box / card items cannot be used. Set Config.Inventory or start your inventory before this resource.')
+if MetaComic.Inventory.name == 'none' then
+    print('[meta-comic] no inventory adapter: booster pack / box / card items cannot be used. Set Config.Inventory or start your inventory before this resource.')
 elseif #routes == 0 then
-    print('[rush-tradingcards] no item-use route is active: booster packs / boxes / cards cannot be used from the inventory. Check Config.Items.UseMethod.')
+    print('[meta-comic] no item-use route is active: booster packs / boxes / cards cannot be used from the inventory. Check Config.Items.UseMethod.')
 end
 
 -- ox_inventory client export -> here. The server re-checks and removes the item itself, so this can't be abused.
-RegisterNetEvent('rush_cards:server:useItem', function(kind, slot)
+RegisterNetEvent('meta_comic:server:useItem', function(kind, slot)
     local source = source
     if not exportRoute then
-        RushCards.Debug('useItem event ignored: ox_export route is off (Config.Items.UseMethod)')
+        MetaComic.Debug('useItem event ignored: ox_export route is off (Config.Items.UseMethod)')
         return
     end
     if kind == 'card' then
         -- read the card from the player's own slot, so a client can't ask for an arbitrary card
-        local item = RushCards.Inventory.getSlot and RushCards.Inventory.getSlot(source, tonumber(slot))
+        local item = MetaComic.Inventory.getSlot and MetaComic.Inventory.getSlot(source, tonumber(slot))
         if not item or item.name ~= Config.Items.TradingCard then return end
         refreshCardItem(source, item.slot or tonumber(slot), item.metadata)
         return viewCard(source, item.metadata)
@@ -1354,13 +1608,13 @@ end)
 -- /cardicons: update the card items in your inventory to the current icons, and make any missing catalog icons
 local refreshCommand = Config.CardIcons and Config.CardIcons.RefreshCommand
 if refreshCommand and refreshCommand ~= '' then
-    RegisterCommand(refreshCommand, function(source)
+    local function refreshIcons(source)
         if source == 0 then
             iconAttempts = {} -- console: retry prints that failed before, and re-check the saved urls
-            print('[rush-tradingcards] checking the saved card icon urls on Fivemanage...')
+            print('[meta-comic] checking the saved card icon urls on Fivemanage...')
             return checkIconUrls(function()
                 local missing = #missingPrints(true)
-                print(('[rush-tradingcards] %d card + rarity icon%s missing; drawing them on the next player with the UI loaded.'):format(missing, missing == 1 and '' or 's'))
+                print(('[meta-comic] %d card + rarity icon%s missing; drawing them on the next player with the UI loaded.'):format(missing, missing == 1 and '' or 's'))
                 for _, id in ipairs(GetPlayers()) do refreshPlayerItems(tonumber(id)) end
                 syncIcons()
             end)
@@ -1369,7 +1623,10 @@ if refreshCommand and refreshCommand ~= '' then
         readyWorkers[source] = true
         syncIcons(source)
         notify(source, ('Updated %d trading card%s.'):format(updated, updated == 1 and '' or 's'), 'success')
-    end, false)
+    end
+    RegisterCommand(refreshCommand,refreshIcons,false)
+    if refreshCommand~='collectablesicons' then RegisterCommand('collectablesicons',refreshIcons,false) end
+    if refreshCommand~='cardicons' then RegisterCommand('cardicons',refreshIcons,false) end
 end
 
 -- Binder item "View Binder" button: send the cards in the binder's pockets, in the binder's own slot order.
@@ -1384,15 +1641,15 @@ end
 
 local function binderPayload(source, binderSlot)
     binderSlot = tonumber(binderSlot)
-    local item = binderSlot and RushCards.Inventory.getSlot and RushCards.Inventory.getSlot(source, binderSlot)
+    local item = binderSlot and MetaComic.Inventory.getSlot and MetaComic.Inventory.getSlot(source, binderSlot)
     if not item then return nil, nil, nil, 'That binder is no longer in your inventory.' end
     if not isBinder(item.name) then return nil, nil, nil, 'That item is not a configured trading card binder.' end
-    if not RushCards.Inventory.getContainer then return nil, nil, nil, 'Binders need ox_inventory.' end
+    if not MetaComic.Inventory.getContainer then return nil, nil, nil, 'Binders need ox_inventory.' end
     if not (item.metadata and item.metadata.container) then
         return nil, nil, nil, 'This binder has no ox_inventory container.'
     end
 
-    local container = RushCards.Inventory.getContainer(source, binderSlot)
+    local container = MetaComic.Inventory.getContainer(source, binderSlot)
     if not container then return nil, item, nil, 'Could not open this binder container.' end
 
     local slots = tonumber(container.slots) or (item.metadata.size and tonumber(item.metadata.size[1])) or (Config.Binder and Config.Binder.DefaultPockets) or 36
@@ -1415,7 +1672,7 @@ end
 -- the player actually opened, revalidates the source card, and either moves it into an empty pocket or swaps
 -- it with another trading card in that exact ox_inventory container.
 handlers.swapBinderCards = function(source, payload)
-    if RushCards.Inventory.name ~= 'ox_inventory' or not RushCards.Inventory.swapSlots then
+    if MetaComic.Inventory.name ~= 'ox_inventory' or not MetaComic.Inventory.swapSlots then
         return fail('Binder card swapping requires ox_inventory.')
     end
 
@@ -1450,7 +1707,7 @@ handlers.swapBinderCards = function(source, payload)
         return fail('Trading cards can only be dropped onto an empty binder pocket or another trading card.')
     end
 
-    local swapped = RushCards.Inventory.swapSlots(active.container, fromSlot, toSlot)
+    local swapped = MetaComic.Inventory.swapSlots(active.container, fromSlot, toSlot)
     if not swapped then return fail(b and 'ox_inventory could not swap those binder slots.' or 'ox_inventory could not move that card to the empty binder slot.') end
 
     local updated, updatedItem, updatedContainer, refreshErr = binderPayload(source, active.slot)
@@ -1459,7 +1716,7 @@ handlers.swapBinderCards = function(source, payload)
     return { ok = true, binder = updated }
 end
 
-RegisterNetEvent('rush_cards:server:viewBinder', function(slot)
+RegisterNetEvent('meta_comic:server:viewBinder', function(slot)
     local source = source
     local now = GetGameTimer()
     if lastBinder[source] and now - lastBinder[source] < 800 then return end
@@ -1469,26 +1726,26 @@ RegisterNetEvent('rush_cards:server:viewBinder', function(slot)
     local binder, item, container, err = binderPayload(source, slot)
     if not binder then
         if item and not isBinder(item.name) then
-            print(('[rush-tradingcards] View Binder used on "%s", which is not in Config.Items.Binder.'):format(tostring(item.name)))
+            print(('[meta-comic] View Binder used on "%s", which is not in Config.Items.Binder.'):format(tostring(item.name)))
         end
         return notify(source, err or 'Could not open that binder.', 'error')
     end
 
     activeBinder[source] = { slot = slot, container = item.metadata.container }
-    TriggerClientEvent('rush_cards:client:viewBinder', source, binder)
+    TriggerLatentClientEvent('meta_comic:client:viewBinder', source, 512 * 1024, binder)
 end)
 
 -- ox_inventory "Show Card" button -> here, with the slot number. The card is read from the player's own slot.
-RegisterNetEvent('rush_cards:server:showCardToOthers', function(slot)
+RegisterNetEvent('meta_comic:server:showCardToOthers', function(slot)
     local source = source
-    local item = RushCards.Inventory.getSlot and RushCards.Inventory.getSlot(source, tonumber(slot))
+    local item = MetaComic.Inventory.getSlot and MetaComic.Inventory.getSlot(source, tonumber(slot))
     if not item or item.name ~= Config.Items.TradingCard then return end
     showCardToOthers(source, item.metadata)
 end)
 
 exports('GetCollection', function(source)
-    local owner = RushCards.Framework.getIdentifier(source)
-    return RushCards.Persistence.getCollection(owner)
+    local owner = MetaComic.Framework.getIdentifier(source)
+    return MetaComic.Persistence.getCollection(owner)
 end)
 
 exports('OpenPackForPlayer', function(source)
@@ -1497,9 +1754,9 @@ end)
 
 -- Let another resource open a pack on a player's screen (no item needed, e.g. rewards / shops).
 exports('GivePackOpening', function(source, setId)
-    local set = setById(setId or RushCards.Sets.defaultId())
+    local set = setById(setId or MetaComic.Sets.defaultId())
     if not set then return false end
     pushPackCredit(source, set.id)
-    TriggerClientEvent('rush_cards:client:openPackOverlay', source, set.id, set.name)
+    TriggerClientEvent('meta_comic:client:openPackOverlay', source, set.id, set.name)
     return true
 end)

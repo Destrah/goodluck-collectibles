@@ -1,4 +1,4 @@
-RushCards.InventoryAdapters.none = function()
+MetaComic.InventoryAdapters.none = function()
     return {
         name = 'none',
         has = function() return true end,

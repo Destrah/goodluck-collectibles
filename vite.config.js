@@ -23,7 +23,7 @@ function sendJson(res, status, payload) {
 async function proxyRemoteAsset(req, res) {
   let remoteUrl = ''
   try {
-    const parsed = new URL(req.url || '/', 'http://rush.local')
+    const parsed = new URL(req.url || '/', 'http://meta.local')
     remoteUrl = String(parsed.searchParams.get('url') || '').trim()
     const target = new URL(remoteUrl)
     if (!/^https?:$/.test(target.protocol)) {
@@ -37,7 +37,7 @@ async function proxyRemoteAsset(req, res) {
       upstream = await fetch(target, {
         redirect: 'follow',
         signal: controller.signal,
-        headers: { 'User-Agent': 'RushTradingCards/5 remote-asset-resolver' },
+        headers: { 'User-Agent': 'MetaComic/5 remote-asset-resolver' },
       })
     } finally {
       clearTimeout(timeout)
@@ -70,7 +70,7 @@ async function proxyRemoteAsset(req, res) {
     res.setHeader('Content-Type', type)
     res.setHeader('Content-Length', String(body.length))
     res.setHeader('Cache-Control', 'public, max-age=300')
-    res.setHeader('X-Rush-Asset-Source', 'vite-proxy')
+    res.setHeader('X-Meta-Asset-Source', 'vite-proxy')
     res.end(body)
   } catch (error) {
     const aborted = error?.name === 'AbortError'
@@ -85,12 +85,12 @@ async function proxyRemoteAsset(req, res) {
 
 function remoteAssetResolverPlugin() {
   const install = server => {
-    server.middlewares.use('/__rush_cards_asset', (req, res) => {
+    server.middlewares.use('/__meta_comic_asset', (req, res) => {
       proxyRemoteAsset(req, res)
     })
   }
   return {
-    name: 'rush-remote-asset-resolver',
+    name: 'meta-remote-asset-resolver',
     configureServer: install,
     configurePreviewServer: install,
   }

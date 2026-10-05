@@ -1,0 +1,26 @@
+{
+  "fivem/server/persistence/mysql.lua": {
+    "bytes": 6317,
+    "sha256": "9e2ccdb48d07b2999d90bbad6485707f5f65e6f9991a1619d0ac29848aab648f"
+  },
+  "fivem/server/cards.lua": {
+    "bytes": 10197,
+    "sha256": "9c8d64d818c5212d7608f85bf0baa5a0ec286026f78244ad25884e5a4695916b"
+  },
+  "fivem/server/sets.lua": {
+    "bytes": 4780,
+    "sha256": "7e831d241ea7aa79940aed4ae4d044a6fb29454b1c76b0c2daede61021d0e232"
+  },
+  "fivem/data/mysql.sql": {
+    "bytes": 1106,
+    "sha256": "f38dc36c410349ccd7f4b5372ef08718823ac5b3b90d7a7b59dbaa4e89e6b884"
+  },
+  "fivem/README.md": {
+    "bytes": 14995,
+    "sha256": "ba8bfacbbd9fb799943547b51aca965eecfc6b5d854ee30c64477ea72bb8911c"
+  },
+  "scripts/test-mysql-persistence.py": {
+    "bytes": 7950,
+    "sha256": "5821ae6f5174086e787344fbf8b8217ea3a3c5419fd3d70ac7c19fd031f302c9"
+  }
+}

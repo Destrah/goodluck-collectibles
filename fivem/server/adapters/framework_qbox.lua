@@ -1,9 +1,9 @@
-RushCards.FrameworkAdapters.qbox = function()
+MetaComic.FrameworkAdapters.qbox = function()
     return {
         name = 'qbox',
         getIdentifier = function(source)
             local player = exports.qbx_core:GetPlayer(source)
-            return player and player.PlayerData and player.PlayerData.citizenid or RushCards.GetLicense(source)
+            return player and player.PlayerData and player.PlayerData.citizenid or MetaComic.GetLicense(source)
         end,
         getName = function(source)
             local player = exports.qbx_core:GetPlayer(source)

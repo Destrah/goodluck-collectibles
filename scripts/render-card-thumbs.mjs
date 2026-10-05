@@ -3,7 +3,7 @@
  *
  *   npm run cards:thumbs                                   -> public/img/cards + fivem/img/cards (+ index.json)
  *   npm run cards:thumbs -- --ox "C:/server/resources/[ox]/ox_inventory/web/images"
- *                                                          -> also copies them into ox_inventory as rushcard_<name>.png
+ *                                                          -> also copies them into ox_inventory as metacard_<name>.png
  *   options: --skip-build (reuse the last render build), --catalog <file>
  *
  * Needs the dev dependency playwright-core. It drives Microsoft Edge (installed on every Windows 10/11 PC) or Chrome,
@@ -22,7 +22,7 @@ const catalogFile = resolve(root, arg('--catalog') || 'fivem/data/catalog.json')
 const oxDir = arg('--ox')
 const buildDir = resolve(root, '.card-thumbs-build')
 const outDirs = [resolve(root, 'public/img/cards'), resolve(root, 'fivem/img/cards')]
-const STORAGE_KEY = 'rush-tradingcards-react-v3' // src/runtime/storage/standalone.js
+const STORAGE_KEY = 'meta-comic-collectables-v3' // src/runtime/storage/standalone.js
 
 export const thumbName = key => key.replace(/::/g, '__').replace(/[^a-zA-Z0-9_-]+/g, '-').toLowerCase()
 
@@ -90,7 +90,7 @@ for (let i = 0; i < total; i++) {
   const name = thumbName(key)
   const png = await card.screenshot({ omitBackground: true, animations: 'disabled' })
   for (const dir of outDirs) await writeFile(join(dir, `${name}.png`), png)
-  if (oxDir) await writeFile(join(oxDir, `rushcard_${name}.png`), png)
+  if (oxDir) await writeFile(join(oxDir, `metacard_${name}.png`), png)
   index[key] = name
   process.stdout.write(`\r${i + 1}/${total} ${key}`.padEnd(70))
 }
