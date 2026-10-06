@@ -1,7 +1,7 @@
 import { bridge } from './bridge'
 import { isFiveM } from './env'
 import { readMigratedStorage } from './legacyStorage.js'
-import { sanitizeContainerAnimations } from '../collectables/containerPrefs.js'
+import { sanitizeContainerAnimations } from '../collectibles/containerPrefs.js'
 
 export const MIN_SPEED = 1 // 1x is the original pace and is the slowest allowed
 export const DEFAULT_MAX_SPEED = 3

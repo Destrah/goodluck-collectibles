@@ -9,7 +9,7 @@ Config.Collectibles = Config.Collectibles or {}
 for id, defaults in pairs(types) do
  local configured = Config.Collectibles[id] or {}
  for key,value in pairs(defaults) do defaults[key] = configured[key] or value end
- MetaComic.Collectables.registerType(id,{label=id,itemName=defaults.item,snapshotVersion=1})
+ MetaComic.Collectibles.registerType(id,{label=id,itemName=defaults.item,snapshotVersion=1})
 end
 service.types = types
 local resource = GetCurrentResourceName()
@@ -19,7 +19,7 @@ local function transaction(statements)
 end
 local function statement(sql,values) return {query=sql,values=values or {}} end
 local function copy(value) return MetaComic.CopyTable(value) end
-local function decode(raw) if type(raw)=='table' then return copy(raw) end;local value=json.decode(raw); assert(type(value)=='table','Invalid collectible JSON');return value end
+local function decode(raw) if type(raw)=='table' then return MetaComic.Collectibles.normalize(copy(raw)) end;local value=json.decode(raw); assert(type(value)=='table','Invalid collectible JSON');return MetaComic.Collectibles.normalize(value) end
 local function find(list,id) for _,item in ipairs(list) do if item.id==id then return item end end end
 
 -- Rarity tiers shared with the trading cards.
@@ -58,8 +58,8 @@ service.withPrint=withPrint
 function service.iconPrints()
  local list={}
  for _,item in ipairs(service.data.definitions) do
-  if types[item.collectableType] then
-   for _,print in ipairs(printsOf(item)) do local snap=withPrint(item,print);snap.collectableType=item.collectableType;list[#list+1]=snap end
+  if types[item.collectibleType] then
+   for _,print in ipairs(printsOf(item)) do local snap=withPrint(item,print);snap.collectibleType=item.collectibleType;list[#list+1]=snap end
   end
  end
  return list
@@ -71,7 +71,7 @@ local function collectibleMetadata(typeId,snapshot)
  if service.icon then imageurl,image=service.icon(snapshot) end
  local printPart=snapshot.printName and snapshot.printName~='Standard' and (' ('..snapshot.printName..')') or ''
  local manual=snapshot.manualPrint==true
- return {instanceId=snapshot.instanceId,collectableType=typeId,label=(snapshot.title or 'Collectible')..printPart..(manual and ' [Manual Print]' or ''),
+ return {instanceId=snapshot.instanceId,collectibleType=typeId,label=(snapshot.title or 'Collectible')..printPart..(manual and ' [Manual Print]' or ''),
   description=(manual and 'MANUAL PRINT · ' or '')..('%s · %s'):format(snapshot.rarity or 'Common',snapshot.printName or 'Standard')..(snapshot.description and snapshot.description~='' and ('\n'..snapshot.description) or ''),
   rarity=snapshot.rarity,rarityKey=snapshot.rarityKey,printName=snapshot.printName,imageurl=imageurl,image=image,collectibleSnapshot=copy(snapshot),
   acquisitionSource=snapshot.acquisitionSource,manualPrint=manual or nil,printType=manual and 'MANUAL PRINT' or nil,printedBy=snapshot.printedBy,printedAt=snapshot.printedAt}
@@ -91,11 +91,16 @@ function service.init()
    local schema=assert(LoadResourceFile(resource,'data/collectibles.sql'),'Missing data/collectibles.sql')
    for sql in schema:gmatch('[^;]+') do if sql:match('%S') then query(sql) end end
   end
+  -- tables made before the spelling fix: collectable_type -> collectible_type (keeps data, keys and the primary key)
+  for _,tableName in ipairs({'goodluck_collectibles_items','goodluck_collectibles_sets','goodluck_collectibles_containers'}) do
+   local old=query('SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?',{tableName,'collectable_type'})
+   if old and old[1] then query(('ALTER TABLE `%s` CHANGE `collectable_type` `collectible_type` VARCHAR(32) NOT NULL'):format(tableName)) end
+  end
   for _,row in ipairs(query('SELECT item_json FROM goodluck_collectibles_items ORDER BY id')) do next.definitions[#next.definitions+1]=decode(row.item_json) end
   local byId={}
-  for _,row in ipairs(query('SELECT id,collectable_type,name FROM goodluck_collectibles_sets ORDER BY id')) do local set={id=row.id,collectableType=row.collectable_type,name=row.name,itemIds={}};byId[set.id]=set;next.sets[#next.sets+1]=set end
+  for _,row in ipairs(query('SELECT id,collectible_type,name FROM goodluck_collectibles_sets ORDER BY id')) do local set={id=row.id,collectibleType=row.collectible_type,name=row.name,itemIds={}};byId[set.id]=set;next.sets[#next.sets+1]=set end
   for _,row in ipairs(query('SELECT set_id,item_id FROM goodluck_collectibles_set_items ORDER BY position')) do if byId[row.set_id] then table.insert(byId[row.set_id].itemIds,row.item_id) end end
-  for _,row in ipairs(query('SELECT collectable_type,container_json FROM goodluck_collectibles_containers')) do next.containers[row.collectable_type]=decode(row.container_json) end
+  for _,row in ipairs(query('SELECT collectible_type,container_json FROM goodluck_collectibles_containers')) do next.containers[row.collectible_type]=decode(row.container_json) end
  else
   local raw=LoadResourceFile(resource,'data/collectibles.json')
   if raw and raw~='' then next=decode(raw) end
@@ -108,9 +113,9 @@ local function saveOperation(payload)
  local next=copy(service.data)
  local statements={}
  if payload.kind=='definition' then
-  local item=copy(payload.value or {});validType(item.collectableType);validId(item.id)
+  local item=copy(payload.value or {});validType(item.collectibleType);validId(item.id)
   assert(type(item.title)=='string' and item.title:match('%S') and #item.title<=255,'Give the collectible a name')
-  local previous=find(next.definitions,item.id);assert(not previous or previous.collectableType==item.collectableType,'Cannot change a collectible type')
+  local previous=find(next.definitions,item.id);assert(not previous or previous.collectibleType==item.collectibleType,'Cannot change a collectible type')
   item.chanceWeight=math.min(100000,math.max(1,tonumber(item.chanceWeight) or 1))
   item.rarityKey=rarityKeyOf(item.rarityKey or item.rarity);item.rarity=RARITY_LABELS[item.rarityKey]
   if item.prints~=nil then
@@ -126,29 +131,29 @@ local function saveOperation(payload)
    end
   end
   next.definitions=replace(next.definitions,item)
-  statements[1]=statement('INSERT INTO goodluck_collectibles_items (id,collectable_type,title,item_json) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE title=VALUES(title),item_json=VALUES(item_json)',{item.id,item.collectableType,item.title,json.encode(item)})
+  statements[1]=statement('INSERT INTO goodluck_collectibles_items (id,collectible_type,title,item_json) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE title=VALUES(title),item_json=VALUES(item_json)',{item.id,item.collectibleType,item.title,json.encode(item)})
  elseif payload.kind=='delete' then
   validId(payload.id);local item=assert(find(next.definitions,payload.id),'Unknown collectible')
   local kept={};for _,entry in ipairs(next.definitions) do if entry.id~=item.id then kept[#kept+1]=entry end end;next.definitions=kept
   for _,set in ipairs(next.sets) do local members={};for _,id in ipairs(set.itemIds) do if id~=item.id then members[#members+1]=id end end;set.itemIds=members end
   statements[1]=statement('DELETE FROM goodluck_collectibles_items WHERE id=?',{item.id})
  elseif payload.kind=='set' then
-  local set=copy(payload.value or {});validType(set.collectableType);validId(set.id);set.itemIds=set.itemIds or {}
+  local set=copy(payload.value or {});validType(set.collectibleType);validId(set.id);set.itemIds=set.itemIds or {}
   assert(type(set.name)=='string' and set.name:match('%S') and #set.name<=255,'Give the set a name')
-  local previous=find(next.sets,set.id);assert(not previous or previous.collectableType==set.collectableType,'Cannot change a set type')
-  local seen={};for _,id in ipairs(set.itemIds or {}) do local item=assert(find(next.definitions,id),'Unknown set member');assert(item.collectableType==set.collectableType and not seen[id],'Invalid or duplicate set member');seen[id]=true end
+  local previous=find(next.sets,set.id);assert(not previous or previous.collectibleType==set.collectibleType,'Cannot change a set type')
+  local seen={};for _,id in ipairs(set.itemIds or {}) do local item=assert(find(next.definitions,id),'Unknown set member');assert(item.collectibleType==set.collectibleType and not seen[id],'Invalid or duplicate set member');seen[id]=true end
   next.sets=replace(next.sets,set)
-  statements[#statements+1]=statement('INSERT INTO goodluck_collectibles_sets (id,collectable_type,name) VALUES (?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name)',{set.id,set.collectableType,set.name})
+  statements[#statements+1]=statement('INSERT INTO goodluck_collectibles_sets (id,collectible_type,name) VALUES (?,?,?) ON DUPLICATE KEY UPDATE name=VALUES(name)',{set.id,set.collectibleType,set.name})
   statements[#statements+1]=statement('DELETE FROM goodluck_collectibles_set_items WHERE set_id=?',{set.id})
   for index,id in ipairs(set.itemIds or {}) do statements[#statements+1]=statement('INSERT INTO goodluck_collectibles_set_items (set_id,item_id,position) VALUES (?,?,?)',{set.id,id,index}) end
  elseif payload.kind=='container' then
-  local container=copy(payload.value or {});validType(payload.typeId);local set=assert(find(next.sets,container.setId),'Unknown set');assert(set.collectableType==payload.typeId and #set.itemIds>0,'Choose a non-empty set of the same type')
+  local container=copy(payload.value or {});validType(payload.typeId);local set=assert(find(next.sets,container.setId),'Unknown set');assert(set.collectibleType==payload.typeId and #set.itemIds>0,'Choose a non-empty set of the same type')
   assert(type(container.label)=='string' and container.label:match('%S'),'Give the container a name')
   container.count=bounded(container.count,24);container.outer=container.outer or {};container.outer.count=bounded(container.outer.count,100)
   assert(type(container.outer.label)=='string' and container.outer.label:match('%S'),'Give the outer box a name')
   container.kind=payload.typeId=='challenge_coin' and 'bag' or 'box'
   next.containers[payload.typeId]=container
-  statements[1]=statement('INSERT INTO goodluck_collectibles_containers (collectable_type,set_id,container_json) VALUES (?,?,?) ON DUPLICATE KEY UPDATE set_id=VALUES(set_id),container_json=VALUES(container_json)',{payload.typeId,container.setId,json.encode(container)})
+  statements[1]=statement('INSERT INTO goodluck_collectibles_containers (collectible_type,set_id,container_json) VALUES (?,?,?) ON DUPLICATE KEY UPDATE set_id=VALUES(set_id),container_json=VALUES(container_json)',{payload.typeId,container.setId,json.encode(container)})
  else error('Unknown collectible save operation') end
  if MetaComic.Persistence.name=='mysql' then transaction(statements) else persistJson(next) end
  service.data=next
@@ -167,8 +172,8 @@ function service.get(source)
  local data={definitions=copy(service.data.definitions),sets=copy(service.data.sets),containers=copy(service.data.containers),instances={},sealed={}}
  if MetaComic.Inventory.slotsOf then
   for typeId,names in pairs(types) do
-   for _,slot in pairs(MetaComic.Inventory.slotsOf(source,names.item)) do local meta=slot.metadata or slot.info or {};if type(meta.collectibleSnapshot)=='table' then data.instances[#data.instances+1]=copy(meta.collectibleSnapshot) end end
-   for _,slot in pairs(MetaComic.Inventory.slotsOf(source,names.inner)) do local meta=slot.metadata or slot.info or {};if type(meta.containerSnapshot)=='table' then data.sealed[#data.sealed+1]={instanceId=meta.instanceId,collectableType=typeId,containerSnapshot=copy(meta.containerSnapshot),label=meta.label,slot=slot.slot} end end
+   for _,slot in pairs(MetaComic.Inventory.slotsOf(source,names.item)) do local meta=slot.metadata or slot.info or {};if type(meta.collectibleSnapshot)=='table' then data.instances[#data.instances+1]=MetaComic.Collectibles.normalize(copy(meta.collectibleSnapshot)) end end
+   for _,slot in pairs(MetaComic.Inventory.slotsOf(source,names.inner)) do local meta=slot.metadata or slot.info or {};if type(meta.containerSnapshot)=='table' then data.sealed[#data.sealed+1]={instanceId=meta.instanceId,collectibleType=typeId,containerSnapshot=copy(meta.containerSnapshot),label=meta.label,slot=slot.slot} end end
   end
  end
  return data
@@ -192,7 +197,7 @@ end
 
 local serial=0
 local function unique() serial=serial+1;return ('%s-%s-%s'):format(os.time(),GetGameTimer(),serial) end
--- Container designs (src/collectables/container3dOptions.js); the first one is the default.
+-- Container designs (src/collectibles/container3dOptions.js); the first one is the default.
 local CONTAINER_STYLES={bag={'velvet','satin','leather'},box={'window','cube','gift'},case={'display','chest','crate'}}
 local function styleOf(kind,look)
  for _,id in ipairs(CONTAINER_STYLES[kind]) do if type(look)=='table' and look.style==id then return id end end
@@ -204,8 +209,8 @@ local function containerMetadata(typeId,container,outer)
  local names=types[typeId]
  local style=outer and styleOf('case',container.outer and container.outer.look) or styleOf(container.kind=='bag' and 'bag' or 'box',container.look)
  local image=Config.Collectibles.ContainerImages~=false and ((outer and names.outer or names.inner)..'_'..style) or nil
- return {instanceId=unique(),collectableType=typeId,containerSnapshot=copy(container),outer=outer==true,label=outer and container.outer.label or container.label,image=image,
-  description='Meta Comics · '..(outer and (container.outer.count..' sealed containers') or (container.count..' collectables'))}
+ return {instanceId=unique(),collectibleType=typeId,containerSnapshot=copy(container),outer=outer==true,label=outer and container.outer.label or container.label,image=image,
+  description='Meta Comics · '..(outer and (container.outer.count..' sealed containers') or (container.count..' collectibles'))}
 end
 local busy,last={},{ }
 local function deliver(source,outputs,consumed)
@@ -319,10 +324,10 @@ end
 function service.printManual(source,payload,printer)
  local names=validType(payload.typeId);validId(payload.definitionId)
  local item=assert(find(service.data.definitions,payload.definitionId),'Save this collectible before printing it')
- assert(item.collectableType==payload.typeId,'Collectible type does not match')
+ assert(item.collectibleType==payload.typeId,'Collectible type does not match')
  local chosen;for _,print in ipairs(printsOf(item)) do if print.id==payload.printId then chosen=print end end
  assert(chosen,'Save this print before printing it')
- local snapshot=MetaComic.Collectables.snapshot(payload.typeId,withPrint(item,chosen))
+ local snapshot=MetaComic.Collectibles.snapshot(payload.typeId,withPrint(item,chosen))
  local now=os.date('!%Y-%m-%dT%H:%M:%SZ')
  snapshot.instanceId='manual-'..unique();snapshot.acquiredAt=now;snapshot.snapshotVersion=2
  snapshot.acquisitionSource='manual_print';snapshot.manualPrint=true
@@ -350,7 +355,7 @@ function service.open(source,payload,management)
    assert(slot.name==expected,'That slot is not the selected container')
    local meta=slot.metadata or slot.info or {}
    if meta.containerSnapshot~=nil then
-    assert(meta.collectableType==payload.typeId and meta.outer==outer and type(meta.containerSnapshot)=='table','Container metadata is invalid')
+    assert(MetaComic.Collectibles.typeOf(meta)==payload.typeId and meta.outer==outer and type(meta.containerSnapshot)=='table','Container metadata is invalid')
     container=copy(meta.containerSnapshot)
    else
     container=copy(assert(service.data.containers[payload.typeId],'Save this container before using plain inventory items'))
@@ -359,16 +364,16 @@ function service.open(source,payload,management)
   bounded(container.count,24);bounded(container.outer.count,100)
   local outputs,items={},{}
   if outer then
-   for _=1,container.outer.count do local meta=containerMetadata(payload.typeId,container,false);outputs[#outputs+1]={name=names.inner,metadata=meta};items[#items+1]={instanceId=meta.instanceId,label=container.label,containerSnapshot=copy(container),collectableType=payload.typeId} end
+   for _=1,container.outer.count do local meta=containerMetadata(payload.typeId,container,false);outputs[#outputs+1]={name=names.inner,metadata=meta};items[#items+1]={instanceId=meta.instanceId,label=container.label,containerSnapshot=copy(container),collectibleType=payload.typeId} end
   else
    local set=assert(find(service.data.sets,container.setId),'The container set no longer exists')
-   assert(set.collectableType==payload.typeId,'Container set type does not match')
+   assert(set.collectibleType==payload.typeId,'Container set type does not match')
    local pool={}
    for _,id in ipairs(set.itemIds) do local item=find(service.data.definitions,id);if item then pool[#pool+1]=item end end
    assert(#pool>0,'This container set is empty')
    for _=1,container.count do
     local chosen=weightedPick(pool)
-    local snapshot=MetaComic.Collectables.snapshot(payload.typeId,withPrint(chosen,weightedPick(printsOf(chosen))))
+    local snapshot=MetaComic.Collectibles.snapshot(payload.typeId,withPrint(chosen,weightedPick(printsOf(chosen))))
     snapshot.instanceId=unique();snapshot.acquiredAt=os.date('!%Y-%m-%dT%H:%M:%SZ');snapshot.snapshotVersion=2
     outputs[#outputs+1]={name=names.item,metadata=collectibleMetadata(payload.typeId,snapshot)};items[#items+1]=snapshot
    end

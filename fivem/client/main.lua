@@ -222,7 +222,7 @@ RegisterNUICallback('packProp', function(data, cb)
     end
 end)
 
--- ---------- held collectables ----------
+-- ---------- held collectibles ----------
 -- While a card / coin / plushie is looked at (item used, or just pulled from a pack / bag / box) the character
 -- holds that many of it and looks down at it ('view'); while showing it to others they hold it out ('show').
 -- Generic base-game props: override any of these in Config.Props.Held (config.lua), or set Config.Props.Held = false
@@ -272,7 +272,7 @@ end
 
 -- mode: 'view' (looking at it yourself) or 'show' (holding it out to others)
 -- seconds: let go after that long (showing to others); nil: hold until the game UI closes
-local function holdCollectables(kind, count, seconds, mode)
+local function holdCollectibles(kind, count, seconds, mode)
     if not Config.Props or not Config.Props.Enabled then return end
     local data = heldConfig(kind, mode or 'view')
     if not data then return end
@@ -328,13 +328,13 @@ end
 -- the NUI: a pack / bag / box has been opened and its pulls are on screen
 RegisterNUICallback('holdCollectibles', function(data, cb)
     cb({ ok = true })
-    if type(data) == 'table' and nuiOpen then holdCollectables(heldKind(data.kind or data.typeId), data.count) end
+    if type(data) == 'table' and nuiOpen then holdCollectibles(heldKind(data.kind or data.typeId), data.count) end
 end)
 
 -- the server: you are showing an item to the players near you
-RegisterNetEvent('meta_comic:client:showingCollectable', function(kind, seconds)
+RegisterNetEvent('meta_comic:client:showingCollectible', function(kind, seconds)
     if nuiOpen then return end
-    holdCollectables(heldKind(kind), 1, tonumber(seconds) or 8, 'show')
+    holdCollectibles(heldKind(kind), 1, tonumber(seconds) or 8, 'show')
 end)
 
 RegisterNUICallback('getRuntimeInfo', function(_, cb)
@@ -507,7 +507,7 @@ RegisterNUICallback('cardIcon', function(data, cb)
     end
 end)
 
--- Legacy artwork command (collectablesoptimizeart): the server asks this player's NUI to downscale one saved
+-- Legacy artwork command (collectiblesoptimizeart): the server asks this player's NUI to downscale one saved
 -- image; the result goes back to the server, which uploads it to Fivemanage.
 RegisterNetEvent('meta_comic:client:optimizeArtwork', function(id, src, options)
     if type(id) ~= 'string' or type(src) ~= 'string' then return end
@@ -652,7 +652,7 @@ RegisterNetEvent('meta_comic:client:viewCard', function(card, shownBy)
     SetNuiFocus(true, true)
     SetNuiFocusKeepInput(false)
     SendNUIMessage({ type = 'metaComic:open', view = 'pack', overlay = true, mode = 'card', card = card, shownBy = shownBy })
-    if not shownBy then holdCollectables(heldKind(card.collectableType), 1) end -- your own item: hold it while looking at it
+    if not shownBy then holdCollectibles(heldKind(card.collectibleType or card.collectableType), 1) end -- your own item: hold it while looking at it (older items use the misspelled key)
     shownToken = shownToken + 1
     if shownBy then
         -- someone else's card: close it by itself after a few seconds (the player can also close it straight away)
@@ -689,14 +689,14 @@ if managementCommand ~= '' then
     RegisterCommand(managementCommand, function() openManagement() end, false)
 end
 
--- Canonical collectables commands also work with preserved older configs.
+-- Canonical collectibles commands also work with preserved older configs.
 -- Existing configured names remain aliases; empty values still disable a route.
 local aliases={
-    {key='Open',name='collectables',legacy='cards',action=function() openNui(Config.Nui.DefaultView) end},
-    {key='Pack',name='collectablespack',legacy='cardpack',action=openPackOverlay},
-    {key='Box',name='collectablesbox',legacy='cardbox',action=function() openNui('pack','openBox') end},
-    {key='Options',name='collectablesoptions',legacy='cardoptions',action=openPackOptions},
-    {key='Management',name='collectablesadmin',legacy='cardadmin',action=openManagement},
+    {key='Open',name='collectibles',legacy='cards',action=function() openNui(Config.Nui.DefaultView) end},
+    {key='Pack',name='collectiblespack',legacy='cardpack',action=openPackOverlay},
+    {key='Box',name='collectiblesbox',legacy='cardbox',action=function() openNui('pack','openBox') end},
+    {key='Options',name='collectiblesoptions',legacy='cardoptions',action=openPackOptions},
+    {key='Management',name='collectiblesadmin',legacy='cardadmin',action=openManagement},
 }
 for _,entry in ipairs(aliases) do
     local configured=Config.Commands[entry.key]

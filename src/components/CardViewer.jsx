@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import RotatableCollectible from '../collectables/RotatableCollectible'
-import '../collectables/collectibles.css'
+import RotatableCollectible from '../collectibles/RotatableCollectible'
+import '../collectibles/collectibles.css'
 
 const VIEWER_W = 390
 const VIEWER_H = 546

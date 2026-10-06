@@ -11,7 +11,7 @@
     stack = true,
     close = true,
     consume = 0,
-    description = 'A sealed Meta Comic Collectables booster pack.'
+    description = 'A sealed Meta Comic Collectibles booster pack.'
 },
 ['boosterbox'] = {
     label = 'Trading Card Booster Box',
@@ -37,7 +37,7 @@
 -------------------------------------------------------------------------------------------------
 -- ['boosterpack'] = {
 --     label = 'Trading Card Booster Pack', weight = 100, stack = true, close = true, consume = 0,
---     description = 'A sealed Meta Comic Collectables booster pack.',
+--     description = 'A sealed Meta Comic Collectibles booster pack.',
 --     client = { image = 'boosterpack_item.png', export = 'meta-comic.OpenPack' },
 -- },
 -- ['boosterbox'] = {

@@ -1,4 +1,5 @@
 import { getResourceName } from '../env'
+import { withCollectibleKeys } from '../../collectibles/legacyKeys.js'
 
 const listeners = new Set()
 let installed = false
@@ -9,6 +10,7 @@ function installMessageListener() {
   window.addEventListener('message', event => {
     const message = event.data
     if (!message || typeof message !== 'object') return
+    withCollectibleKeys(message)
     listeners.forEach(listener => listener(message))
   })
 }
@@ -20,7 +22,7 @@ async function nuiFetch(endpoint, body = {}) {
     body: JSON.stringify(body),
   })
   if (!response.ok) throw new Error(`FiveM NUI request failed: ${endpoint} (${response.status})`)
-  const payload = await response.json().catch(() => ({}))
+  const payload = withCollectibleKeys(await response.json().catch(() => ({})))
   if (payload?.ok === false) throw new Error(payload.error || `FiveM NUI request failed: ${endpoint}`)
   return payload
 }

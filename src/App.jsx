@@ -2,9 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import TradingCard from './components/TradingCard'
 import CardEditor from './components/CardEditor'
 import PackSimulator from './components/PackSimulator'
-import CollectiblesLab from './collectables/CollectiblesLab'
-import CollectibleOpeningOverlay from './collectables/CollectibleOpeningOverlay'
-import { listCollectableTypes } from './collectables/registry'
+import CollectiblesLab from './collectibles/CollectiblesLab'
+import CollectibleOpeningOverlay from './collectibles/CollectibleOpeningOverlay'
+import { listCollectibleTypes } from './collectibles/registry'
 import PackOptions from './components/PackOptions'
 import ManagementPanel from './components/ManagementPanel'
 import VendingMapPanel from './components/VendingMapPanel'
@@ -18,6 +18,7 @@ import { downscaleImageUrl } from './utils/compressImage'
 import GradingStation from './grading/GradingStation.jsx'
 import GradeRecordLookup from './grading/GradeRecord.jsx'
 import { setPrintOdds, setServerOdds } from './utils/printOdds.js'
+import { setCardSets } from './utils/setNumbers.js'
 import GradingLab from './grading/GradingLab.jsx'
 import { copyCard, loadCopies } from './grading/standaloneCopies.js'
 import { resolveAsset } from './runtime/assets'
@@ -45,6 +46,7 @@ export default function App() {
   // real pull odds per print (footer star colours, inventory icons): from the saved catalogue and its sets.
   // Computed during render so every card drawn in this pass already sees them.
   useMemo(() => setPrintOdds(savedCards, sets), [savedCards, sets])
+  useEffect(() => setCardSets(sets), [sets]) // an effect: it re-renders the cards on screen
   const [selectedId, setSelectedId] = useState(() => cards[0]?.id)
   const [selectedVariantId, setSelectedVariantId] = useState(() => cards[0]?.variants?.[0]?.id)
   const [tab, setTab] = useState('editor')
@@ -53,7 +55,7 @@ export default function App() {
   const [collectibleBusy,setCollectibleBusy] = useState(false)
   const [objectOpenRequest,setObjectOpenRequest] = useState(null)
   const [collectibleReset,setCollectibleReset] = useState(0)
-  const activeModule = listCollectableTypes().find(module => module.id === system)
+  const activeModule = listCollectibleTypes().find(module => module.id === system)
   const chooseSystem = async next => { if (next === system) return; if (collectibleDirty && !await confirm('Discard unsaved collectible, set, or container changes? Use Cancel to keep editing and Save or Revert first.')) return; guardUnsaved(() => {setCollectibleDirty(false);setCollectibleReset(current => current+1);setSystem(next);setTab('editor')}) }
   // FiveM booster pack item: centre-screen opening only (0 = normal app). Bumped for every new pack.
   const [overlayRun, setOverlayRun] = useState(0)
@@ -80,7 +82,7 @@ export default function App() {
   useEffect(() => {
     if (!isFiveM) return undefined
     const idle = window.requestIdleCallback || (fn => setTimeout(fn, 1500))
-    const handle = idle(() => { loadPackPrefs().catch(() => {}); import('./collectables/Container3D.js').then(module => module.prewarmContainerScenes()).catch(() => {}) }, { timeout: 5000 })
+    const handle = idle(() => { loadPackPrefs().catch(() => {}); import('./collectibles/Container3D.js').then(module => module.prewarmContainerScenes()).catch(() => {}) }, { timeout: 5000 })
     return () => (window.cancelIdleCallback || clearTimeout)(handle)
   }, [])
 
@@ -128,9 +130,9 @@ export default function App() {
           for (const item of message.items) {
             try {
               // coins + plushies are drawn from their 3D model; trading cards keep the 2D card icon
-              const object = item.card?.collectableType === 'challenge_coin' || item.card?.collectableType === 'plushie'
+              const object = item.card?.collectibleType === 'challenge_coin' || item.card?.collectibleType === 'plushie'
               const data = object
-                ? await import('./collectables/Container3D.js').then(module => module.renderCollectibleIcon(item.card, Number(message.size) || 100, message.format))
+                ? await import('./collectibles/Container3D.js').then(module => module.renderCollectibleIcon(item.card, Number(message.size) || 100, message.format))
                 : await renderCardIcon(item.card, Number(message.size) || 100, message.format)
               await bridge.cardIcon?.(item.key, data || '') // '' = couldn't draw it, the server moves on
             } catch (error) {
@@ -141,7 +143,7 @@ export default function App() {
         })()
         return
       }
-      // FiveM legacy artwork command (collectablesoptimizeart): downscale one saved image here, the server uploads it.
+      // FiveM legacy artwork command (collectiblesoptimizeart): downscale one saved image here, the server uploads it.
       if (message?.type === 'metaComic:optimizeArtwork' && typeof message.id === 'string') {
         ;(async () => {
           let data = ''
@@ -499,7 +501,7 @@ export default function App() {
   if (cardView) {
     const { card, shownBy } = cardView
     // your own raw card spun hard in the viewer: the server may crease / bend / tear it, and sends the result back
-    const onRough = !shownBy && isFiveM && (!card.collectableType || card.collectableType === 'trading_card')
+    const onRough = !shownBy && isFiveM && (!card.collectibleType || card.collectibleType === 'trading_card')
       ? () => bridge.roughHandling?.().then(response => { if (response?.card) setCardView(current => current && { ...current, card: response.card }) }).catch(() => {})
       : undefined
     return (
@@ -513,7 +515,7 @@ export default function App() {
   return (
     <main className={`app-shell ${isFiveM ? 'runtime-fivem' : 'runtime-standalone'}`}>
       <nav className="topbar">
-        <div className="brand"><div className="brand-mark">M</div><div><strong>Meta Comic Collectables</strong><span>{isFiveM ? `FiveM NUI · ${runtimeInfo.framework}` : 'Standalone React App'}</span></div></div>
+        <div className="brand"><div className="brand-mark">M</div><div><strong>Meta Comic Collectibles</strong><span>{isFiveM ? `FiveM NUI · ${runtimeInfo.framework}` : 'Standalone React App'}</span></div></div>
         <div className="top-actions">
           {editorAllowed && system === 'trading_card' && <>
             <button className="ghost" onClick={requestImport} disabled={isFiveM && !catalogReady}>Import JSON</button>
@@ -529,7 +531,7 @@ export default function App() {
         </div>
       </nav>
 
-      <label className="collectible-system-selector">Collectable system<select aria-label="Collectable system" disabled={collectibleBusy} value={system} onChange={event => chooseSystem(event.target.value)}>{listCollectableTypes().map(module => <option key={module.id} value={module.id} disabled={isFiveM && module.id !== 'trading_card' && !runtimeInfo.capabilities?.collectibles}>{module.label}</option>)}</select></label>
+      <label className="collectible-system-selector">Collectible system<select aria-label="Collectible system" disabled={collectibleBusy} value={system} onChange={event => chooseSystem(event.target.value)}>{listCollectibleTypes().map(module => <option key={module.id} value={module.id} disabled={isFiveM && module.id !== 'trading_card' && !runtimeInfo.capabilities?.collectibles}>{module.label}</option>)}</select></label>
       <section className="hero-copy">
         <div>
           {isFiveM && !catalogReady && !catalogError && <p role="status">Loading saved card catalog…</p>}

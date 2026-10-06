@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { CONTAINER_LOOKS } from '../collectables/container3dOptions.js'
+import { CONTAINER_LOOKS } from '../collectibles/container3dOptions.js'
 import { TEAR_INFO, FAN_INFO, RANDOM_INFO, BASE_SECONDS, TEAR_KEYS } from './PackOpenScene'
 import {
   MIN_SPEED,
@@ -53,12 +53,12 @@ export default function PackOptions({ onClose }) {
     : BASE_SECONDS[prefs.tear] || BASE_SECONDS.seam) / prefs.speed).toFixed(1)
 
   return (
-    <div className="pack-options-overlay" role="dialog" aria-modal="true" aria-label="Collectable opening options">
+    <div className="pack-options-overlay" role="dialog" aria-modal="true" aria-label="Collectible opening options">
       <section className="pack-options-panel">
         <div className="pack-options-head">
           <div>
             <span className="eyebrow">Player preferences</span>
-            <h2>Collectable opening options</h2>
+            <h2>Collectible opening options</h2>
             <p>Choose how your packs, coin bags, plushie boxes, and outer cases open. Container animations default to Random.</p>
           </div>
           <button type="button" className="ghost pack-options-close" onClick={onClose}>Close</button>

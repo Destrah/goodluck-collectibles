@@ -1,4 +1,4 @@
--- Logos for collectible sets, keyed '<collectable type>:<set id>' (card sets: 'trading_card:<id>'). Kept apart from the
+-- Logos for collectible sets, keyed '<collectible type>:<set id>' (card sets: 'trading_card:<id>'). Kept apart from the
 -- set definitions so the catalog storage is unchanged; saved with Config.Persistence (MySQL table, otherwise a JSON
 -- file). A logo is an image URL; a pasted image is uploaded to Fivemanage (artwork folder) when a key is set.
 MetaComic.SetLogos = {}

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import RotatableCollectible from '../collectables/RotatableCollectible'
+import RotatableCollectible from '../collectibles/RotatableCollectible'
 import GradingStation, { localGradingSession } from './GradingStation.jsx'
 import { loadCopies, addCopy, updateCopy, removeCopy, copyCard, saveRecord, getRecord } from './standaloneCopies.js'
 import GradeRecordLookup from './GradeRecord.jsx'
@@ -84,7 +84,7 @@ export default function GradingLab({ cards }) {
       </div>
     </div>
     {selected && <div className="grading-copy-preview">
-      <RotatableCollectible item={{ ...selected, collectableType: 'trading_card' }} onRough={() => handle(true)} />
+      <RotatableCollectible item={{ ...selected, collectibleType: 'trading_card' }} onRough={() => handle(true)} />
       {message && <div className="management-message">{message}</div>}
       <div className="grading-copy-actions">
         {!selected.graded && <>

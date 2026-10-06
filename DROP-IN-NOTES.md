@@ -1,4 +1,4 @@
-# Meta Comic Collectables v5.0 — Standalone + modular FiveM progressive drop-in
+# Meta Comic Collectibles v5.0 — Standalone + modular FiveM progressive drop-in
 
 Drop these files over the current React project.
 

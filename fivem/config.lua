@@ -92,7 +92,7 @@ Config.CardIcons = {
     Mode = 'upload',
     Size = 100,
     OxImageFiles = false, -- true: also set metadata.image on every card item (only needed for custom inventory forks)
-    RefreshCommand = 'collectablesicons', -- in game: updates item icons. Server console: retries missing icons. ('' to disable)
+    RefreshCommand = 'collectiblesicons', -- in game: updates item icons. Server console: retries missing icons. ('' to disable)
 }
 
 -- Fivemanage upload settings per collectible: each type's inventory icons go into its own folder (Path) and may
@@ -169,11 +169,11 @@ Config.Nui = {
 }
 
 Config.Commands = {
-    Open = 'collectables',
-    Pack = 'collectablespack',
-    Box = 'collectablesbox',
-    Options = 'collectablesoptions', -- per-player pack and collectible animation preferences
-    Management = 'collectablesadmin', -- restricted authoring / item production tools
+    Open = 'collectibles',
+    Pack = 'collectiblespack',
+    Box = 'collectiblesbox',
+    Options = 'collectiblesoptions', -- per-player pack and collectible animation preferences
+    Management = 'collectiblesadmin', -- restricted authoring / item production tools
 }
 
 Config.Props = {
@@ -230,7 +230,7 @@ Config.Collectibles.ContainerImages = true
 Config.VendingMachines = {
     Enabled = true,
     Model = 'metacomics_vending_machine',
-    Command = 'placevending',        -- look around, rotate, place (management permission, like /collectablesadmin)
+    Command = 'placevending',        -- look around, rotate, place (management permission, like /collectiblesadmin)
     RemoveCommand = 'removevending', -- removes the closest placed machine within RemoveDistance
     PlaceDistance = 15.0,            -- metres from the player a machine can be placed
     RemoveDistance = 5.0,
@@ -259,7 +259,7 @@ Config.VendingMachines = {
         Jobs = {},
         MaxStock = 100, -- per product
     },
-    -- Admin UI "Vending machines" tab (/collectablesadmin): every machine on a map with its stock. Put a square GTA V
+    -- Admin UI "Vending machines" tab (/collectiblesadmin): every machine on a map with its stock. Put a square GTA V
     -- map picture at Image (a path in this resource or an https URL; without one a grid is shown). The numbers line
     -- world coordinates up with the common 8192px GTA V map tiles; adjust them if your picture is cropped differently.
     Map = {

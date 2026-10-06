@@ -6,7 +6,7 @@ math.randomseed(os.time())
 do
     local missing = {}
     if not MetaComic.Legacy then missing[#missing + 1] = 'shared/legacy.lua' end
-    if not MetaComic.Collectables then missing[#missing + 1] = 'shared/collectables.lua' end
+    if not MetaComic.Collectibles then missing[#missing + 1] = 'shared/collectibles.lua' end
     if not MetaComic.Objects then missing[#missing + 1] = 'server/modules/objects.lua' end
     if not MetaComic.Grading then missing[#missing + 1] = 'server/modules/grading.lua' end
     if #missing > 0 then
@@ -18,12 +18,13 @@ do
         manageAce = 'rushcards.manage', catalogAce = 'rushcards.catalog.write',
         fallbackIcon = function(value) return value end,
     }
-    MetaComic.Collectables = MetaComic.Collectables or { snapshot = function(typeId, item) local copy = MetaComic.CopyTable(item); copy.collectableType = typeId; return copy end }
+    MetaComic.Collectibles = MetaComic.Collectibles or { snapshot = function(typeId, item) local copy = MetaComic.CopyTable(item); copy.collectibleType = typeId; return copy end }
 end
 local function objectTypes() return MetaComic.Objects and MetaComic.Objects.types or {} end
 -- (declared up here: printKey / iconCard further down use them) coins and plushies share the card icon pipeline: one icon per definition + print
 local OBJECT_ICON_PREFIX = { challenge_coin = 'metacoin', plushie = 'metaplush' }
-local function objectType(card) return type(card) == 'table' and OBJECT_ICON_PREFIX[card.collectableType] and card.collectableType or nil end
+local function typeOf(card) return MetaComic.Collectibles.typeOf and MetaComic.Collectibles.typeOf(card) or (type(card) == 'table' and card.collectibleType or nil) end
+local function objectType(card) local typeId = typeOf(card); return OBJECT_ICON_PREFIX[typeId] and typeId or nil end
 local function keyType(key) return type(key) == 'string' and key:match('^obj::([%w_]+)::') or 'trading_card' end
 
 local function fail(message)
@@ -413,7 +414,7 @@ local function imageUrlAccepted(url)
 end
 
 -- Inventory icons. 'rarity': one picture per rarity (img/cards/metacard_<rarity>.png, 100x100).
--- 'upload': one 100x100 icon per distinct LOOK of a collectable, drawn in a player's NUI and uploaded to Fivemanage
+-- 'upload': one 100x100 icon per distinct LOOK of a collectible, drawn in a player's NUI and uploaded to Fivemanage
 -- (data/card_icons.json remembers them). Prints / variants that look the same share one icon; a different look (full
 -- art, another plushie colour, ...) gets its own. Icons of looks that no longer exist in the catalog (deleted, or
 -- edited into a new look) are deleted from Fivemanage. Missing icons are made when the resource starts, when a
@@ -475,12 +476,13 @@ end
 -- starColour: the rarity stars' colour from the print's real pull odds (MetaComic.Cards.starColour), worked out here
 local CARD_ICON_FIELDS = { 'title', 'hp', 'accent', 'rarityKey', 'image', 'imagePositionX', 'imagePositionY', 'imageZoom', 'starColour' }
 local function iconField(card, field)
+    if field == 'collectibleType' then return typeOf(card) end -- older items use the misspelled key
     if field == 'starColour' then
         return card.baseCardId and MetaComic.Cards.starColour and MetaComic.Cards.starColour(card.baseCardId, card.variantId) or nil
     end
     return card[field]
 end
-local OBJECT_ICON_FIELDS = { 'collectableType', 'title', 'accent', 'image', 'imagePositionX', 'imagePositionY', 'imageZoom',
+local OBJECT_ICON_FIELDS = { 'collectibleType', 'title', 'accent', 'image', 'imagePositionX', 'imagePositionY', 'imageZoom',
     'finish', 'finishStrength', 'rimImage', 'edgeImage', 'edgeStyle', 'tint', 'tintStrength', 'stitchColor', 'stitchPattern', 'stitchWidth', 'backImage', 'backColor', 'backColorBlend', 'backStyle', 'plushThickness', 'plushFullness' }
 
 local FIELD_DEFAULTS = { imagePositionX = 50, imagePositionY = 50, imageZoom = 100 }
@@ -517,7 +519,7 @@ end
 -- everything the icon shows; prints with the same signature share one icon
 local function iconSig(card)
     local parts = { tostring(ICON_STYLE) }
-    for _, field in ipairs(OBJECT_ICON_PREFIX[card.collectableType] and OBJECT_ICON_FIELDS or CARD_ICON_FIELDS) do
+    for _, field in ipairs(objectType(card) and OBJECT_ICON_FIELDS or CARD_ICON_FIELDS) do
         local value = iconField(card, field)
         if value == nil or value == '' then value = FIELD_DEFAULTS[field] end
         parts[#parts + 1] = sigPart(value)
@@ -533,8 +535,8 @@ end
 
 local function printKey(card)
     if type(card) ~= 'table' then return nil end
-    if OBJECT_ICON_PREFIX[card.collectableType] then
-        return ('obj::%s::%s::%s'):format(card.collectableType, tostring(card.definitionId or card.id), iconSig(card))
+    if objectType(card) then
+        return ('obj::%s::%s::%s'):format(objectType(card), tostring(card.definitionId or card.id), iconSig(card))
     end
     return card.baseCardId and ('card::%s::%s'):format(card.baseCardId, iconSig(card)) or nil
 end
@@ -542,7 +544,7 @@ end
 -- what the NUI needs to draw an icon (not the whole snapshot: keeps the latent event small)
 local function iconCard(card)
     local drawn = {}
-    for _, field in ipairs(OBJECT_ICON_PREFIX[card.collectableType] and OBJECT_ICON_FIELDS or CARD_ICON_FIELDS) do drawn[field] = iconField(card, field) end
+    for _, field in ipairs(objectType(card) and OBJECT_ICON_FIELDS or CARD_ICON_FIELDS) do drawn[field] = iconField(card, field) end
     return drawn
 end
 
@@ -580,7 +582,7 @@ local function needsIcon(card)
 end
 
 local function rarityName(card)
-    if objectType(card) then return OBJECT_ICON_PREFIX[card.collectableType] .. '_' .. (RARITY_ICONS[card.rarityKey] and card.rarityKey or 'common') end
+    if objectType(card) then return OBJECT_ICON_PREFIX[objectType(card)] .. '_' .. (RARITY_ICONS[card.rarityKey] and card.rarityKey or 'common') end
     return 'metacard_' .. (RARITY_ICONS[card.rarityKey] and card.rarityKey or 'common')
 end
 
@@ -619,9 +621,9 @@ local function cardMetadata(card)
     end
     return {
         instanceId = card.instanceId,
-        collectableType = 'trading_card',
+        collectibleType = 'trading_card',
         cardSnapshotVersion = 1,
-        cardSnapshot = MetaComic.Collectables.snapshot('trading_card', card),
+        cardSnapshot = MetaComic.Collectibles.snapshot('trading_card', card),
         cardIconSnapshotSignature = iconSig(card),
         cardKey = card.cardKey,
         baseCardId = card.baseCardId,
@@ -763,7 +765,7 @@ local function uploadIcon(key, sig, dataUrl, cb)
         end
         cb(url, data and data.id and tostring(data.id) or nil)
     end, 'POST', json.encode({ base64 = dataUrl, filename = filename, path = folderFor(typeId).path, retentionExempt = true,
-        metadata = json.encode({ card = key, collectableType = typeId }) }), {
+        metadata = json.encode({ card = key, collectibleType = typeId }) }), {
         ['Content-Type'] = 'application/json',
         ['Authorization'] = apiKey,
     })
@@ -1085,7 +1087,7 @@ local function adoptLegacyIcons()
         :format(adopted, adopted == 1 and '' or 's', trashed, trashed == 1 and '' or 's'))
 end
 
--- Forget (and delete from Fivemanage) the icons of looks that no longer exist: the collectable / variant was deleted,
+-- Forget (and delete from Fivemanage) the icons of looks that no longer exist: the collectible / variant was deleted,
 -- or saved with a different look. Items still showing one fall back to their rarity icon.
 local function pruneIcons()
     if not uploadMode() then return 0 end
@@ -1270,7 +1272,7 @@ local function syncIcons(preferred)
         while syncAgain do
             syncAgain = false
             adoptLegacyIcons() -- only does something once, after an update
-            pruneIcons() -- deleted collectables / looks saved away from: their icons go first
+            pruneIcons() -- deleted collectibles / looks saved away from: their icons go first
             local missing = iconsPossible() and missingPrints() or {}
             while #missing > 0 do
                 local worker = pickWorker()
@@ -1462,7 +1464,7 @@ local function showToNearby(source, card, kind)
         notify(source, ('Nobody is close enough to see your %s.'):format(noun), 'error')
     else
         notify(source, ('Showing %s to %d player%s.'):format(card.title or ('your ' .. noun), shown, shown == 1 and '' or 's'), 'success')
-        TriggerClientEvent('meta_comic:client:showingCollectable', source, kind, (Config.ShowCard and Config.ShowCard.Seconds) or 8)
+        TriggerClientEvent('meta_comic:client:showingCollectible', source, kind, (Config.ShowCard and Config.ShowCard.Seconds) or 8)
     end
 end
 local function throttledShow(source)
@@ -1510,7 +1512,7 @@ local function useItem(source, kind, slot, passedItem)
         pushPackCredit(source, set.id)
         TriggerClientEvent('meta_comic:client:openPackOverlay', source, set.id, set.name)
     elseif kind == 'box' then
-        local count = MetaComic.Collectables.containerCount('booster_box')
+        local count = MetaComic.Collectibles.containerCount('booster_box')
         if not MetaComic.Inventory.has(source, expected, 1) then return notify(source, 'You do not have a booster box.', 'error') end
         if not takeOne(source, expected, metadata, slot) then return notify(source, 'Could not open the booster box.', 'error') end
         local ok, err = giveBoxPacks(source, count, set.id)
@@ -1792,7 +1794,7 @@ end
 
 -- Served from memory: every catalog/set write goes through this resource, so the cache is always current.
 -- (Re-reading the four definition tables on each UI open cost a 300+ ms server hitch.) After editing the
--- tables by hand, run 'collectablesreload' in the server console.
+-- tables by hand, run 'collectiblesreload' in the server console.
 -- The persistence adapter's load while the resource script is starting can come back empty (e.g. the database
 -- resource still connecting); this used to be hidden by re-reading on every UI open. Load once more from a real
 -- thread after startup, and again on the first catalog request if that still hasn't worked.
@@ -1819,8 +1821,8 @@ handlers.getCatalog = function()
 end
 
 -- Moves artwork that was saved inline (before uploads went to Fivemanage) to Fivemanage, then saves the URLs.
-RegisterCommand('collectablesartwork', function(source)
-    if source ~= 0 then return notify(source, 'Run collectablesartwork from the server console.', 'error') end
+RegisterCommand('collectiblesartwork', function(source)
+    if source ~= 0 then return notify(source, 'Run collectiblesartwork from the server console.', 'error') end
     if artworkKey() == '' then return print('[meta-comic] set metacomic_fivemanage_key_artwork (or metacomic_fivemanage_key) in server.cfg first.') end
     CreateThread(function()
         local cards, cardCount = externalizeArtwork(MetaComic.Cards.getCatalog())
@@ -1947,13 +1949,13 @@ local function optimizeArtwork(requestedBy)
     end)
 end
 -- Console, or in game by a card manager (whose game UI then does the downscaling).
-RegisterCommand('collectablesoptimizeart', function(source)
+RegisterCommand('collectiblesoptimizeart', function(source)
     if source ~= 0 and not canManage(source) then return notify(source, 'You are not allowed to use this command.', 'error') end
     optimizeArtwork(source ~= 0 and source or nil)
 end, false)
 
-RegisterCommand('collectablesreload', function(source)
-    if source ~= 0 then return notify(source, 'Run collectablesreload from the server console.', 'error') end
+RegisterCommand('collectiblesreload', function(source)
+    if source ~= 0 then return notify(source, 'Run collectiblesreload from the server console.', 'error') end
     if not MetaComic.Persistence.reloadDefinitions then return print('[meta-comic] nothing to reload: definitions are not stored in a database.') end
     local ok, err = MetaComic.Persistence.reloadDefinitions()
     if not ok then return print('[meta-comic] reload failed: ' .. tostring(err)) end
@@ -1964,7 +1966,7 @@ end, true)
 
 -- Explicit recovery only; never automatically resurrect intentionally deleted definitions.
 local function restoreSeed(source)
-    if source ~= 0 then return notify(source, 'Run collectablesrestoreseed from the server console.', 'error') end
+    if source ~= 0 then return notify(source, 'Run collectiblesrestoreseed from the server console.', 'error') end
     if MetaComic.Persistence.name ~= 'mysql' or not MetaComic.Persistence.restoreMissingDefinitions then
         return print('[meta-comic] cardrestoreseed requires MySQL persistence.')
     end
@@ -1975,10 +1977,10 @@ local function restoreSeed(source)
     print(('[meta-comic] recovered %d cards, %d prints, %d sets, %d memberships; existing records were kept. Reopen /cardadmin.'):format(result.cards, result.prints, result.sets, result.memberships))
     syncIcons()
 end
-RegisterCommand('collectablesrestoreseed',restoreSeed,true)
+RegisterCommand('collectiblesrestoreseed',restoreSeed,true)
 RegisterCommand('cardrestoreseed',restoreSeed,true)
 
-RegisterCommand('collectablessample',function(source,args)
+RegisterCommand('collectiblessample',function(source,args)
     local allowed,err=requireManage(source)
     if not allowed then return notify(source,err,'error') end
     if not Config.Catalog.AllowWrite then return notify(source,'Catalog writes are disabled in config.lua','error') end
@@ -2138,7 +2140,7 @@ handlers.openPack = function(source, payload)
     end
 
     local owner = MetaComic.Framework.getIdentifier(source)
-    local cards, packError, set = MetaComic.Collectables.open('booster_pack', { owner = owner, setId = setId })
+    local cards, packError, set = MetaComic.Collectibles.open('booster_pack', { owner = owner, setId = setId })
     if not cards then
         if consumedContext then MetaComic.Inventory.add(source, Config.Items.BoosterPack, 1, consumedContext.metadata) end
         return fail(packError or 'Could not roll this card set.')
@@ -2162,7 +2164,7 @@ end
 -- Lab / command box opening. Real pack items are only handed out when a real box item was consumed
 -- (RequireForOpen = true); otherwise the lab just shows a virtual box with PacksPerBox packs.
 handlers.openBox = function(source, payload)
-    local packs = MetaComic.Collectables.containerCount('booster_box')
+    local packs = MetaComic.Collectibles.containerCount('booster_box')
     local setId = MetaComic.Sets.defaultId()
     if not Config.Items.RequireForOpen and canManage(source) and payload and payload.set then
         setId = MetaComic.Sets.resolveId(payload.set) or setId
@@ -2335,7 +2337,7 @@ if refreshCommand and refreshCommand ~= '' then
         notify(source, ('Updated %d trading card%s.'):format(updated, updated == 1 and '' or 's'), 'success')
     end
     RegisterCommand(refreshCommand,refreshIcons,false)
-    if refreshCommand~='collectablesicons' then RegisterCommand('collectablesicons',refreshIcons,false) end
+    if refreshCommand~='collectiblesicons' then RegisterCommand('collectiblesicons',refreshIcons,false) end
     if refreshCommand~='cardicons' then RegisterCommand('cardicons',refreshIcons,false) end
 end
 

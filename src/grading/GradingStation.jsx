@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import TradingCard from '../components/TradingCard'
-import { CardBack } from '../collectables/tradingCards.jsx'
+import { CardBack } from '../collectibles/tradingCards.jsx'
 import { FLAW_TYPES, LIMITS, TEXT_SECTIONS, textOffset, asArray, flawLabel, gradeName, listFlaws, flawOptions, matchMark, gradeFromFound, gradeFromFlaws, certNumber, gradeChoices, allowedGrade, DEFAULT_GRADE_ADJUST } from './condition.js'
 import './grading.css'
 

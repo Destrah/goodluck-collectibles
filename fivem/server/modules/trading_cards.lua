@@ -1,11 +1,11 @@
--- Trading cards are the first collectable module. Other types register independently.
-MetaComic.Collectables.registerType('trading_card', {
+-- Trading cards are the first collectible module. Other types register independently.
+MetaComic.Collectibles.registerType('trading_card', {
     label = 'Trading Card',
     itemName = Config.Items.TradingCard,
     snapshotVersion = 1,
 })
 
-MetaComic.Collectables.registerContainer('booster_pack', {
+MetaComic.Collectibles.registerContainer('booster_pack', {
     typeId = 'trading_card',
     label = 'Booster Pack',
     itemName = Config.Items.BoosterPack,
@@ -14,7 +14,7 @@ MetaComic.Collectables.registerContainer('booster_pack', {
     end,
 })
 
-MetaComic.Collectables.registerContainer('booster_box', {
+MetaComic.Collectibles.registerContainer('booster_box', {
     typeId = 'trading_card',
     label = 'Booster Box',
     itemName = Config.Items.BoosterBox,

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import TradingCard from '../components/TradingCard'
-import { CardBack } from '../collectables/tradingCards.jsx'
+import { CardBack } from '../collectibles/tradingCards.jsx'
 import { asArray, gradeName, flawLabel } from './condition.js'
 import './grading.css'
 

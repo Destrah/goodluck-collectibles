@@ -1,6 +1,7 @@
 import { readMigratedStorage } from '../legacyStorage.js'
+import { withCollectibleKeys } from '../../collectibles/legacyKeys.js'
 
-const STORAGE_KEY = 'meta-comic-collectables-v3'
+const STORAGE_KEY = 'meta-comic-collectibles-v3'
 let memoryCatalog = []
 
 const isQuotaError = error => error?.name === 'QuotaExceededError' || error?.name === 'NS_ERROR_DOM_QUOTA_REACHED' || error?.code === 22 || error?.code === 1014
@@ -14,7 +15,7 @@ export const standaloneStorage = {
   async loadCatalog(fallback) {
     try {
       const saved = readMigratedStorage(STORAGE_KEY)
-      memoryCatalog = clone(saved ? JSON.parse(saved) : fallback)
+      memoryCatalog = clone(saved ? withCollectibleKeys(JSON.parse(saved)) : fallback)
       return clone(memoryCatalog)
     } catch {
       memoryCatalog = clone(fallback)

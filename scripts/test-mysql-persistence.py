@@ -70,7 +70,7 @@ class PersistenceTests(unittest.TestCase):
             g.Config.Database[key] = value
         self.run_file('fivem/shared/utils.lua')
         self.run_file('fivem/shared/legacy.lua')
-        self.run_file('fivem/shared/collectables.lua')
+        self.run_file('fivem/shared/collectibles.lua')
         self.run_file('fivem/server/persistence/mysql.lua')
         if mode == 'mysql':
             self.lua.execute('MetaComic.Persistence = MetaComic.PersistenceAdapters.mysql(); MetaComic.Persistence.init()')
@@ -119,6 +119,13 @@ class PersistenceTests(unittest.TestCase):
             return {'affectedRows': 0}
         if 'information_schema.TABLES' in sql:
             return [dict(row) for row in self.db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", params)]
+        if 'information_schema.COLUMNS' in sql:
+            table, column = params
+            return [{'1': 1} for row in self.db.execute(f'PRAGMA table_info(`{table}`)') if row['name'] == column]
+        change = re.match(r'ALTER TABLE `([\w]+)` CHANGE `([\w]+)` `([\w]+)`', sql)
+        if change:
+            self.db.execute(f'ALTER TABLE `{change[1]}` RENAME COLUMN `{change[2]}` TO `{change[3]}`')
+            return {'affectedRows': 0}
         cursor = self.db.execute(self.sql_for_sqlite(sql), params)
         return [dict(row) for row in cursor.fetchall()] if cursor.description else {'affectedRows': cursor.rowcount}
 
@@ -433,12 +440,12 @@ class PersistenceTests(unittest.TestCase):
         for table in tables:
             self.assertEqual(self.rows(table), before[table])
 
-    def test_collectable_snapshots_are_copies_and_unknown_containers_cannot_open(self):
-        self.assertTrue(self.lua.execute('local original={title="Before",nested={value=1}}; local copy=MetaComic.Collectables.snapshot("trading_card",original); copy.nested.value=2; return copy.collectableType=="trading_card" and original.nested.value==1 and original.collectableType==nil'))
-        items, error = self.lua.execute('return MetaComic.Collectables.open("plushie_box",{})')
+    def test_collectible_snapshots_are_copies_and_unknown_containers_cannot_open(self):
+        self.assertTrue(self.lua.execute('local original={title="Before",nested={value=1}}; local copy=MetaComic.Collectibles.snapshot("trading_card",original); copy.nested.value=2; return copy.collectibleType=="trading_card" and original.nested.value==1 and original.collectibleType==nil'))
+        items, error = self.lua.execute('return MetaComic.Collectibles.open("plushie_box",{})')
         self.assertIsNone(items)
-        self.assertEqual(error, 'Unknown collectable container')
-        self.assertEqual(self.lua.eval('MetaComic.Collectables.containerCount("booster_box")'), 12)
+        self.assertEqual(error, 'Unknown collectible container')
+        self.assertEqual(self.lua.eval('MetaComic.Collectibles.containerCount("booster_box")'), 12)
 
     def test_all_fivem_lua_files_compile(self):
         compile_lua = self.lua.eval('load')
@@ -483,10 +490,28 @@ class PersistenceTests(unittest.TestCase):
         ''')
         self.run_file('fivem/server/modules/objects.lua')
         self.lua.execute('''
-            MetaComic.Objects.save({kind='definition',value={id='coin',collectableType='challenge_coin',title='Original Coin',backImage='https://example.com/back.png',chanceWeight=100}})
-            MetaComic.Objects.save({kind='set',value={id='coin-set',collectableType='challenge_coin',name='Coins',itemIds={'coin'}}})
+            MetaComic.Objects.save({kind='definition',value={id='coin',collectibleType='challenge_coin',title='Original Coin',backImage='https://example.com/back.png',chanceWeight=100}})
+            MetaComic.Objects.save({kind='set',value={id='coin-set',collectibleType='challenge_coin',name='Coins',itemIds={'coin'}}})
             MetaComic.Objects.save({kind='container',typeId='challenge_coin',value={id='coin_bag',label='Coin Bag',kind='bag',count=3,setId='coin-set',outer={id='coin_bag_box',label='Coin Bag Box',count=10}}})
         ''')
+
+    def test_tables_and_items_from_before_the_spelling_fix_still_load(self):
+        self.boot_objects()
+        old = 'collect' + 'able'  # the misspelling this migration exists for
+        for table in ('goodluck_collectibles_items', 'goodluck_collectibles_sets', 'goodluck_collectibles_containers'):
+            self.db.execute(f'ALTER TABLE `{table}` RENAME COLUMN `collectible_type` TO `{old}_type`')
+        self.db.execute(f"INSERT INTO goodluck_collectibles_items (id,{old}_type,title,item_json) VALUES (?,?,?,?)",
+                        ('bear', 'plushie', 'Bear', '{"id":"bear","%sType":"plushie","title":"Bear"}' % old))
+        self.lua.execute('MetaComic.Objects.init()')
+        for table in ('goodluck_collectibles_items', 'goodluck_collectibles_sets', 'goodluck_collectibles_containers'):
+            columns = [row['name'] for row in self.db.execute(f'PRAGMA table_info(`{table}`)')]
+            self.assertIn('collectible_type', columns)
+            self.assertNotIn(f'{old}_type', columns)
+        bear = self.lua.execute('for _,item in ipairs(MetaComic.Objects.data.definitions) do if item.id=="bear" then return item end end')
+        self.assertEqual(bear['collectibleType'], 'plushie')
+        self.assertIsNone(bear[f'{old}Type'])
+        self.assertEqual(self.lua.execute('return MetaComic.Objects.data.sets[1].collectibleType'), 'challenge_coin')
+        self.assertEqual(self.lua.execute(f'return MetaComic.Collectibles.typeOf({{{old}Type="plushie"}})'), 'plushie')
 
     def test_object_outer_box_releases_ten_bags_then_bag_releases_three_immutable_coins(self):
         self.boot_objects()
@@ -499,7 +524,7 @@ class PersistenceTests(unittest.TestCase):
         self.assertEqual(len(result['data']['sealed']), 9)
         self.assertEqual(len(result['data']['instances']), 0)
         self.lua.execute('MetaComic.Objects.claim(1)')
-        self.lua.execute('MetaComic.Objects.save({kind="definition",value={id="coin",collectableType="challenge_coin",title="New Coin"}})')
+        self.lua.execute('MetaComic.Objects.save({kind="definition",value={id="coin",collectibleType="challenge_coin",title="New Coin"}})')
         current = self.lua.execute('return MetaComic.Objects.get(1)')
         self.assertEqual(current['instances'][1]['title'], 'Original Coin')
         self.assertEqual(current['instances'][1]['backImage'], 'https://example.com/back.png')
@@ -522,8 +547,8 @@ class PersistenceTests(unittest.TestCase):
     def test_plushie_case_and_box_counts_are_server_authoritative(self):
         self.boot_objects()
         self.lua.execute("""
-            MetaComic.Objects.save({kind='definition',value={id='bear',title='Bear',collectableType='plushie'}})
-            MetaComic.Objects.save({kind='set',value={id='bears',name='Bears',collectableType='plushie',itemIds={'bear'}}})
+            MetaComic.Objects.save({kind='definition',value={id='bear',title='Bear',collectibleType='plushie'}})
+            MetaComic.Objects.save({kind='set',value={id='bears',name='Bears',collectibleType='plushie',itemIds={'bear'}}})
             MetaComic.Objects.save({kind='container',typeId='plushie',value={id='plushie_box',label='Plushie Box',count=1,setId='bears',outer={label='Plushie Case',count=18}}})
             MetaComic.Objects.create(1,{typeId='plushie',outer=true})
         """)
@@ -654,7 +679,7 @@ class PersistenceTests(unittest.TestCase):
         original=self.rows('goodluck_collectibles_items')
         self.fail_after=0
         with self.assertRaisesRegex(Exception, 'rolled back'):
-            self.lua.execute('MetaComic.Objects.save({kind="definition",value={id="coin",collectableType="challenge_coin",title="Uncommitted"}})')
+            self.lua.execute('MetaComic.Objects.save({kind="definition",value={id="coin",collectibleType="challenge_coin",title="Uncommitted"}})')
         self.assertEqual(self.rows('goodluck_collectibles_items'), original)
         self.assertEqual(self.lua.eval('MetaComic.Objects.data.definitions[1].title'), 'Original Coin')
 
@@ -666,7 +691,7 @@ class PersistenceTests(unittest.TestCase):
         self.assertEqual(self.lua.execute('return MetaComic.Objects.claim(2)'),0)
         self.assertEqual(len(self.rows('goodluck_collectibles_openings')),1)
         # Resource restart and a different player source with the same character.
-        self.run_file('fivem/shared/collectables.lua')
+        self.run_file('fivem/shared/collectibles.lua')
         self.run_file('fivem/server/modules/objects.lua')
         self.lua.execute("MetaComic.Framework.getIdentifier=function(source) return 'character-1' end")
         self.assertEqual(self.lua.execute('return MetaComic.Objects.claim(9)'),3)
@@ -694,7 +719,7 @@ class PersistenceTests(unittest.TestCase):
     def test_object_sets_cannot_mix_types_and_open_counts_are_bounded(self):
         self.boot_objects()
         with self.assertRaisesRegex(Exception, 'set member'):
-            self.lua.execute('MetaComic.Objects.save({kind="set",value={id="bad",collectableType="plushie",name="Invalid",itemIds={"coin"}}})')
+            self.lua.execute('MetaComic.Objects.save({kind="set",value={id="bad",collectibleType="plushie",name="Invalid",itemIds={"coin"}}})')
         with self.assertRaisesRegex(Exception, 'count'):
             self.lua.execute('MetaComic.Objects.save({kind="container",typeId="challenge_coin",value={label="Bad",setId="coin-set",count=1000,outer={count=10}}})')
 

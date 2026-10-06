@@ -2,7 +2,7 @@ fx_version 'cerulean'
 game 'gta5'
 lua54 'yes'
 
-author 'Meta Comic Collectables modular integration'
+author 'Meta Comic Collectibles modular integration'
 description 'Standalone React trading cards with optional FiveM/QBCore/Qbox/database adapters'
 
 ui_page 'web/index.html'
@@ -11,7 +11,7 @@ shared_scripts {
     'config.lua',
     'shared/utils.lua',
     'shared/legacy.lua',
-    'shared/collectables.lua',
+    'shared/collectibles.lua',
 }
 
 client_scripts {

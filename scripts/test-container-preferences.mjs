@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { openingLook, sanitizeContainerAnimations } from '../src/collectables/containerPrefs.js'
+import { openingLook, sanitizeContainerAnimations } from '../src/collectibles/containerPrefs.js'
 
 test('legacy and invalid preferences default every container to random', () => {
   assert.deepEqual(sanitizeContainerAnimations({bag:'invalid',box:'pour'}),{bag:'random',box:'random',case:'random'})

@@ -1,18 +1,18 @@
-# Meta Comic Collectables — FiveM integration
+# Meta Comic Collectibles — FiveM integration
 
 This folder is an optional FiveM host for the same React application.
 
 ## Generate the Sample testing set
 
-Run `/collectablessample` in game with the same management permission as `/collectablesadmin` (or run `collectablessample` in the server console). It imports **Sample**: 100 original illustrated base cards and 800 prints, covering all five rarity tiers, all eight holo choices, four layouts, all supported subject effects, varying base/print weights, and aligned alpha/luminance/inverted masks. Base artwork and masks are uploaded first; only HTTPS URLs are saved. Inventory icons are then drawn/uploaded through the existing background pipeline.
+Run `/collectiblessample` in game with the same management permission as `/collectiblesadmin` (or run `collectiblessample` in the server console). It imports **Sample**: 100 original illustrated base cards and 800 prints, covering all five rarity tiers, all eight holo choices, four layouts, all supported subject effects, varying base/print weights, and aligned alpha/luminance/inverted masks. Base artwork and masks are uploaded first; only HTTPS URLs are saved. Inventory icons are then drawn/uploaded through the existing background pipeline.
 
 Set `metacomic_fivemanage_key_artwork` in server.cfg, or use the existing `metacomic_fivemanage_key` fallback. Keep secrets in server.cfg. Existing Fivemanage folder settings are respected. Inventory icon uploads also require `Config.CardIcons.Mode = 'upload'` and the existing trading-card upload key. Progress appears in notifications and the server console; the initial run uploads 150 unique artwork/mask assets and then generates the print icons. Allow it to finish before testing a full collection.
 
-Reopen `/collectablesadmin`, choose the Sample set in Sets & containers or the pack lab, and create/open Sample booster packs. The command does not replace other sets, change the default set, or give inventory items. Reruns add missing sample cards and membership links while preserving edits to existing samples. Failed uploads can be retried using the same command; previously uploaded artwork is cached. MySQL saves all new definitions and membership links in one transaction.
+Reopen `/collectiblesadmin`, choose the Sample set in Sets & containers or the pack lab, and create/open Sample booster packs. The command does not replace other sets, change the default set, or give inventory items. Reruns add missing sample cards and membership links while preserving edits to existing samples. Failed uploads can be retried using the same command; previously uploaded artwork is cached. MySQL saves all new definitions and membership links in one transaction.
 
 For this feature deploy `server/modules/sample_cards.lua`, the updated `server/main.lua`, `server/persistence/mysql.lua`, `fxmanifest.lua`, `data/sample-cards.json`, `img/sample/`, and the rebuilt `web/` folder together. Preserve your current config values. The generated PNG assets and manifest are bundled; Python is only needed if you want to rebuild them with `scripts/generate-sample-cards.py`.
 
-Sample artwork has no embedded lettering, so full-art layouts use only the card's own text. If you already imported the older images, deploy the updated sample images and server files and run `/collectablessample refreshart` to upload and apply the text-free artwork. This explicitly replaces the base artwork on Sample cards while preserving their other edits and print settings. Already acquired items retain their stored snapshots.
+Sample artwork has no embedded lettering, so full-art layouts use only the card's own text. If you already imported the older images, deploy the updated sample images and server files and run `/collectiblessample refreshart` to upload and apply the text-free artwork. This explicitly replaces the base artwork on Sample cards while preserving their other edits and print settings. Already acquired items retain their stored snapshots.
 
 ## Existing installation upgrade
 
@@ -20,11 +20,11 @@ For grading troubleshooting, add `Debug = true` inside your existing `Config.Gra
 
 New card conditions use independent text offsets for subtitle, title, HP, type/rarity, description, attacks, and footer. Each out-of-tolerance section is a separate finding and must be marked on that text. Existing acquired cards with the older text-layer array keep their original condition and single finding. Off-centre borders now confirm only centering; use the artwork and text tools for their respective shifts. Deploy `server/modules/grading.lua`, `server/main.lua`, and rebuilt `web/` together.
 
-The main commands are now `/collectables`, `/collectablesadmin`, `/collectablesoptions`, `/collectablespack`, `/collectablesbox`, and `/collectablesicons`. Existing `/card...` commands remain aliases, and older configuration files still work. `/collectablesrestoreseed` is console-only.
+The main commands are now `/collectibles`, `/collectiblesadmin`, `/collectiblesoptions`, `/collectiblespack`, `/collectiblesbox`, and `/collectiblesicons`. Existing `/card...` commands remain aliases, and older configuration files still work. `/collectiblesrestoreseed` is console-only. These commands used to be spelled `/collectables...`; if your `config.lua` still has the old names, change them there. Items, saved data and the MySQL `collectable_type` columns from before the spelling change keep working: the column is renamed to `collectible_type` on the next start.
 
 Coin bags, plushie boxes, and outer cases roll and consume their container on the server, but deliver the frozen contents only after everything is revealed or the opening is closed. Pending deliveries use `goodluck_collectibles_openings` in MySQL (or `data/collectible_openings.json` with JSON persistence). Restart recovery uses the character identifier. Full inventories keep their pending delivery for retry. With `AutoCreateSchema = true`, the new table is created at resource startup; otherwise apply the updated `data/collectibles.sql` first.
 
-Deploy the updated `client/main.lua`, `server/main.lua`, `server/modules/objects.lua`, `data/collectibles.sql`, and rebuilt `web` folder together. Container animation preferences are per player in `/collectablesoptions`; Random is the default for bags, plushie boxes, and cases. The sealed design and inventory snapshot are preserved.
+Deploy the updated `client/main.lua`, `server/main.lua`, `server/modules/objects.lua`, `data/collectibles.sql`, and rebuilt `web` folder together. Container animation preferences are per player in `/collectiblesoptions`; Random is the default for bags, plushie boxes, and cases. The sealed design and inventory snapshot are preserved.
 
 Keep your existing resource folder name during the upgrade to preserve resource-scoped JSON files and player KVP preferences. New installations can use `meta-comic` as shown below. Preserve your configured framework, inventory, commands, item names, and gameplay values.
 
@@ -32,7 +32,7 @@ At startup, the MySQL adapter automatically transfers the old table prefix to `g
 
 Current ACE names are `metacomic.manage` and `metacomic.catalog.write`; the upload key convar is `metacomic_fivemanage_key`. Upgrade-only aliases preserve existing grants/keys and migrate saved player preferences. Internal events and NUI messages now use `meta_comic` / `metaComic`; update any custom integrations that referenced the previous event names. Existing inventory item names remain unchanged. Copy the updated example inventory images if you manage those images manually.
 
-See [collectable modules](../docs/collectable-modules.md) for the trading card module and future container/type extension points.
+See [collectible modules](../docs/collectible-modules.md) for the trading card module and future container/type extension points.
 
 ## Build the NUI
 From the project root:
@@ -197,7 +197,7 @@ How item use is wired (`Config.Items.UseMethod`, default `'auto'` = both routes)
   drawn in a player's game UI, uploaded to Fivemanage by the server and remembered in `data/card_icons.json`.
   Add your key to **server.cfg** (never config.lua, which players receive): `set metacomic_fivemanage_key "your-api-key"`.
   Each look is uploaded once; saving without changing a look, opening packs or giving items never uploads anything new.
-  When a collectable or print is deleted, or saved with a different look, the old look's icon is deleted from Fivemanage
+  When a collectible or print is deleted, or saved with a different look, the old look's icon is deleted from Fivemanage
   (failed deletes are retried from `data/card_icons_trash.json`) and items still showing it fall back to the rarity icon.
   Items stored in stashes / trunks are only updated when they reach a player inventory. On start (and with `cardicons` in
   the server console) the saved urls are checked, and icons deleted from Fivemanage are uploaded again.
@@ -379,7 +379,7 @@ examples/ox_inventory-items.lua
 
 ## Plushies and challenge coins
 
-The shared editor now supports plushie boxes/cases and challenge coin bags/boxes with server-owned opening and immutable inventory snapshots. Deploy all updated Lua files and the manifest as well as the NUI build, and register the items from `examples/ox_inventory-collectibles.lua`. See [collectable systems](../docs/collectable-modules.md) for schema, defaults, setup, and extension details.
+The shared editor now supports plushie boxes/cases and challenge coin bags/boxes with server-owned opening and immutable inventory snapshots. Deploy all updated Lua files and the manifest as well as the NUI build, and register the items from `examples/ox_inventory-collectibles.lua`. See [collectible systems](../docs/collectible-modules.md) for schema, defaults, setup, and extension details.
 
 ## Vending machines
 

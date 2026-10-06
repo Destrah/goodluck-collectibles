@@ -7,6 +7,7 @@ import ProtectionShell from '../grading/ProtectionShell'
 import { conditionStyle, textSectionStyle } from '../grading/condition.js'
 import '../grading/grading.css'
 import { formatPacks, oddsVersion, starCount, starStyle, subscribeOdds, tierOf } from '../utils/printOdds.js'
+import { collectorNumber, setNumbersVersion, subscribeSetNumbers } from '../utils/setNumbers.js'
 
 // footer stars: how many = the print's rarity tier; colour = how rare it really is to pull (see utils/printOdds.js)
 function RarityStars({ card }) {
@@ -15,6 +16,14 @@ function RarityStars({ card }) {
   const tip = `${card.rarity || tierOf(card)}${packs ? ` · about 1 in ${formatPacks(packs)} packs${label ? ` (${label})` : ''}` : ''}`
   // a CSS tooltip, not title=: FiveM's NUI browser never shows native tooltips
   return <span className="rarity-stars" style={{ '--star': colour }} data-tip={tip} aria-label={tip}>{'★'.repeat(starCount(card))}</span>
+}
+
+// footer left: set code and collector number ("BASE 007/120"), then the print
+function CardNumber({ card }) {
+  useSyncExternalStore(subscribeSetNumbers, setNumbersVersion)
+  const numbered = collectorNumber(card)
+  const tip = numbered ? `Card ${Number(numbered.number)} of ${Number(numbered.total)} in ${card.setName || numbered.code}` : undefined
+  return <span data-tip={tip} aria-label={tip}>{numbered ? numbered.label : 'META COMICS'} • {card.variantName || 'PRINT'}</span>
 }
 
 const clamp = (n, min, max) => Math.min(Math.max(n, min), max)
@@ -263,7 +272,7 @@ function TradingCard({ card: inputCard, size = 'large', interactive = true, driv
         </section>
 
         <footer className="card-footer" style={textSectionStyle(condition,'footer')}>
-          <span>META COMICS • {card.variantName || 'PRINT'} • 001/{String(card.hp).padStart(3, '0')}</span>
+          <CardNumber card={card} />
           <RarityStars card={card} />
         </footer>
       </article>

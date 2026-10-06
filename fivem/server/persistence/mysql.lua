@@ -19,7 +19,7 @@ function BrandingMigration.renameTables(query, names)
             for _, prefix in ipairs(previousPrefixes) do
                 local previous = target:gsub('^goodluck_collectibles_', prefix)
                 if exists(previous) then
-                    if source or exists(target) then error('Both old and new collectable tables exist; refusing to overwrite or merge them: ' .. target) end
+                    if source or exists(target) then error('Both old and new collectible tables exist; refusing to overwrite or merge them: ' .. target) end
                     source = previous
                 end
             end

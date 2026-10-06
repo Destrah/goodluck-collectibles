@@ -94,7 +94,7 @@ function service.generate(hooks)
    saved,err=MetaComic.Sets.save(sets);assert(saved,err)
   end
   hooks.sync()
-  hooks.report(('Sample ready: %d base cards, %d prints; %d cards added. Open /collectablesadmin and select Sample in Sets & containers or the pack lab. Inventory icons upload in the background.'):format(#seed.cards,prints,added))
+  hooks.report(('Sample ready: %d base cards, %d prints; %d cards added. Open /collectiblesadmin and select Sample in Sets & containers or the pack lab. Inventory icons upload in the background.'):format(#seed.cards,prints,added))
   return {added=added,cards=#seed.cards,prints=prints}
  end)
  running=false

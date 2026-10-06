@@ -1,5 +1,6 @@
 import { memo } from 'react'
 import { gradeName } from './condition.js'
+import { collectorNumber } from '../utils/setNumbers.js'
 
 // Clear plastic around a card: a penny sleeve, a rigid toploader, or a graded slab with its label (front only).
 // Drawn as a sibling over the card inside .card-stage (see grading.css), so it never clips the card itself.
@@ -18,6 +19,7 @@ export function SlabLabel({ card, side = 'front' }) {
   const graded = card?.graded
   if (side === 'back') return <div className="slab-label slab-label--back"><span>META COMICS GRADING</span><span>{graded?.grader ? `Graded by ${graded.grader}` : ''}</span><span>{graded?.cert}</span></div>
   if (!graded) return null
+  const numbered = collectorNumber(card)
   return <div className="slab-label">
       <div className="slab-label-left">
         <strong>{(card.setName || 'META COMICS').toUpperCase().slice(0, 22)}</strong>
@@ -26,7 +28,7 @@ export function SlabLabel({ card, side = 'front' }) {
         <Barcode value={graded.cert} />
       </div>
       <div className="slab-label-right">
-        <span>#{String(card.hp ?? '').padStart(3, '0')}</span>
+        <span>{numbered ? `#${numbered.number}` : ''}</span>
         <strong>{gradeName(graded.grade)}</strong>
         <b>{graded.grade}</b>
         <span>{graded.cert}</span>

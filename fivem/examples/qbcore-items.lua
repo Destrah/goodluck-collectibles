@@ -2,7 +2,7 @@
 ['boosterpack'] = {
     name = 'boosterpack', label = 'Trading Card Booster Pack', weight = 100,
     type = 'item', image = 'boosterpack.png', unique = true, useable = true,
-    shouldClose = true, description = 'A sealed Meta Comic Collectables booster pack.'
+    shouldClose = true, description = 'A sealed Meta Comic Collectibles booster pack.'
 },
 ['boosterbox'] = {
     name = 'boosterbox', label = 'Trading Card Booster Box', weight = 1000,

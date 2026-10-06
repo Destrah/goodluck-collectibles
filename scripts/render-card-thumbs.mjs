@@ -22,7 +22,7 @@ const catalogFile = resolve(root, arg('--catalog') || 'fivem/data/catalog.json')
 const oxDir = arg('--ox')
 const buildDir = resolve(root, '.card-thumbs-build')
 const outDirs = [resolve(root, 'public/img/cards'), resolve(root, 'fivem/img/cards')]
-const STORAGE_KEY = 'meta-comic-collectables-v3' // src/runtime/storage/standalone.js
+const STORAGE_KEY = 'meta-comic-collectibles-v3' // src/runtime/storage/standalone.js
 
 export const thumbName = key => key.replace(/::/g, '__').replace(/[^a-zA-Z0-9_-]+/g, '-').toLowerCase()
 
