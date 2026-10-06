@@ -6,7 +6,8 @@ const VIEWER_W = 390
 const VIEWER_H = 546
 
 // bare: no backdrop at all (FiveM card item: only the card is drawn, the game stays visible around it)
-export default function CardViewer({ card, originRect, onClose, title = 'Card detail', bare = false }) {
+// onRough: the player spun their own card hard (FiveM: the server may wear a raw card)
+export default function CardViewer({ card, originRect, onClose, title = 'Card detail', bare = false, onRough }) {
   const [active, setActive] = useState(false)
 
   useEffect(() => {
@@ -40,7 +41,7 @@ export default function CardViewer({ card, originRect, onClose, title = 'Card de
         onClick={event => event.stopPropagation()}
       >
         <button className="viewer-close" onClick={close} aria-label="Close collectible view">×</button>
-        <RotatableCollectible item={card} />
+        <RotatableCollectible item={card} onRough={onRough} />
       </div>
     </div>
   )

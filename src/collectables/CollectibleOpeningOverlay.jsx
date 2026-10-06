@@ -3,7 +3,7 @@ import { bridge } from '../runtime'
 import CardViewer from '../components/CardViewer'
 import ContainerOpening3D from './ContainerOpening3D'
 import './collectibles.css'
-import { loadPackPrefs } from '../runtime/packPrefs'
+import { cachedPackPrefs, loadPackPrefs } from '../runtime/packPrefs'
 import { openingLook } from './containerPrefs.js'
 
 // The 3D canvas covers the whole screen (collectibles.css) but is framed like the centre stage it used to be
@@ -19,14 +19,28 @@ export default function CollectibleOpeningOverlay({ request, onClose }) {
   const [claiming, setClaiming] = useState(false)
   const claimRequest = useRef(null)
   const pending = useRef(null)
+  // With the item's container snapshot the bag/box/case drops in at once and waits for the server's pull.
+  const [early, setEarly] = useState(null)
+  const earlyStarted = useRef(null)
+  const runArrived = useRef(false)
   useEffect(() => {
     let alive = true
+    // Fetch the Three.js scene code while the server rolls the container, so the animation can start as soon as it answers.
+    import('./Container3D.js').catch(() => {})
     // Reuse the request during StrictMode effect replay: consuming an inventory
     // container must never be repeated by a presentation lifecycle.
     if (!pending.current) pending.current = Promise.all([
       bridge.openCollectibleContainer({ typeId: request.typeId, slot: request.slot, outer: request.outer }),loadPackPrefs(),
     ]).then(([response,prefs]) => ({...response,run:{...response.run,playbackLook:openingLook(response.run,prefs)}}))
-    pending.current.then(response => { if (alive) setRun(response.run) })
+    const cached = cachedPackPrefs()
+    if (request.container && !earlyStarted.current) earlyStarted.current = (cached ? Promise.resolve(cached) : loadPackPrefs()).then(prefs => {
+      if (runArrived.current) return // (no `alive` check: StrictMode replays this effect and only the first run starts it)
+      const provisional = { id: request.id, typeId: request.typeId, container: request.container, outer: !!request.outer, items: [] }
+      const items = pending.current.then(response => response.run.items)
+      items.catch(() => {})
+      setEarly({ run: provisional, look: openingLook(provisional, prefs), items })
+    }).catch(() => {})
+    pending.current.then(response => { runArrived.current = true; if (alive) setRun(response.run) })
       .catch(err => { if (alive) setError(err.message) })
     return () => { alive = false }
   }, [])
@@ -39,6 +53,21 @@ export default function CollectibleOpeningOverlay({ request, onClose }) {
     }
     return claimRequest.current
   }
+  // FiveM: the character opens the bag / box / case (prop + animation) while it opens on screen, then holds the
+  // pulls (however many coins / plushies came out) and looks at them until the UI closes
+  useEffect(() => {
+    const kind = request.outer ? 'case' : request.typeId === 'challenge_coin' ? 'bag' : 'box'
+    bridge.packProp?.('start', kind).catch(() => {})
+    return () => { bridge.packProp?.('stop').catch(() => {}) }
+  }, [])
+  useEffect(() => { if (error) bridge.packProp?.('stop').catch(() => {}) }, [error])
+  const held = useRef(false)
+  useEffect(() => {
+    if (!settled || !run || held.current) return
+    held.current = true
+    bridge.packProp?.('stop').catch(() => {})
+    if (!run.outer && run.items?.length) bridge.holdCollectibles?.({ typeId: run.typeId, count: run.items.length }).catch(() => {})
+  }, [settled, run])
   const close = () => {if(claiming)return;claim().then(onClose).catch(() => {})}
   const canFlip = settled && !run?.outer && !viewer
   useEffect(() => {
@@ -58,9 +87,11 @@ export default function CollectibleOpeningOverlay({ request, onClose }) {
   }, [canFlip, viewer, onClose,claiming])
   return <div className="pk-overlay collectible-opening-overlay" role="dialog" aria-label="Opening a collectible container">
     <div className="pk-overlay-stage">
-      {run && <ContainerOpening3D key={run.id} run={run} look={run.playbackLook} frame={OVERLAY_FRAME}
+      {early && !error ? <ContainerOpening3D key={early.run.id} run={run ? { ...run, id: early.run.id } : early.run} pendingItems={early.items} look={early.look} frame={OVERLAY_FRAME}
+        compact flipAllKey={flipAllKey} onInspect={setViewer} onComplete={() => setSettled(true)} onAllRevealed={() => claim().catch(() => {})} />
+      : run && <ContainerOpening3D key={run.id} run={run} look={run.playbackLook} frame={OVERLAY_FRAME}
         compact flipAllKey={flipAllKey} onInspect={setViewer} onComplete={() => setSettled(true)} onAllRevealed={() => claim().catch(() => {})} />}
-      {!run && !error && <p className="collectible-opening-status" role="status">Opening container…</p>}
+      {!run && !early && !error && <p className="collectible-opening-status" role="status">Opening container…</p>}
     </div>
     <div className="pk-overlay-bar">
       {error && <div className="runtime-error" role="alert">{error}</div>}

@@ -1,6 +1,9 @@
 import React from 'react'
 import { CARD_TYPES, HOLOS, LAYOUTS, MASK_SOURCES, RARITIES, SUBJECT_EFFECTS, makeSubjectLayer, makeVariant } from '../cardData'
 import { useResolvedAsset } from '../runtime/assets'
+import { artworkPasteProps } from '../utils/compressImage.js'
+import ArtworkFileInput from './ArtworkFileInput'
+import { computePrintOdds, formatPacks } from '../utils/printOdds.js'
 
 function Field({ label, children, className = '' }) {
   return <label className={`field ${className}`}><span>{label}</span>{children}</label>
@@ -46,8 +49,21 @@ const presetColors = {
   'foil-frost': ['#a5f3fc', '#eff6ff', '#93c5fd'],
 }
 
-export default function CardEditor({ card, selectedVariantId, onSelectVariant, onChange, onDelete, onDuplicate, dirty, isNew, saving, saveError, onSave, onRevert }) {
+export default function CardEditor({ card, selectedVariantId, onSelectVariant, onChange, onDelete, onDuplicate, dirty, isNew, saving, saveError, onSave, onRevert, onPrint, catalog = [] }) {
   const variant = card.variants.find(item => item.id === selectedVariantId) || card.variants[0]
+  // true pull odds of each print, worked out with this card as it is being edited (unsaved weights/tiers count)
+  const odds = React.useMemo(() => computePrintOdds([...(catalog || []).filter(entry => entry.id !== card.id), card]), [catalog, card])
+  const oddsText = item => {
+    const value = odds.get(`${card.id}::${item.id}`)
+    return value > 0 ? `1 in ${formatPacks(1 / value)} packs` : 'not in packs'
+  }
+  // FiveM manual print: one card item of the saved print, marked MANUAL PRINT
+  const [printState, setPrintState] = React.useState({ busy: false, note: '' })
+  const printVariant = async () => {
+    setPrintState({ busy: true, note: '' })
+    try { setPrintState({ busy: false, note: await onPrint(variant) }) }
+    catch (error) { setPrintState({ busy: false, note: error?.message || String(error) }) }
+  }
   const patchBase = (key, value) => onChange({ ...card, [key]: value })
   const patchVariant = (key, value) => {
     const variants = card.variants.map(item => item.id === variant.id ? { ...item, [key]: value } : item)
@@ -70,12 +86,10 @@ export default function CardEditor({ card, selectedVariantId, onSelectVariant, o
   const addAttack = () => patchBase('attacks', [...card.attacks, { name: 'New Move', cost: 1, damage: 10, text: 'Describe this move.' }])
   const removeAttack = (index) => patchBase('attacks', card.attacks.filter((_, i) => i !== index))
 
-  const loadFile = (onLoaded, file) => {
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => onLoaded(reader.result)
-    reader.readAsDataURL(file)
-  }
+  // Uploaded artwork/masks are downscaled and re-encoded (alpha kept) so they fit browser storage and FiveM saves.
+  const [uploadNote, setUploadNote] = React.useState('')
+  const fileOptions = { maxEdge: 1400, onInfo: setUploadNote }
+  const pasteArt = onLoaded => artworkPasteProps(onLoaded, { maxEdge: 1400, onInfo: setUploadNote })
 
   const addVariant = () => {
     const next = makeVariant({
@@ -144,6 +158,7 @@ export default function CardEditor({ card, selectedVariantId, onSelectVariant, o
       </div>
       {saveError && <div className="editor-save-error">{saveError}</div>}
       <div className="editor-save-hint">Edits update the preview only until you save. <kbd>Ctrl</kbd> + <kbd>S</kbd> saves this card.</div>
+      {uploadNote && <div className="editor-save-hint">{uploadNote}</div>}
 
       <div className="editor-subheading">
         <div><span className="eyebrow">Base card</span><h4>Character / card identity</h4></div>
@@ -156,8 +171,8 @@ export default function CardEditor({ card, selectedVariantId, onSelectVariant, o
         <Field label="HP"><input type="number" min="1" max="999" value={card.hp} onChange={e => patchBase('hp', Number(e.target.value))} /></Field>
         <Field label="Game type"><select value={card.type} onChange={e => patchBase('type', e.target.value)}>{CARD_TYPES.map(type => <option key={type}>{type}</option>)}</select></Field>
         <Field label="Card pull weight"><input type="number" min="1" value={card.chanceWeight || 1} onChange={e => patchBase('chanceWeight', Number(e.target.value))} /></Field>
-        <Field label="Base artwork URL"><input value={card.image} onChange={e => patchBase('image', e.target.value)} /></Field>
-        <Field label="Base artwork file" className="span-2"><input className="file-input" type="file" accept="image/*" onChange={e => loadFile(value => patchBase('image', value), e.target.files?.[0])} /></Field>
+        <Field label="Base artwork URL"><input {...pasteArt(value => patchBase('image', value))} placeholder="URL, or paste / drop an image" value={card.image} onChange={e => patchBase('image', e.target.value)} /></Field>
+        <Field label="Base artwork file" className="span-2"><ArtworkFileInput onLoaded={value => patchBase('image', value)} options={fileOptions} /></Field>
 
         <Field label="Description" className="span-2"><textarea rows="3" value={card.description} onChange={e => patchBase('description', e.target.value)} /></Field>
       </div>
@@ -169,13 +184,15 @@ export default function CardEditor({ card, selectedVariantId, onSelectVariant, o
             <button className="ghost small-button" onClick={addVariant}>+ Print</button>
             <button className="ghost small-button" onClick={duplicateVariant}>Duplicate</button>
             <button className="danger ghost small-button" disabled={card.variants.length <= 1} onClick={removeVariant}>Remove</button>
+            {onPrint && <button className="primary small-button" disabled={dirty || isNew || saving || printState.busy} title={dirty || isNew ? 'Save changes first: the card is printed from the saved version.' : 'Put one card of this print in your inventory, marked MANUAL PRINT.'} onClick={printVariant}>{printState.busy ? 'Printing…' : 'Print card'}</button>}
           </div>
         </div>
+        {printState.note && <div className="editor-save-hint">{printState.note}</div>}
 
         <div className="variant-tabs">
           {card.variants.map(item => (
             <button key={item.id} className={item.id === variant.id ? 'active' : ''} onClick={() => onSelectVariant(item.id)}>
-              <strong>{item.name}</strong><small>{item.rarityKey.replace('_', ' ')}</small>
+              <strong>{item.name}</strong><small>{item.rarityKey.replace('_', ' ')} · {oddsText(item)}</small>
             </button>
           ))}
         </div>
@@ -190,8 +207,8 @@ export default function CardEditor({ card, selectedVariantId, onSelectVariant, o
           <Field label={`Holo strength — ${variant.holoStrength ?? 55}%`} className="span-2 range-field">
             <input type="range" min="0" max="100" step="1" value={variant.holoStrength ?? 55} onChange={e => patchVariant('holoStrength', Number(e.target.value))} />
           </Field>
-          <Field label="Variant artwork URL"><input placeholder="Blank = base artwork" value={variant.image || ''} onChange={e => setVariantArtwork(e.target.value)} /></Field>
-          <Field label="Variant artwork file"><input className="file-input" type="file" accept="image/*" onChange={e => loadFile(setVariantArtwork, e.target.files?.[0])} /></Field>
+          <Field label="Variant artwork URL"><input {...pasteArt(setVariantArtwork)} placeholder="Blank = base artwork" value={variant.image || ''} onChange={e => setVariantArtwork(e.target.value)} /></Field>
+          <Field label="Variant artwork file"><ArtworkFileInput onLoaded={setVariantArtwork} options={fileOptions} /></Field>
           <>
             <button className="ghost span-2" onClick={() => patchVariantObject({ ...variant, image: '' })}>Use base artwork for this print</button>
             <div className="art-position-controls native-art-position span-2">
@@ -231,8 +248,8 @@ export default function CardEditor({ card, selectedVariantId, onSelectVariant, o
               <div className="form-grid compact-grid">
                 <Field label="Layer name"><input value={layer.name || ''} onChange={e => updateSubjectLayer(index, { name: e.target.value })} /></Field>
                 <Field label="Effect"><select value={layer.mode} onChange={e => changeLayerMode(index, e.target.value)}>{SUBJECT_EFFECTS.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}</select></Field>
-                <Field label="Subject / mask image URL"><input value={layer.image || ''} onChange={e => updateSubjectLayer(index, { image: e.target.value })} /></Field>
-                <Field label="Subject / mask file"><input className="file-input" type="file" accept="image/png,image/webp,image/jpeg,image/jpg" onChange={e => loadFile(value => updateSubjectLayer(index, { image: value }), e.target.files?.[0])} /></Field>
+                <Field label="Subject / mask image URL"><input {...pasteArt(value => updateSubjectLayer(index, { image: value }))} placeholder="URL, or paste / drop an image" value={layer.image || ''} onChange={e => updateSubjectLayer(index, { image: e.target.value })} /></Field>
+                <Field label="Subject / mask file"><ArtworkFileInput accept="image/png,image/webp,image/jpeg,image/jpg" onLoaded={value => updateSubjectLayer(index, { image: value })} options={fileOptions} /></Field>
                 <Field label="Mask source"><select value={layer.maskSource || 'alpha'} onChange={e => updateSubjectLayer(index, { maskSource: e.target.value })}>{MASK_SOURCES.map(x => <option key={x.value} value={x.value}>{x.label}</option>)}</select></Field>
                 <MaskAssetStatus url={layer.image || ''} />
                 <Field label={`Layer strength — ${layer.strength ?? 70}%`} className="span-2 range-field"><input type="range" min="0" max="100" step="1" value={layer.strength ?? 70} onChange={e => updateSubjectLayer(index, { strength: Number(e.target.value) })} /></Field>

@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import TradingCard from './TradingCard'
+import FittedCard, { CARD_W, CARD_H, shellOf } from './FittedCard'
 import CardViewer from './CardViewer'
 import { bridge, isFiveM } from '../runtime'
 import '../styles/binder.css'
 
-const CARD_W = 230, CARD_H = 322
 const TURN_MS = 620
 const HOLD_MS = 190
 const EXTRACT_MS = 300
@@ -30,6 +29,16 @@ export default function BinderView({ binder, onClose, perPage = 9 }) {
   const [dropping, setDropping] = useState(null)
   const [dragMessage, setDragMessage] = useState('')
   const [edgeHover, setEdgeHover] = useState(null)
+  // card hand: the trading cards in the player's inventory, fanned out under the binder
+  const handAvailable = Array.isArray(binder?.hand)
+  const [hand, setHand] = useState(() => binder?.hand || [])
+  const [showHand, setShowHand] = useState(() => { try { return localStorage.getItem('meta-comic-binder-hand') === '1' } catch { return false } })
+  const [handDrag, setHandDrag] = useState(null)
+  const [handHot, setHandHot] = useState(false)
+  const [moving, setMoving] = useState(false)
+  const handRef = useRef(null)
+  const handSession = useRef(null)
+  const handEdge = useRef({ edge: null, timer: 0 })
 
   const binderRef = useRef(null)
   const cardRefs = useRef(new Map())
@@ -68,10 +77,12 @@ export default function BinderView({ binder, onClose, perPage = 9 }) {
     clearEdgeHover()
     setDragState(null)
     setDragMessage('')
+    setHandHot(false)
   }
 
   useEffect(() => {
     setPockets(binder?.pockets || [])
+    setHand(binder?.hand || [])
     cancelDrag()
     setDropping(null)
     setDragMessage('')
@@ -106,12 +117,16 @@ export default function BinderView({ binder, onClose, perPage = 9 }) {
 
   const pageRatio = 0.78
   const spineW = single ? 0 : 0.08
-  const H = Math.floor(Math.min(size.h * 0.84, (size.w * 0.94) / (pagesPerView * pageRatio + spineW)))
+  const handShown = handAvailable && showHand
+  const handCardH = Math.round(Math.min(size.h * 0.28, 240))
+  const handCardW = Math.round(handCardH * CARD_W / CARD_H)
+  const handH = handShown ? Math.round(handCardH * 0.68) : 0
+  const H = Math.floor(Math.min(size.h * 0.84 - handH, (size.w * 0.94) / (pagesPerView * pageRatio + spineW)))
   const pageW = Math.floor(H * pageRatio), spine = Math.floor(H * spineW)
   const pad = Math.round(H * 0.035), gap = Math.round(H * 0.012)
   const pocketW = (pageW - pad * 2 - gap * 2) / 3, pocketH = (H - pad * 2 - gap * 2) / 3
   const scale = Math.min((pocketW * 0.9) / CARD_W, (pocketH * 0.9) / CARD_H)
-  const busy = !!drag || !!dropping
+  const busy = !!drag || !!dropping || moving
   spreadRef.current = spread
   turnRef.current = turn
 
@@ -245,7 +260,8 @@ export default function BinderView({ binder, onClose, perPage = 9 }) {
       if (event.key === 'ArrowRight') go(1)
       if (event.key === 'ArrowLeft') go(-1)
       if (event.key === 'Escape') {
-        if (drag && !dropping) cancelDrag()
+        if (handSession.current) { handSession.current = null; clearHandEdge(); setHandDrag(null) }
+        else if (drag && !dropping) cancelDrag()
         else if (!dropping) onClose?.()
       }
     }
@@ -424,6 +440,117 @@ export default function BinderView({ binder, onClose, perPage = 9 }) {
     }
   }
 
+  const toggleHand = () => setShowHand(value => {
+    try { localStorage.setItem('meta-comic-binder-hand', value ? '0' : '1') } catch { /* private window */ }
+    return !value
+  })
+
+  const overHand = (x, y) => {
+    const rect = handShown && handRef.current?.getBoundingClientRect()
+    return !!rect && y >= rect.top - 12 && x >= rect.left && x <= rect.right
+  }
+
+  // The card moves on screen at once; the server's answer (FiveM) then replaces both lists, or puts them back.
+  const moveCard = async (message, optimistic, request) => {
+    const before = { hand, pockets }
+    setMoving(true)
+    setDragMessage(message)
+    optimistic()
+    try {
+      const response = isFiveM ? await request() : null
+      if (response?.binder) {
+        setPockets(response.binder.pockets || [])
+        if (Array.isArray(response.binder.hand)) setHand(response.binder.hand)
+      }
+      setDragMessage('')
+    } catch (error) {
+      setHand(before.hand)
+      setPockets(before.pockets)
+      setDragMessage(error?.message || 'Could not move that card.')
+    } finally {
+      setMoving(false)
+    }
+  }
+
+  // card hand -> empty binder pocket (FiveM: the server takes the item out of the inventory into the binder)
+  const storeCard = (entry, toSlot) => moveCard('Putting the card in the binder…',
+    () => {
+      setHand(current => current.filter(item => item.slot !== entry.slot))
+      setPockets(current => [...current, { slot: toSlot, card: entry.card }])
+    },
+    () => bridge.binderStoreCard({ invSlot: entry.slot, toSlot }))
+
+  // binder pocket -> card hand (FiveM: only when the inventory has room)
+  const takeCard = slot => {
+    const pocket = pockets.find(item => Number(item.slot) === slot)
+    if (!pocket) return
+    return moveCard('Taking the card out of the binder…',
+      () => {
+        setPockets(current => current.filter(item => Number(item.slot) !== slot))
+        setHand(current => [...current, { slot: isFiveM ? -Date.now() : Math.max(0, ...current.map(item => item.slot)) + 1, card: pocket.card }])
+      },
+      () => bridge.binderTakeCard({ fromSlot: slot }))
+  }
+
+  const clearHandEdge = () => {
+    window.clearTimeout(handEdge.current.timer)
+    handEdge.current = { edge: null, timer: 0 }
+  }
+
+  const onHandPointerDown = (entry, event) => {
+    if (busy || viewer || event.button !== 0) return
+    handSession.current = { pointerId: event.pointerId, entry, startX: event.clientX, startY: event.clientY, started: false, originRect: event.currentTarget.getBoundingClientRect() }
+  }
+
+  // dragging a card out of the hand: hover a binder edge to turn pages, drop it on an empty pocket
+  useEffect(() => {
+    const onMove = event => {
+      const session = handSession.current
+      if (!session || event.pointerId !== session.pointerId) return
+      if (!session.started && Math.hypot(event.clientX - session.startX, event.clientY - session.startY) < 6) return
+      session.started = true
+      event.preventDefault()
+      const targetSlot = slotAtPoint(event.clientX, event.clientY)
+      setHandDrag({ entry: session.entry, x: event.clientX, y: event.clientY, targetSlot, open: !!targetSlot && !bySlot.has(targetSlot) && shellOf(session.entry.card) !== 'slab' })
+      const edge = turn ? null : edgeAtPoint(event.clientX, event.clientY)
+      if (edge !== handEdge.current.edge) {
+        clearHandEdge()
+        if (edge) handEdge.current = { edge, timer: window.setTimeout(() => { handEdge.current = { edge: null, timer: 0 }; go(edge === 'left' ? -1 : 1) }, EDGE_HOVER_MS) }
+      }
+    }
+    const onUp = event => {
+      const session = handSession.current
+      if (!session || event.pointerId !== session.pointerId) return
+      handSession.current = null
+      clearHandEdge()
+      setHandDrag(null)
+      if (!session.started) {
+        setViewer({ card: session.entry.card, originRect: session.originRect })
+        return
+      }
+      const targetSlot = slotAtPoint(event.clientX, event.clientY)
+      if (!targetSlot) return
+      if (shellOf(session.entry.card) === 'slab') { setDragMessage('A graded slab is too big for a binder pocket.'); return }
+      if (bySlot.has(targetSlot)) { setDragMessage('That pocket already holds a card. Drop it on an empty pocket.'); return }
+      storeCard(session.entry, targetSlot)
+    }
+    const onCancel = event => {
+      if (handSession.current?.pointerId !== event.pointerId) return
+      handSession.current = null
+      clearHandEdge()
+      setHandDrag(null)
+    }
+    window.addEventListener('pointermove', onMove, { passive: false })
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onCancel)
+    }
+  })
+  useEffect(() => () => window.clearTimeout(handEdge.current.timer), [])
+
   useEffect(() => {
     const onMove = event => {
       const session = pointerSession.current
@@ -446,6 +573,8 @@ export default function BinderView({ binder, onClose, perPage = 9 }) {
         } : current)
       }
       updateEdgeHover(event.clientX, event.clientY)
+      const hot = overHand(event.clientX, event.clientY)
+      if (hot !== handHot) setHandHot(hot)
     }
 
     const finishPointerDrop = (session, active, x, y) => {
@@ -464,6 +593,13 @@ export default function BinderView({ binder, onClose, perPage = 9 }) {
           dx: x - session.startX,
           dy: y - session.startY,
         }
+      }
+      setHandHot(false)
+      if (overHand(x, y)) {
+        // dropped on the card hand: back into the inventory
+        setDragState(null)
+        takeCard(snapshot.slot)
+        return
       }
       const targetSlot = slotAtPoint(x, y) || snapshot.targetSlot
       if (!targetSlot || targetSlot === snapshot.slot) {
@@ -572,7 +708,6 @@ export default function BinderView({ binder, onClose, perPage = 9 }) {
     const height = isDrop ? dropping.floatHeight : drag.floatHeight
     const left = isDrop ? dropping.floatLeft : drag.floatLeft
     const top = isDrop ? dropping.floatTop : drag.floatTop
-    const floatingScale = width / CARD_W
     return (
       <div className={`bd-drag-float ${isDrop ? 'is-dropping' : ''}`}
         style={{
@@ -581,9 +716,7 @@ export default function BinderView({ binder, onClose, perPage = 9 }) {
           '--bd-float-drop-y': isDrop ? `${dropping.floatEndY}px` : '0px',
           animationDuration: isDrop ? `${DROP_MS}ms` : undefined,
         }}>
-        <span className="bd-card-scale" style={{ transform: `scale(${floatingScale})` }}>
-          <TradingCard card={card} size="medium" interactive={false} />
-        </span>
+        <FittedCard card={card} width={width} height={height} reserve="toploader" />
       </div>
     )
   }
@@ -594,7 +727,9 @@ export default function BinderView({ binder, onClose, perPage = 9 }) {
         {page < pageCount && pageSlots(page).map(slot => {
           const card = bySlot.get(slot)
           const isDragSource = drag?.slot === slot
-          const isTarget = drag?.targetSlot === slot && drag.slot !== slot
+          const slabbed = shellOf(handDrag?.entry.card) === 'slab'
+          const isTarget = (drag?.targetSlot === slot && drag.slot !== slot) || (handDrag?.targetSlot === slot && !card && !slabbed)
+          const isBlocked = handDrag?.targetSlot === slot && (!!card || slabbed)
           const isDropSource = dropping?.fromSlot === slot
           const isDropTarget = dropping?.toSlot === slot
           const crossPageReturn = !!(dropping?.crossPage && dropping.targetOccupied && isDropTarget)
@@ -603,7 +738,7 @@ export default function BinderView({ binder, onClose, perPage = 9 }) {
             <div
               ref={captureRefs ? (node => { if (node) pocketRefs.current.set(slot, node); else pocketRefs.current.delete(slot) }) : undefined}
               data-binder-slot={slot}
-              className={`bd-pocket ${card ? 'has-card' : ''} ${slot > slots ? 'is-off' : ''} ${isTarget ? 'is-drag-target' : ''} ${isDragSource ? 'is-drag-source' : ''} ${isDropSource ? 'is-drop-source' : ''} ${isDropTarget ? 'is-drop-target' : ''}`}
+              className={`bd-pocket ${card ? 'has-card' : ''} ${slot > slots ? 'is-off' : ''} ${isTarget ? 'is-drag-target' : ''} ${isBlocked ? 'is-hand-blocked' : ''} ${isDragSource ? 'is-drag-source' : ''} ${isDropSource ? 'is-drop-source' : ''} ${isDropTarget ? 'is-drop-target' : ''}`}
               key={slot}>
               {card && (
                 <button type="button"
@@ -615,9 +750,7 @@ export default function BinderView({ binder, onClose, perPage = 9 }) {
                   aria-label={`${card.title || 'Card'} ${card.variantName || ''}. Click to inspect; hold and drag to move.`}
                   data-binder-drag-native="true"
                   style={{ width: CARD_W * scale, height: CARD_H * scale, ...cardMotion(slot) }}>
-                  <span className="bd-card-scale" style={{ transform: `scale(${scale})` }}>
-                    <TradingCard card={card} size="medium" interactive={false} />
-                  </span>
+                  <FittedCard card={card} width={CARD_W * scale} height={CARD_H * scale} reserve="toploader" />
                 </button>
               )}
               {dropping?.crossPage && isDropTarget && (
@@ -628,9 +761,7 @@ export default function BinderView({ binder, onClose, perPage = 9 }) {
                     '--bd-cross-insert-extract-y': `-${dropping.sourceExtract}px`,
                     animationDuration: `${DROP_MS}ms`,
                   }}>
-                  <span className="bd-card-scale" style={{ transform: `scale(${dropping.floatWidth / CARD_W})` }}>
-                    <TradingCard card={dropping.sourceCard} size="medium" interactive={false} />
-                  </span>
+                  <FittedCard card={dropping.sourceCard} width={dropping.floatWidth} height={dropping.floatHeight} reserve="toploader" />
                 </div>
               )}
               <span className="bd-sleeve" aria-hidden="true" />
@@ -647,16 +778,25 @@ export default function BinderView({ binder, onClose, perPage = 9 }) {
   const rightPage = turn && turn.dir > 0 ? rightOf(turn.to) : rightOf(spread)
 
   return (
-    <div className="bd-overlay" role="dialog" aria-label={binder?.label || 'Trading card binder'} data-binder-drag-reorder="native">
+    <div className="bd-overlay" role="dialog" aria-label={binder?.label || 'Trading card binder'} data-binder-drag-reorder="native" style={handShown ? { paddingBottom: handH } : undefined}>
       <div className="bd-head" style={{ width: single ? pageW + 40 : pageW * 2 + spine + 40 }}>
         <div>
           <strong>{binder?.label || 'Trading Card Binder'}</strong>
           <span>{filled} card{filled === 1 ? '' : 's'} · {slots} pockets</span>
           <span className={`bd-swap-help ${dragMessage ? 'has-message' : ''}`}>
-            {dragMessage || 'Click to inspect · Hold and drag to move/swap · Hover a binder edge to turn pages'}
+            {dragMessage || (handShown
+              ? 'Drag a card from your hand onto an empty pocket · Drag a binder card onto your hand to take it out'
+              : 'Click to inspect · Hold and drag to move/swap · Hover a binder edge to turn pages')}
           </span>
         </div>
-        <button type="button" className="bd-close" onClick={onClose} disabled={busy} aria-label="Close binder">×</button>
+        <div className="bd-head-actions">
+          {handAvailable && (
+            <button type="button" className={`bd-hand-toggle ${handShown ? 'is-on' : ''}`} onClick={toggleHand} disabled={busy} aria-pressed={handShown}>
+              {handShown ? 'Hide' : 'Show'} card hand ({hand.length})
+            </button>
+          )}
+          <button type="button" className="bd-close" onClick={onClose} disabled={busy} aria-label="Close binder">×</button>
+        </div>
       </div>
 
       <div ref={binderRef} className={`bd-binder ${busy ? 'is-reordering' : ''}`} style={{ padding: 20 }}>
@@ -693,11 +833,45 @@ export default function BinderView({ binder, onClose, perPage = 9 }) {
 
       {renderFloatingCard()}
 
+      {handDrag && (
+        <div className={`bd-drag-float bd-hand-float ${handDrag.targetSlot && !handDrag.open ? 'is-blocked' : ''}`}
+          style={{ left: handDrag.x - (CARD_W * scale) / 2, top: handDrag.y - (CARD_H * scale) / 2, width: CARD_W * scale, height: CARD_H * scale }}>
+          <FittedCard card={handDrag.entry.card} width={CARD_W * scale} height={CARD_H * scale} reserve="toploader" />
+        </div>
+      )}
+
       <div className="bd-nav">
         <button type="button" onClick={() => go(-1)} disabled={spread === 0 || !!turn || busy} aria-label="Previous pages">‹</button>
         <span>{single ? `Page ${spread + 1} of ${pageCount}` : `Pages ${spread * 2 + 1}–${Math.min(spread * 2 + 2, pageCount)} of ${pageCount}`}</span>
         <button type="button" onClick={() => go(1)} disabled={spread >= spreads - 1 || !!turn || busy} aria-label="Next pages">›</button>
       </div>
+
+      {handShown && (
+        <div ref={handRef} className={`bd-hand ${drag ? 'is-receiving' : ''} ${handHot ? 'is-hot' : ''}`} style={{ height: handH }}>
+          {drag && <span className="bd-hand-hint">Drop here to put it back in your inventory</span>}
+          {!drag && !hand.length && <span className="bd-hand-hint">No trading cards in your inventory</span>}
+          {hand.map((entry, i) => {
+            const mid = (hand.length - 1) / 2
+            const spacing = Math.min(handCardW * 0.62, (size.w * 0.86 - handCardW) / Math.max(1, hand.length - 1))
+            const angle = (i - mid) * Math.min(6, 64 / Math.max(1, hand.length))
+            return (
+              <button type="button" key={entry.slot}
+                className={`bd-hand-card ${handDrag?.entry.slot === entry.slot ? 'is-lifted' : ''}`}
+                style={{
+                  width: handCardW, height: handCardH, zIndex: i + 1,
+                  '--hand-x': `${(i - mid) * spacing}px`,
+                  '--hand-r': `${angle}deg`,
+                  '--hand-y': `${Math.abs(angle) * Math.abs(i - mid) * 0.5}px`,
+                }}
+                onPointerDown={event => onHandPointerDown(entry, event)}
+                onDragStart={event => event.preventDefault()}
+                aria-label={`${entry.card.title || 'Card'} ${entry.card.variantName || ''}. Drag onto an empty pocket to put it in the binder; click to inspect.`}>
+                <FittedCard card={entry.card} width={handCardW} height={handCardH} reserve="slab" />
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {viewer && <CardViewer card={viewer.card} originRect={viewer.originRect} onClose={() => setViewer(null)} title={`${viewer.card.title || 'Card'} ${viewer.card.variantName || ''}`.trim()} />}
     </div>

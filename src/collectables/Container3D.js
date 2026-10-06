@@ -344,15 +344,24 @@ export async function createContainerScene(canvas, options = {}) {
 
   /* -------------------------------- items */
   // an outer case shows at most 24 of its sealed containers flying out; the rest are delivered all the same
-  const shownItems = opts.preview ? [] : kind === 'case' ? opts.items.slice(0, 24) : opts.items
-  const items = await Promise.all(shownItems.map((item, index) => buildItem(item, index)))
-  const layout = layoutSlots(items)
-  items.forEach((it, i) => { it.slot = layout.slots[i]; scene.add(it.root); it.root.visible = false })
+  // `items` may also be a Promise: the container then drops in straight away and waits, sealed, until the
+  // server's pull arrives (see itemsPending in the animation loop), so using an item shows the bag immediately.
   const questionTex = (() => { const [c, g] = makeCanvas(128, 128); questionMark(g, 64, 70, 104, { fill: '#ffe08a', glow: '#ff8a00' }); return tex(c) })()
-  items.forEach(it => {
-    it.mark = new THREE.Sprite(mat(new THREE.SpriteMaterial({ map: questionTex, transparent: true, depthWrite: false, opacity: 0 })))
-    it.mark.scale.setScalar(0.42); it.mark.renderOrder = 9; scene.add(it.mark)
-  })
+  let items = [], layout = layoutSlots([]), settleAt = Infinity
+  let itemsPending = typeof opts.items?.then === 'function'
+  const attachItems = async list => {
+    const shownItems = opts.preview ? [] : kind === 'case' ? list.slice(0, 24) : list
+    const built = await Promise.all(shownItems.map((item, index) => buildItem(item, index)))
+    layout = layoutSlots(built)
+    built.forEach((it, i) => { it.slot = layout.slots[i]; scene.add(it.root); it.root.visible = false })
+    built.forEach(it => {
+      it.mark = new THREE.Sprite(mat(new THREE.SpriteMaterial({ map: questionTex, transparent: true, depthWrite: false, opacity: 0 })))
+      it.mark.scale.setScalar(0.42); it.mark.renderOrder = 9; scene.add(it.mark)
+    })
+    items = built
+    settleAt = TL.emerge + TL.flight + TL.stagger * Math.max(0, items.length - 1) + 0.15
+  }
+  if (!itemsPending) await attachItems(opts.items || [])
   if (opts.viewer) return startViewer()
 
   /* ================================================================ viewer */
@@ -891,7 +900,9 @@ export async function createContainerScene(canvas, options = {}) {
       const R = 0.42, T = 0.075
       const [rimImg, edgeImg] = await Promise.all([loadImage(item.rimImage), loadImage(item.edgeImage)])
       const cover = (g, img, x, y, w, h) => { const k = Math.max(w / img.width, h / img.height); g.drawImage(img, x + (w - img.width * k) / 2, y + (h - img.height * k) / 2, img.width * k, img.height * k) }
-      const faceTex = (img, isBack) => {
+      // copy: the back reuses the front artwork ('same' as the front, or 'mirror'ed), framed like the front
+      const faceTex = (img, isBack, copy = '') => {
+        const framed = !isBack || !!copy
         const S = 512, [c, g] = makeCanvas(S, S), mid = S / 2
         const metal = g.createRadialGradient(S * 0.36, S * 0.3, 0, mid, mid, S * 0.6)
         metal.addColorStop(0, '#fff6d6'); metal.addColorStop(0.45, `#${accent.getHexString()}`); metal.addColorStop(1, '#2a1c06')
@@ -904,10 +915,12 @@ export async function createContainerScene(canvas, options = {}) {
         }
         g.save(); g.beginPath(); g.arc(mid, mid, S * 0.4, 0, Math.PI * 2); g.clip()
         if (img) {
-          const fx = clamp(Number(isBack ? 50 : item.imagePositionX ?? 50), 0, 100) / 100, fy = clamp(Number(isBack ? 50 : item.imagePositionY ?? 50), 0, 100) / 100
-          const zoom = clamp(Number(isBack ? 100 : item.imageZoom ?? 100), 100, 220) / 100, box = S * 0.8
+          const fx = clamp(Number(framed ? item.imagePositionX ?? 50 : 50), 0, 100) / 100, fy = clamp(Number(framed ? item.imagePositionY ?? 50 : 50), 0, 100) / 100
+          const zoom = clamp(Number(framed ? item.imageZoom ?? 100 : 100), 100, 220) / 100, box = S * 0.8
           const k = Math.max(box / img.width, box / img.height) * zoom, w = img.width * k, h = img.height * k
+          if (copy === 'mirror') { g.translate(S, 0); g.scale(-1, 1) }
           g.drawImage(img, mid - box / 2 + (box - w) * fx, mid - box / 2 + (box - h) * fy, w, h)
+          if (copy === 'mirror') g.setTransform(1, 0, 0, 1, 0, 0)
           const v = g.createRadialGradient(mid, mid, S * 0.28, mid, mid, S * 0.4); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.45)'); g.fillStyle = v; g.fillRect(0, 0, S, S)
         } else {
           const ink = 'rgba(40,24,4,.75)', hi = 'rgba(255,244,210,.55)'
@@ -952,7 +965,8 @@ export async function createContainerScene(canvas, options = {}) {
       const faceMat = map => track(mat(new THREE.MeshPhysicalMaterial(finishProps({ map, bumpMap: map, bumpScale: 1.4, metalness: imageFace ? 0.35 : 0.78, roughness: imageFace ? 0.4 : 0.34 }))))
       const g = geo(new THREE.CylinderGeometry(R, R, T, 96, 1)); g.rotateX(Math.PI / 2)
       const sideMat = track(mat(new THREE.MeshPhysicalMaterial(finishProps({ map: edgeTex, bumpMap: edgeTex, bumpScale: 1, metalness: edgeImg ? 0.5 : 0.95, roughness: 0.28 }))))
-      body.add(new THREE.Mesh(g, [sideMat, faceMat(faceTex(front, false)), faceMat(faceTex(back, true))]))
+      const backCopy = !back && front && (item.backStyle === 'same' || item.backStyle === 'mirror') ? item.backStyle : ''
+      body.add(new THREE.Mesh(g, [sideMat, faceMat(faceTex(front, false)), faceMat(faceTex(backCopy ? front : back, true, backCopy))]))
       height = R * 2
     } else {
       // plushie: a closed, puffy shape. The artwork's outline is blurred into a height field, and the visible
@@ -1035,11 +1049,14 @@ export async function createContainerScene(canvas, options = {}) {
         const N = SEGS + 1
         const signed = new Float32Array(N * N)
         for (let n = 0; n < N * N; n++) signed[n] = bilinear(inside, uv.getX(n), uv.getY(n)) - bilinear(outside, uv.getX(n), uv.getY(n)) - 0.5
-        const zMax = (maxD / (S - 1)) * P * 0.62 // thickest point ~60% of the half-width: round, not a slab
+        // thickest point ~60% of the half-width: round, not a slab. Thickness scales that (wide, short art like a car
+        // otherwise comes out thin); fullness flattens the faces and rounds the top/bottom sooner, like a stuffed pillow.
+        const zMax = (maxD / (S - 1)) * P * 0.62 * clamp((item.plushThickness ?? 100) / 100, 0.5, 3)
+        const profile = lerp(0.5, 0.2, clamp((item.plushFullness ?? 0) / 100))
         const moved = new Float32Array(N * N * 2)
         for (let n = 0; n < N * N; n++) {
           const s = signed[n]
-          if (s > 0) { pos.setZ(n, zMax * Math.sqrt(Math.min(1, s / maxD))); continue }
+          if (s > 0) { pos.setZ(n, zMax * Math.pow(Math.min(1, s / maxD), profile)); continue }
           pos.setZ(n, 0)
           // outside vertex next to the body: slide it onto the zero crossing towards its inside neighbours
           const gx = n % N, gy = Math.floor(n / N)
@@ -1070,10 +1087,16 @@ export async function createContainerScene(canvas, options = {}) {
       tintCanvas(frontArt, item.tint, clamp((item.tintStrength ?? 0) / 100))
       // colour reaches a few pixels past the outline (paint() smears it outward), so the edge never samples black
       const frontTex = tex(frontArt)
-      const backArt = paint(back || front, !!back)
-      // no back artwork: the back is the front's colours softened (no face showing through), a little darker
-      if (!back) { const [cc] = makeCanvas(S, S); cc.getContext('2d').drawImage(backArt, 0, 0); const g2 = backArt.getContext('2d'); g2.clearRect(0, 0, S, S); g2.filter = `blur(${Math.round(S * 0.045)}px)`; g2.drawImage(cc, 0, 0); g2.drawImage(cc, 0, 0); g2.filter = 'none'; g2.globalCompositeOperation = 'source-atop'; g2.fillStyle = 'rgba(0,0,0,.16)'; g2.fillRect(0, 0, S, S) }
+      // no back artwork: 'mirror' shows the front as seen through the body (a car's other side), 'same' repeats
+      // the front readable from behind, otherwise the soft back below
+      const backStyle = back ? 'art' : item.backStyle || 'soft'
+      const backArt = paint(back || front, !!back || backStyle === 'same')
+      // soft back: the front's colours softened (no face showing through), a little darker
+      if (!back && backStyle !== 'same' && backStyle !== 'mirror') { const [cc] = makeCanvas(S, S); cc.getContext('2d').drawImage(backArt, 0, 0); const g2 = backArt.getContext('2d'); g2.clearRect(0, 0, S, S); g2.filter = `blur(${Math.round(S * 0.045)}px)`; g2.drawImage(cc, 0, 0); g2.drawImage(cc, 0, 0); g2.filter = 'none'; g2.globalCompositeOperation = 'source-atop'; g2.fillStyle = 'rgba(0,0,0,.16)'; g2.fillRect(0, 0, S, S) }
       tintCanvas(backArt, item.tint, clamp((item.tintStrength ?? 0) / 100))
+      // back colour (no back artwork): blend the soft back towards one fabric colour, solid at 100%
+      const backBlend = clamp((item.backColorBlend ?? 0) / 100)
+      if (!back && item.backColor && backBlend > 0) { const g2 = backArt.getContext('2d'); g2.save(); g2.globalCompositeOperation = 'source-atop'; g2.globalAlpha = backBlend; g2.fillStyle = item.backColor; g2.fillRect(0, 0, S, S); g2.restore() }
       const backTex = tex(backArt)
       // fabric: matte with a soft fuzz sheen (kept low so lights never wash the colours out)
       const plush = map => track(mat(new THREE.MeshPhysicalMaterial(finishProps({ map, roughness: 0.92, sheen: 0.28, sheenRoughness: 0.8, sheenColor: accent.clone().lerp(new THREE.Color('#ffffff'), 0.5), envMapIntensity: 0.6 }))))
@@ -1373,13 +1396,13 @@ export async function createContainerScene(canvas, options = {}) {
   let raf = 0, disposed = false, t0 = performance.now(), last = t0, clock = 0, playing = !!opts.preview
   const phases = [[TL.charge[0], 'charge'], [TL.open[0], 'open'], [TL.emerge, 'emerge']]
   let nextPhase = 0
-  const settleAt = TL.emerge + TL.flight + TL.stagger * Math.max(0, items.length - 1) + 0.15
   let resolveSettled
   const settledPromise = new Promise(resolve => { resolveSettled = resolve })
   const frame = now => {
     if (disposed) return
     const dt = Math.min(0.25, (now - last) / 1000); last = now
     if (playing) clock = reduce && !opts.preview && clock < settleAt ? settleAt : clock + dt
+    if (itemsPending) clock = Math.min(clock, TL.charge[0] - 0.001) // landed and sealed until the pull arrives
     while (!opts.preview && playing && nextPhase < phases.length && clock >= phases[nextPhase][0]) opts.onPhase?.(phases[nextPhase++][1])
     if (!opts.preview && playing && !settled && clock >= settleAt) { settled = true; opts.onPhase?.('settled'); opts.onLayout?.(labelPositions()); resolveSettled() }
     pose(clock, dt); stepSparks(dt)
@@ -1388,6 +1411,7 @@ export async function createContainerScene(canvas, options = {}) {
   }
   pose(0, 0); renderer.render(scene, camera)
   raf = requestAnimationFrame(frame)
+  if (itemsPending) opts.items.then(list => !disposed && attachItems(list || [])).then(() => { if (!disposed) itemsPending = false }, () => {})
 
   const reveal = index => {
     const it = items[index]
@@ -1415,4 +1439,49 @@ export async function createContainerScene(canvas, options = {}) {
       renderer.forceContextLoss?.()
     },
   }
+}
+
+// FiveM: build and draw one throwaway coin-bag and plushie-box scene while the game UI is idle, so the first real
+// opening doesn't pay for loading three.js and compiling its shaders (the GPU process keeps compiled programs).
+let prewarmed = null
+export function prewarmContainerScenes() {
+  prewarmed ||= (async () => {
+    for (const [kind, collectableType] of [['bag', 'challenge_coin'], ['box', 'plushie']]) {
+      const canvas = document.createElement('canvas')
+      canvas.style.cssText = 'position:fixed;left:-9999px;top:0;width:96px;height:96px;pointer-events:none;visibility:hidden'
+      document.body.appendChild(canvas)
+      try {
+        const scene = await createContainerScene(canvas, { kind, items: [{ collectableType, title: '', accent: '#c9a34d' }], maxPixelRatio: 1 })
+        scene.seek(0.3); scene.seek(6) // the sealed container, then the landed item
+        scene.dispose()
+      } catch { /* warming is best effort */ } finally { canvas.remove() }
+    }
+  })()
+  return prewarmed
+}
+
+// Inventory picture of a sealed coin bag / plushie box / outer case design: the idle preview model, cropped to its
+// outline and centred on a transparent square (ox_inventory images, fivem/img/containers).
+export async function renderContainerIcon(kind, style, { size = 100, caseInfo } = {}) {
+  const canvas = document.createElement('canvas')
+  canvas.style.cssText = 'position:fixed;left:-9999px;top:0;width:512px;height:512px;pointer-events:none'
+  document.body.appendChild(canvas)
+  try {
+    const scene = await createContainerScene(canvas, { kind, style, preview: true, maxPixelRatio: 1, caseInfo })
+    try {
+      scene.seek(0)
+      const w = canvas.width, h = canvas.height
+      const copy = document.createElement('canvas'); copy.width = w; copy.height = h
+      const g = copy.getContext('2d'); g.drawImage(canvas, 0, 0)
+      const data = g.getImageData(0, 0, w, h).data
+      let x0 = w, y0 = h, x1 = 0, y1 = 0
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (data[(y * w + x) * 4 + 3] > 200) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y }
+      if (x1 <= x0 || y1 <= y0) { x0 = 0; y0 = 0; x1 = w - 1; y1 = h - 1 }
+      const bw = x1 - x0 + 1, bh = y1 - y0 + 1, fit = (size * 0.9) / Math.max(bw, bh)
+      const out = document.createElement('canvas'); out.width = out.height = size
+      const o = out.getContext('2d'); o.imageSmoothingQuality = 'high'
+      o.drawImage(copy, x0, y0, bw, bh, (size - bw * fit) / 2, (size - bh * fit) / 2, bw * fit, bh * fit)
+      return out.toDataURL('image/png')
+    } finally { scene.dispose() }
+  } finally { canvas.remove() }
 }

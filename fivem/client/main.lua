@@ -93,9 +93,11 @@ local function openManagement()
 end
 
 local stopPackProp -- defined below
+local stopHeld -- defined below
 
 local function closeNui()
     if stopPackProp then stopPackProp() end
+    if stopHeld then stopHeld() end
     nuiOpen = false
     SetNuiFocus(false, false)
     SetNuiFocusKeepInput(false)
@@ -138,7 +140,14 @@ local function playPropSequence(kind)
 end
 
 -- Character holds the pack prop from the rip until the cards have fanned out (the NUI sends start / stop).
+-- The same goes for coin bags, plushie boxes and their cases while they open: Config.Props.Containers.bag / box /
+-- case override these defaults (first model the game has is used).
 local PACK_DICT, PACK_ANIM = 'mp_arresting', 'a_uncuff'
+local DEFAULT_CONTAINER_PROPS = {
+    bag = { model = { 'prop_paper_bag_small' }, bone = 0xDEAD, offset = vector3(0.10, 0.02, -0.02), rotation = vector3(0.0, 0.0, 0.0) },
+    box = { model = { 'prop_boosterbox_01' }, bone = 0xDEAD, offset = vector3(0.10, 0.10, 0.00), rotation = vector3(70.0, 10.0, 90.0) },
+    case = { model = { 'prop_boosterbox_01' }, bone = 0xDEAD, offset = vector3(0.10, 0.10, 0.00), rotation = vector3(70.0, 10.0, 90.0) },
+}
 local packPropEntity = nil
 local packPropActive = false
 local packPropGen = 0 -- each start gets a new generation, so a stale thread can never leave a prop behind
@@ -150,19 +159,35 @@ stopPackProp = function()
     StopAnimTask(PlayerPedId(), PACK_DICT, PACK_ANIM, 1.0)
 end
 
-local function startPackProp()
+local function containerPropData(kind)
+    local base = DEFAULT_CONTAINER_PROPS[kind]
+    if not base then return Config.Props.Pack or {} end
+    local merged = {}
+    for key, value in pairs(base) do merged[key] = value end
+    local custom = type(Config.Props.Containers) == 'table' and Config.Props.Containers[kind]
+    if type(custom) == 'table' then for key, value in pairs(custom) do merged[key] = value end end
+    merged.MaxDuration = merged.MaxDuration or (Config.Props.Pack and Config.Props.Pack.MaxDuration) or 30000
+    return merged
+end
+
+-- kind: nil = booster pack, 'bag' / 'box' / 'case' = a coin bag, plushie box or outer case being opened
+local function startPackProp(kind)
     if packPropActive or not Config.Props.Enabled then return end
     packPropActive = true
     packPropGen = packPropGen + 1
     local gen = packPropGen
     CreateThread(function()
-        local data = Config.Props.Pack or {}
+        local data = kind and containerPropData(kind) or Config.Props.Pack or {}
         local ped = PlayerPedId()
         RequestAnimDict(PACK_DICT)
         local timeout = GetGameTimer() + 3000
         while not HasAnimDictLoaded(PACK_DICT) and GetGameTimer() < timeout do Wait(0) end
 
-        local model = data.model and loadModel(data.model)
+        local model
+        for _, name in ipairs(type(data.model) == 'table' and data.model or { data.model }) do
+            model = loadModel(name)
+            if model then break end
+        end
         if not packPropActive or gen ~= packPropGen then return end
         if model then
             local coords = GetEntityCoords(ped)
@@ -189,7 +214,127 @@ end
 
 RegisterNUICallback('packProp', function(data, cb)
     cb({ ok = true })
-    if data and data.state == 'start' then startPackProp() else stopPackProp() end
+    if data and data.state == 'start' then
+        stopHeld()
+        startPackProp(DEFAULT_CONTAINER_PROPS[data.kind] and data.kind or nil)
+    else
+        stopPackProp()
+    end
+end)
+
+-- ---------- held collectables ----------
+-- While a card / coin / plushie is looked at (item used, or just pulled from a pack / bag / box) the character
+-- holds that many of it and looks down at it ('view'); while showing it to others they hold it out ('show').
+-- Generic base-game props: override any of these in Config.Props.Held (config.lua), or set Config.Props.Held = false
+-- to turn it off. Placements use rotation order 1, like the common emote menus they come from.
+local LOOK_DOWN = { dict = 'amb@world_human_tourist_map@male@base', anim = 'base' } -- both hands in front, head down
+local DEFAULT_HELD = {
+    card = { models = { 'prop_franklin_dl' }, max = 5, rotationOrder = 1,
+        view = { dict = LOOK_DOWN.dict, anim = LOOK_DOWN.anim, bone = 28422, offset = vector3(0.0, -0.03, 0.0), rotation = vector3(20.0, -90.0, 0.0) },
+        show = { dict = 'paper_1_rcm_alt1-9', anim = 'player_one_dual-9', bone = 57005, offset = vector3(0.10, 0.02, -0.03), rotation = vector3(-90.0, 170.0, 78.0) },
+        step = vector3(0.0, 0.0, 0.004), stepRotation = vector3(0.0, 9.0, 0.0) }, -- each extra card fanned out a little
+    coin = { models = { 'vw_prop_vw_coin_01a', 'vw_prop_chip_100dollar_x1' }, max = 5, rotationOrder = 1,
+        view = { dict = LOOK_DOWN.dict, anim = LOOK_DOWN.anim, bone = 28422, offset = vector3(0.0, -0.03, 0.0), rotation = vector3(20.0, -90.0, 0.0) },
+        show = { dict = 'paper_1_rcm_alt1-9', anim = 'player_one_dual-9', bone = 57005, offset = vector3(0.10, 0.02, -0.03), rotation = vector3(-90.0, 170.0, 78.0) },
+        step = vector3(0.0, 0.0, 0.006), stepRotation = vector3(0.0, 0.0, 0.0) }, -- coins stacked in the palm
+    plush = { models = { 'v_ilev_mr_rasberryclean' }, max = 2, rotationOrder = 1,
+        -- the bear sits against the chest (bone 24817), so it stays put whichever arm animation plays
+        view = { dict = LOOK_DOWN.dict, anim = LOOK_DOWN.anim, bone = 24817, offset = vector3(-0.20, 0.46, -0.016), rotation = vector3(-180.0, -90.0, 0.0) },
+        show = { dict = 'impexp_int-0', anim = 'mp_m_waremech_01_dual-0', bone = 24817, offset = vector3(-0.20, 0.46, -0.016), rotation = vector3(-180.0, -90.0, 0.0) },
+        step = vector3(0.0, 0.0, 0.16), stepRotation = vector3(0.0, 0.0, 0.0) },
+}
+local KIND_OF_TYPE = { challenge_coin = 'coin', plushie = 'plush', coin = 'coin', plush = 'plush', card = 'card' }
+local function heldKind(typeId) return KIND_OF_TYPE[typeId] or 'card' end
+local held = { entities = {}, active = false, gen = 0 }
+
+-- mode 'view' / 'show': the kind's shared settings with that pose's animation and placement laid over them
+local function heldConfig(kind, mode)
+    local custom = Config.Props and Config.Props.Held
+    if custom == false or not DEFAULT_HELD[kind] then return nil end
+    custom = type(custom) == 'table' and type(custom[kind]) == 'table' and custom[kind] or {}
+    local merged = {}
+    for _, source in ipairs({ DEFAULT_HELD[kind], DEFAULT_HELD[kind][mode] or {}, custom, type(custom[mode]) == 'table' and custom[mode] or {} }) do
+        for key, value in pairs(source) do if key ~= 'view' and key ~= 'show' then merged[key] = value end end
+    end
+    local all = Config.Props and Config.Props.Held
+    if type(all) == 'table' and tonumber(all.MaxDuration) then merged.MaxDuration = tonumber(all.MaxDuration) * 1000 end -- seconds in config
+    return merged
+end
+
+stopHeld = function()
+    held.active = false
+    held.gen = held.gen + 1
+    for _, entity in ipairs(held.entities) do if DoesEntityExist(entity) then DeleteEntity(entity) end end
+    held.entities = {}
+    if held.dict then StopAnimTask(PlayerPedId(), held.dict, held.anim, 1.0) end
+    held.dict, held.anim = nil, nil
+end
+
+-- mode: 'view' (looking at it yourself) or 'show' (holding it out to others)
+-- seconds: let go after that long (showing to others); nil: hold until the game UI closes
+local function holdCollectables(kind, count, seconds, mode)
+    if not Config.Props or not Config.Props.Enabled then return end
+    local data = heldConfig(kind, mode or 'view')
+    if not data then return end
+    stopHeld()
+    count = math.max(1, math.min(math.floor(tonumber(count) or 1), tonumber(data.max) or 5))
+    held.active = true
+    local gen = held.gen
+    CreateThread(function()
+        local ped = PlayerPedId()
+        local model
+        for _, name in ipairs(type(data.models) == 'table' and data.models or { data.models }) do
+            model = loadModel(name)
+            if model then break end
+        end
+        local animate = data.dict and data.anim and not IsPedInAnyVehicle(ped, false)
+        if animate then
+            RequestAnimDict(data.dict)
+            local timeout = GetGameTimer() + 3000
+            while not HasAnimDictLoaded(data.dict) and GetGameTimer() < timeout do Wait(0) end
+            animate = HasAnimDictLoaded(data.dict)
+        end
+        if gen ~= held.gen then if model then SetModelAsNoLongerNeeded(model) end return end
+        if model then
+            local coords = GetEntityCoords(ped)
+            local bone = GetPedBoneIndex(ped, data.bone or 57005)
+            local o, r = data.offset or vector3(0.1, 0.02, -0.03), data.rotation or vector3(0.0, 0.0, 0.0)
+            local so, sr = data.step or vector3(0.0, 0.0, 0.0), data.stepRotation or vector3(0.0, 0.0, 0.0)
+            for i = 0, count - 1 do
+                local n = i - (count - 1) / 2 -- spread around the middle one
+                local prop = CreateObject(model, coords.x, coords.y, coords.z, true, true, false)
+                if DoesEntityExist(prop) then
+                    SetEntityCollision(prop, false, false)
+                    AttachEntityToEntity(prop, ped, bone, o.x + so.x * n, o.y + so.y * n, o.z + so.z * n,
+                        r.x + sr.x * n, r.y + sr.y * n, r.z + sr.z * n, false, false, false, false, data.rotationOrder or 1, true)
+                    held.entities[#held.entities + 1] = prop
+                end
+            end
+            SetModelAsNoLongerNeeded(model)
+        end
+        if animate then held.dict, held.anim = data.dict, data.anim end
+        local now = GetGameTimer()
+        local deadline = now + math.floor((seconds or ((data.MaxDuration or 300000) / 1000)) * 1000)
+        while gen == held.gen and GetGameTimer() < deadline do
+            if animate and not IsEntityPlayingAnim(ped, data.dict, data.anim, 3) then
+                TaskPlayAnim(ped, data.dict, data.anim, 8.0, -8.0, -1, 49, 0.0, false, false, false)
+            end
+            Wait(250)
+        end
+        if gen == held.gen then stopHeld() end
+    end)
+end
+
+-- the NUI: a pack / bag / box has been opened and its pulls are on screen
+RegisterNUICallback('holdCollectibles', function(data, cb)
+    cb({ ok = true })
+    if type(data) == 'table' and nuiOpen then holdCollectables(heldKind(data.kind or data.typeId), data.count) end
+end)
+
+-- the server: you are showing an item to the players near you
+RegisterNetEvent('meta_comic:client:showingCollectable', function(kind, seconds)
+    if nuiOpen then return end
+    holdCollectables(heldKind(kind), 1, tonumber(seconds) or 8, 'show')
 end)
 
 RegisterNUICallback('getRuntimeInfo', function(_, cb)
@@ -288,13 +433,38 @@ RegisterNUICallback('getCollection', function(_, cb)
     cb(serverRpc('getCollection', {}))
 end)
 
-for _,action in ipairs({'getCollectibles','saveCollectible','openCollectibleContainer','createCollectibleContainer','claimCollectibles'}) do
+for _,action in ipairs({'getCollectibles','saveCollectible','openCollectibleContainer','createCollectibleContainer','claimCollectibles','printCollectible',
+    'gradingMark','gradingSubmit','gradingCancel','roughHandling','gradingRecord','getPrintOdds','binderStoreCard','binderTakeCard',
+    'getVendingMachines'}) do
     RegisterNUICallback(action,function(data,cb) cb(serverRpc(action,data or {},120000)) end)
 end
 
-RegisterNetEvent('meta_comic:client:openCollectible',function(typeId,slot,outer)
+-- ---------- card grading and protection (ox_inventory item buttons on the trading card) ----------
+local function gradeCard(slot)
+    if not slot then return end
+    CreateThread(function()
+        local response = serverRpc('startGrading', { slot = slot }, 60000)
+        if not response or response.ok == false then
+            return TriggerEvent('meta_comic:client:notify', (response and response.error) or 'Could not start grading.', 'error')
+        end
+        nuiOpen = true
+        SetNuiFocus(true, true)
+        SetNuiFocusKeepInput(false)
+        SendNUIMessage({ type = 'metaComic:open', view = 'pack', overlay = true, mode = 'grading', grading = response })
+    end)
+end
+local function protectCard(slot, kind)
+    if not slot then return end
+    CreateThread(function()
+        local response = serverRpc('protectCard', { slot = slot, kind = kind }, 20000)
+        local done = { sleeve = 'Card put in a sleeve.', toploader = 'Card put in a toploader.', none = 'Card taken out.' }
+        TriggerEvent('meta_comic:client:notify', (response and response.ok) and done[kind] or ((response and response.error) or 'Could not do that.'), (response and response.ok) and 'success' or 'error')
+    end)
+end
+
+RegisterNetEvent('meta_comic:client:openCollectible',function(typeId,slot,outer,container)
     openNui('pack')
-    SendNUIMessage({type='metaComic:collectibleContainer',typeId=typeId,slot=slot,outer=outer==true})
+    SendNUIMessage({type='metaComic:collectibleContainer',typeId=typeId,slot=slot,outer=outer==true,container=container})
 end)
 
 RegisterNUICallback('swapBinderCards', function(data, cb)
@@ -334,6 +504,20 @@ RegisterNUICallback('cardIcon', function(data, cb)
     if type(data) == 'table' and type(data.key) == 'string' then
         -- an empty string tells the server this icon couldn't be drawn, so it moves on
         TriggerLatentServerEvent('meta_comic:server:cardIcon', 60000, data.key, type(data.data) == 'string' and data.data or '')
+    end
+end)
+
+-- Legacy artwork command (collectablesoptimizeart): the server asks this player's NUI to downscale one saved
+-- image; the result goes back to the server, which uploads it to Fivemanage.
+RegisterNetEvent('meta_comic:client:optimizeArtwork', function(id, src, options)
+    if type(id) ~= 'string' or type(src) ~= 'string' then return end
+    SendNUIMessage({ type = 'metaComic:optimizeArtwork', id = id, src = src, options = options })
+end)
+
+RegisterNUICallback('optimizedArtwork', function(data, cb)
+    cb({ ok = true })
+    if type(data) == 'table' and type(data.id) == 'string' then
+        TriggerLatentServerEvent('meta_comic:server:optimizedArtwork', 250000, data.id, type(data.data) == 'string' and data.data or '')
     end
 end)
 
@@ -411,6 +595,12 @@ exports('ViewBinder', function(...)
     TriggerServerEvent('meta_comic:server:viewBinder', slotOf(...))
 end)
 
+-- ox_inventory item button "View Case" on a card case (Config.Items.CardCase): same server path as the binder,
+-- the NUI shows the case layout because the payload says kind = 'case'.
+exports('ViewCardCase', function(...)
+    TriggerServerEvent('meta_comic:server:viewBinder', slotOf(...))
+end)
+
 RegisterNetEvent('meta_comic:client:viewBinder', function(binder)
     if type(binder) ~= 'table' then return end
     nuiOpen = true
@@ -424,6 +614,35 @@ exports('ShowOthersCard', function(...)
     TriggerServerEvent('meta_comic:server:showCardToOthers', slotOf(...))
 end)
 
+-- ox_inventory item buttons on the trading card: grade it (needs an empty grading slab), sleeve / toploader it
+exports('GradeCard', function(...) gradeCard(slotOf(...)) end)
+
+-- /gradecheck [cert]: look up a slab's grading record (grade, grader and the flaws they marked). Anyone can use it.
+local function openGradeRecord(cert)
+    CreateThread(function()
+        local response = cert and cert ~= '' and serverRpc('gradingRecord', { cert = cert }, 20000) or nil
+        nuiOpen = true
+        SetNuiFocus(true, true)
+        SetNuiFocusKeepInput(false)
+        SendNUIMessage({ type = 'metaComic:open', view = 'pack', overlay = true, mode = 'gradeRecord', cert = cert or '',
+            found = response and response.ok and response.record and { record = response.record, card = response.card } or nil })
+    end)
+end
+exports('OpenGradeRecord', function(cert) openGradeRecord(cert and tostring(cert) or '') end)
+local lookupCommand = Config.Grading and Config.Grading.LookupCommand
+if lookupCommand == nil then lookupCommand = 'gradecheck' end
+if lookupCommand ~= '' then
+    RegisterCommand(lookupCommand, function(_, args) openGradeRecord(args[1] and tostring(args[1]):gsub('%D', '') or '') end, false)
+end
+exports('SleeveCard', function(...) protectCard(slotOf(...), 'sleeve') end)
+exports('ToploaderCard', function(...) protectCard(slotOf(...), 'toploader') end)
+exports('UnprotectCard', function(...) protectCard(slotOf(...), 'none') end)
+
+-- ox_inventory item button "Show" on a challenge coin / plushie: same as Show Card.
+exports('ShowOthersCollectible', function(...)
+    TriggerServerEvent('meta_comic:server:showCollectibleToOthers', slotOf(...))
+end)
+
 -- Show a card large in the centre of the screen (own card item, or one another player is showing you).
 local shownToken = 0
 RegisterNetEvent('meta_comic:client:viewCard', function(card, shownBy)
@@ -433,6 +652,7 @@ RegisterNetEvent('meta_comic:client:viewCard', function(card, shownBy)
     SetNuiFocus(true, true)
     SetNuiFocusKeepInput(false)
     SendNUIMessage({ type = 'metaComic:open', view = 'pack', overlay = true, mode = 'card', card = card, shownBy = shownBy })
+    if not shownBy then holdCollectables(heldKind(card.collectableType), 1) end -- your own item: hold it while looking at it
     shownToken = shownToken + 1
     if shownBy then
         -- someone else's card: close it by itself after a few seconds (the player can also close it straight away)
@@ -503,5 +723,6 @@ exports('UseCollectible',function(...) local slot=slotOf(...);if slot then Trigg
 AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
     stopPackProp()
+    stopHeld()
     if nuiOpen then closeNui() end
 end)

@@ -11,6 +11,11 @@ const rand = (a, b) => a + Math.random() * (b - a)
 
 function tone({ frequency = 440, duration = 0.12, type = 'sine', gain = 0.08, endFrequency = null, delay = 0, vibrato = 0, vibratoRate = 6 }) {
   const audio = ctx()
+  // a partial above the Nyquist limit is inaudible anyway, and the browser logs a warning for every one
+  // (a coin clink's top partial reaches ~30 kHz)
+  const nyquist = audio.sampleRate / 2
+  if (frequency >= nyquist) return
+  if (endFrequency) endFrequency = Math.min(endFrequency, nyquist - 1)
   const start = audio.currentTime + delay
   const osc = audio.createOscillator()
   const amp = audio.createGain()

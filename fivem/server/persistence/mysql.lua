@@ -336,6 +336,11 @@ MetaComic.PersistenceAdapters.mysql = function()
                 -- Cascades remove deleted links; keep remaining membership order and caches aligned.
                 nextSets = prepareSets(sets, nextCatalog, 'prune')
                 setChanges(statements, nextSets, sets)
+            elseif kind == 'sample' then
+                nextCatalog = prepareCatalog(data.cards)
+                nextSets = prepareSets(data.sets, nextCatalog, false)
+                catalogChanges(statements, nextCatalog, catalog)
+                setChanges(statements, nextSets, sets)
             else
                 nextSets = prepareSets(data, catalog, false)
                 setChanges(statements, nextSets, sets)
@@ -427,6 +432,7 @@ MetaComic.PersistenceAdapters.mysql = function()
         if not ok then return false, tostring(result) end
         return true, result
     end
+    local collectionCache, collectionOrder = {}, {}
     return {
         name = 'mysql',
         init = function()
@@ -463,6 +469,7 @@ MetaComic.PersistenceAdapters.mysql = function()
             return ok, err
         end,
         saveCatalog = function(cards) return save('catalog', cards) end,
+        saveSampleCatalog = function(cards, list) return save('sample', {cards=cards,sets=list}) end,
         saveCard = function(card)
             local nextCatalog = MetaComic.CopyTable(catalog)
             for index, existing in ipairs(nextCatalog) do
@@ -494,16 +501,26 @@ MetaComic.PersistenceAdapters.mysql = function()
                 })
             end
             if not transaction(statements) then error('Could not persist acquired cards') end
+            local cached = collectionCache[owner]
+            if cached then for _, card in ipairs(cards or {}) do table.insert(cached, 1, MetaComic.CopyTable(card)) end end -- newest first, like ORDER BY id DESC
             return true
         end,
+        -- Collections are cached per owner (the 64 most recently used); this table is only written by addCards above.
         getCollection = function(owner)
-            local rows = query(('SELECT `card_json` FROM `%s` WHERE `owner_identifier` = ? ORDER BY `id` DESC'):format(names.instances), {owner})
-            local result = {}
-            for _, row in ipairs(rows) do
-                local ok, card = pcall(json.decode, row.card_json)
-                if ok and type(card) == 'table' then result[#result + 1] = card end
+            local cached = collectionCache[owner]
+            if not cached then
+                local rows = query(('SELECT `card_json` FROM `%s` WHERE `owner_identifier` = ? ORDER BY `id` DESC'):format(names.instances), {owner})
+                cached = {}
+                for _, row in ipairs(rows) do
+                    local ok, card = pcall(json.decode, row.card_json)
+                    if ok and type(card) == 'table' then cached[#cached + 1] = card end
+                end
+                collectionCache[owner] = cached
             end
-            return result
+            for index, entry in ipairs(collectionOrder) do if entry == owner then table.remove(collectionOrder, index) break end end
+            table.insert(collectionOrder, 1, owner)
+            while #collectionOrder > 64 do collectionCache[table.remove(collectionOrder)] = nil end
+            return MetaComic.CopyTable(cached)
         end,
     }
 end

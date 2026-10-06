@@ -1,7 +1,21 @@
-import React, { memo, useCallback, useEffect, useRef, useState } from 'react'
+import React, { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { resolveCardVariant } from '../cardData'
 import ElementalMaskFX from './ElementalMaskFX'
 import { useResolvedAsset } from '../runtime/assets'
+import ConditionOverlay from '../grading/ConditionOverlay'
+import ProtectionShell from '../grading/ProtectionShell'
+import { conditionStyle, textSectionStyle } from '../grading/condition.js'
+import '../grading/grading.css'
+import { formatPacks, oddsVersion, starCount, starStyle, subscribeOdds, tierOf } from '../utils/printOdds.js'
+
+// footer stars: how many = the print's rarity tier; colour = how rare it really is to pull (see utils/printOdds.js)
+function RarityStars({ card }) {
+  useSyncExternalStore(subscribeOdds, oddsVersion)
+  const { colour, label, packs } = starStyle(card)
+  const tip = `${card.rarity || tierOf(card)}${packs ? ` · about 1 in ${formatPacks(packs)} packs${label ? ` (${label})` : ''}` : ''}`
+  // a CSS tooltip, not title=: FiveM's NUI browser never shows native tooltips
+  return <span className="rarity-stars" style={{ '--star': colour }} data-tip={tip} aria-label={tip}>{'★'.repeat(starCount(card))}</span>
+}
 
 const clamp = (n, min, max) => Math.min(Math.max(n, min), max)
 const ELEMENTAL_CONTOUR_MODES = new Set(['foil-flame', 'foil-flame-v2', 'foil-flame-hybrid', 'foil-flame-anime', 'foil-flame-smoky', 'foil-electric', 'foil-water'])
@@ -37,7 +51,7 @@ function buildMaskReferenceUncached(layer) {
   }
 }
 
-function SubjectLayer({ layer, active, framing }) {
+function SubjectLayer({ layer, active, framing, comparison }) {
   const resolved = useResolvedAsset(layer?.image)
   if (!layer?.image || resolved.status !== 'loaded' || !resolved.url) return null
 
@@ -50,6 +64,10 @@ function SubjectLayer({ layer, active, framing }) {
   const zoom = clamp(Number(framing?.zoom ?? 100), 100, 220)
   const resolvedLayer = { ...layer, image: resolved.url }
   const { maskImage, maskMode } = buildMaskReference(resolvedLayer)
+  // The layer is scaled by the art zoom, so its static fills would spill over the card frame: keep them to the
+  // part that lines up with the artwork window (the contour FX canvas does its own limiting and may overflow).
+  const hidden = 1 - 100 / zoom
+  const clip = `inset(${positionY * hidden}% ${(100 - positionX) * hidden}% ${(100 - positionY) * hidden}% ${positionX * hidden}%)`
 
   return (
     <div
@@ -64,6 +82,7 @@ function SubjectLayer({ layer, active, framing }) {
         '--subject-position-x': `${positionX}%`,
         '--subject-position-y': `${positionY}%`,
         '--subject-art-scale': zoom / 100,
+        '--subject-clip': clip,
       }}
       aria-hidden="true"
     >
@@ -73,12 +92,13 @@ function SubjectLayer({ layer, active, framing }) {
       <div className="subject-effect-spectrum" />
       <div className="subject-effect-grain" />
       <div className="subject-effect-glint" />
-      {contourFx && <ElementalMaskFX layer={resolvedLayer} active={active} framing={{ x: positionX, y: positionY, zoom }} />}
+      {contourFx && <ElementalMaskFX layer={resolvedLayer} active={active} framing={{ x: positionX, y: positionY, zoom }} comparison={comparison} />}
     </div>
   )
 }
 
-function TradingCard({ card: inputCard, size = 'large', interactive = true, driver }) {
+// showProtection: draw the copy's sleeve / toploader / slab (off inside binder pockets, which are sleeves already)
+function TradingCard({ card: inputCard, size = 'large', interactive = true, driver, showProtection = true, comparison }) {
   const card = inputCard?.variantId ? inputCard : resolveCardVariant(inputCard)
   const ref = useRef(null)
   const raf = useRef(0)
@@ -134,12 +154,20 @@ function TradingCard({ card: inputCard, size = 'large', interactive = true, driv
   const hasSubjectEffects = Array.isArray(card.subjectLayers) && card.subjectLayers.some(layer => layer.image)
   const glareAlpha = pointer.active ? (0.18 * Math.max(0.25, strength)).toFixed(3) : 0
   const hoverScale = pointer.active ? 1.018 : 1
+  // this copy's print imperfections (centering, offsets, foil drift) and wear; catalogue prints have none
+  const condition = card.condition
+  const copyStyle = conditionStyle(condition, 'front')
+  const borderBase=size==='viewer'?7:size==='medium'?4:6
+  const cx=copyStyle['--cx'] || 0,cy=copyStyle['--cy'] || 0
+  const cutBorder=condition ? [1+cy,1-cx,1-cy,1+cx].map(ratio=>`${Math.round(borderBase*ratio)}px`).join(' ') : undefined
+  const protection = showProtection ? (card.graded ? 'slab' : card.protection || 'none') : 'none'
+  const artDx = Number(copyStyle['--art-dx']) || 0, artDy = Number(copyStyle['--art-dy']) || 0
 
   return (
-    <div className={`card-stage card-stage--${size}`}>
+    <div className={`card-stage card-stage--${size} ${protection !== 'none' ? `is-protected is-${protection}` : ''}`}>
       <article
         ref={ref}
-        className={`trading-card layout-${card.layout} holo-${card.holo} ${pointer.active ? 'is-active' : ''} ${interactive ? 'is-interactive' : 'no-interaction'}`}
+        className={`trading-card layout-${card.layout} holo-${card.holo} ${pointer.active ? 'is-active' : ''} ${interactive ? 'is-interactive' : 'no-interaction'} ${condition ? 'has-condition' : ''} ${copyStyle['--foil-on'] ? 'has-foil-error' : ''}`}
         onPointerMove={interactive ? onMove : undefined}
         onPointerLeave={interactive ? reset : undefined}
         style={{
@@ -166,9 +194,11 @@ function TradingCard({ card: inputCard, size = 'large', interactive = true, driv
           '--noise-alpha': (0.16 * strength).toFixed(3),
           '--glare-alpha': glareAlpha,
           '--hover-active': pointer.active ? 1 : 0,
+          ...copyStyle,
+          borderWidth:cutBorder,
         }}
       >
-        <div className="card-art-wrap">
+        <div className="card-art-wrap" style={{ '--art-offset-x':`${artDx}%`, '--art-offset-y':`${artDy}%` }}>
           <img
             className="card-art"
             src={artwork.displayUrl || card.image}
@@ -177,7 +207,7 @@ function TradingCard({ card: inputCard, size = 'large', interactive = true, driv
             decoding="async"
             style={{
               objectPosition: `${clamp(Number(card.imagePositionX ?? 50), 0, 100)}% ${clamp(Number(card.imagePositionY ?? 50), 0, 100)}%`,
-              transform: `scale(${clamp(Number(card.imageZoom ?? 100), 100, 220) / 100})`,
+              transform: `${artDx || artDy ? `translate(${artDx}%, ${artDy}%) ` : ''}scale(${clamp(Number(card.imageZoom ?? 100), 100, 220) / 100})`,
               transformOrigin: `${clamp(Number(card.imagePositionX ?? 50), 0, 100)}% ${clamp(Number(card.imagePositionY ?? 50), 0, 100)}%`,
             }}
           />
@@ -191,29 +221,30 @@ function TradingCard({ card: inputCard, size = 'large', interactive = true, driv
 
         {hasSubjectEffects && (
           <div className="subject-layer-host">
-            {card.subjectLayers.map(layer => <SubjectLayer key={layer.id} layer={layer} active={pointer.active} framing={{ x: card.imagePositionX, y: card.imagePositionY, zoom: card.imageZoom }} />)}
+            {card.subjectLayers.map(layer => <SubjectLayer key={layer.id} layer={layer} active={pointer.active} framing={{ x: card.imagePositionX, y: card.imagePositionY, zoom: card.imageZoom }} comparison={comparison} />)}
           </div>
         )}
 
         <div className="light-sweep" aria-hidden="true" />
+        <ConditionOverlay condition={condition} side="front" />
         {card.manualPrint && <div className="manual-print-stamp" title={card.printedBy ? `Printed by ${card.printedBy}` : 'Manually printed card'}>MANUAL PRINT</div>}
 
         <header className="card-header">
           <div>
-            <div className="card-kicker">{card.subtitle}</div>
-            <h2>{card.title}</h2>
+            <div className="card-kicker" style={textSectionStyle(condition,'subtitle')}>{card.subtitle}</div>
+            <h2 style={textSectionStyle(condition,'title')}>{card.title}</h2>
           </div>
-          <div className="hp-block"><small>HP</small>{card.hp}<img src={`/img/${card.type}.png`} alt={card.type} /></div>
+          <div className="hp-block" style={textSectionStyle(condition,'hp')}><small>HP</small><span className="hp-value">{card.hp}</span><img src={`/img/${card.type}.png`} alt={card.type} /></div>
         </header>
 
-        <div className="card-info-row">
+        <div className="card-info-row" style={textSectionStyle(condition,'info')}>
           <span>{card.type}</span>
           <span>{card.rarity}</span>
         </div>
 
         <section className="card-body">
-          <p className="card-description">{card.description}</p>
-          <div className="attacks">
+          <p className="card-description" style={textSectionStyle(condition,'description')}>{card.description}</p>
+          <div className="attacks" style={textSectionStyle(condition,'attack')}>
             {card.attacks.slice(0, 3).map((attack, index) => (
               <div className="attack" key={`${attack.name}-${index}`}>
                 <div className="attack-cost" aria-label={`${attack.cost} cost`}>
@@ -231,11 +262,12 @@ function TradingCard({ card: inputCard, size = 'large', interactive = true, driv
           </div>
         </section>
 
-        <footer className="card-footer">
+        <footer className="card-footer" style={textSectionStyle(condition,'footer')}>
           <span>META COMICS • {card.variantName || 'PRINT'} • 001/{String(card.hp).padStart(3, '0')}</span>
-          <span>★</span>
+          <RarityStars card={card} />
         </footer>
       </article>
+      {protection !== 'none' && <ProtectionShell card={{ ...card, protection }} side="front" />}
     </div>
   )
 }

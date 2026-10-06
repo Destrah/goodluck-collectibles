@@ -1,0 +1,314 @@
+/* ---------- card condition: print imperfections of one copy (src/grading/condition.js) ---------- */
+
+/* Centering: the print sits off-centre in the cut, so one border is wider than the other.
+   --cx / --cy: -1..1; left = base * (1 + cx), right = base * (1 - cx) (55/45 at 0.1). */
+.card-stage .trading-card.has-condition { --cb:6px; border-width:calc(var(--cb) * (1 + var(--cy, 0))) calc(var(--cb) * (1 - var(--cx, 0))) calc(var(--cb) * (1 - var(--cy, 0))) calc(var(--cb) * (1 + var(--cx, 0))); }
+.card-stage--medium .trading-card.has-condition { --cb:4px; }
+.card-stage--viewer .trading-card.has-condition { --cb:7px; }
+
+/* text layer printed off register */
+/* Each text section owns its registration transform in TradingCard. */
+/* every copy's foil sits and colours a little differently */
+/* (scaled up a little so a full-card foil, e.g. reverse holo, never leaves an uncovered strip: the foil pattern is
+   what sits off, not the whole print) */
+/* Foil patterns are soft gradients, so the drift is drawn amplified (x3 position, x2.4 colour) to be visible; tiny
+   in-tolerance drift then still reads as "every copy's shine is a little different". */
+.trading-card.has-condition.has-foil-error .card-foil { transform:translate(calc(var(--card-w) * var(--foil-dx, 0) * 3 / 100), calc(var(--card-h) * var(--foil-dy, 0) * 3 / 100)) scale(calc(1 + var(--foil-on, 0) * .3)); filter:hue-rotate(calc(var(--foil-hue, 0) * 2.4deg)) saturate(calc(1 + var(--foil-hue, 0) * var(--foil-hue, 0) / 900)); }
+/* subject-mask effects off the picture */
+.trading-card.has-condition .subject-layer-host { transform:translate(calc(var(--card-w) * var(--mask-dx, 0) / 100), calc(var(--card-h) * var(--mask-dy, 0) / 100)); }
+
+/* wear / damage drawn over the face */
+.card-condition { position:absolute; inset:0; width:100%; height:100%; z-index:16; pointer-events:none; overflow:visible; }
+.card-condition .cond-scratch { mix-blend-mode:screen; }
+.is-raking .card-condition .cond-scratch line { stroke-opacity:.95; stroke:#fff; }
+.is-raking .card-condition .cond-crease polyline:nth-child(2) { stroke-opacity:1; }
+.is-raking .card-condition .cond-bend line:first-child { stroke-opacity:.35; }
+.is-raking .card-condition .cond-dent circle { transform-box:fill-box; transform-origin:center; transform:scale(1.6); }
+
+/* the back: the back print shifted inside the cut */
+.collectible-card-back-stage { position:relative; --shell-w:100%; --shell-h:100%; --shell-k:1; }
+.collectible-card-back-face { position:relative; width:100%; aspect-ratio:5/7; border-radius:18px; overflow:hidden; background:#10131b; }
+.collectible-card-back-face .collectible-card-back { width:100%; height:100%; border-radius:0; aspect-ratio:auto; }
+/* no zoom: the back art keeps its own border, and the print just slides a little within the cut (more border on
+   one side, less on the other); the face's background (same art, stretched) fills the side it slid away from */
+.collectible-card-back-face.has-condition { background-size:100% 100%; background-position:center; }
+.collectible-card-back-face.has-condition .collectible-card-back { transform:translate(calc(var(--cx, 0) * 2.2%), calc(var(--cy, 0) * 1.6%)); }
+
+/* ---------- protection: penny sleeve, toploader, graded slab ---------- */
+.card-stage { position:relative; }
+.card-stage--large { --shell-w:340px; --shell-h:476px; --shell-k:1; }
+.card-stage--medium { --shell-w:230px; --shell-h:322px; --shell-k:.68; }
+.card-stage--viewer { --shell-w:390px; --shell-h:546px; --shell-k:1.15; }
+.card-protection { --px:6px; --pt:12px; --pb:6px; position:absolute; z-index:3; pointer-events:none;
+  left:calc(50% - var(--shell-w) / 2 - var(--px) * var(--shell-k)); top:calc(50% - var(--shell-h) / 2 - var(--pt) * var(--shell-k));
+  width:calc(var(--shell-w) + var(--px) * 2 * var(--shell-k)); height:calc(var(--shell-h) + (var(--pt) + var(--pb)) * var(--shell-k)); }
+.card-protection > i { position:absolute; inset:0; border-radius:inherit; }
+
+/* soft sleeve: thin, glossy, open at the top */
+.card-protection--sleeve { border-radius:calc(26px * var(--shell-k)); border:1px solid #ffffff59; border-top-color:#ffffff26;
+  background:linear-gradient(112deg,#ffffff2e 0%,#ffffff06 32%,#ffffff00 46%,#ffffff1c 58%,#ffffff05 72%,#ffffff14 100%);
+  box-shadow:inset 0 0 0 1px #ffffff12, 0 0 0 1px #0000001f; }
+.card-protection--sleeve > i { border-top:2px solid #ffffff38; border-radius:calc(26px * var(--shell-k)) calc(26px * var(--shell-k)) 0 0; height:calc(12px * var(--shell-k)); bottom:auto; }
+
+/* toploader: rigid clear plastic, thick blue-tinted edge */
+.card-protection--toploader { --px:13px; --pt:22px; --pb:13px; border-radius:calc(14px * var(--shell-k));
+  border:calc(3px * var(--shell-k)) solid #b9d6ffb3; background:linear-gradient(118deg,#d6e8ff2e 0%,#ffffff08 28%,#ffffff00 50%,#d6e8ff1f 64%,#ffffff05 80%,#d6e8ff24 100%);
+  box-shadow:inset 0 0 0 calc(2px * var(--shell-k)) #ffffff2e, inset 0 0 calc(18px * var(--shell-k)) #9cc4ff26, 0 calc(10px * var(--shell-k)) calc(28px * var(--shell-k)) #0006; }
+.card-protection--toploader > i { inset:calc(6px * var(--shell-k)); border:1px solid #ffffff26; border-radius:calc(10px * var(--shell-k)); }
+
+/* graded slab: hard case, label on top, inner frame round the card */
+.card-protection--slab { --px:18px; --pt:104px; --pb:18px; border-radius:calc(18px * var(--shell-k));
+  border:calc(4px * var(--shell-k)) solid #e8edf6cc; background:linear-gradient(115deg,#f4f7ff30 0%,#ffffff0a 30%,#ffffff00 48%,#f4f7ff24 62%,#ffffff08 82%,#f4f7ff2c 100%);
+  box-shadow:inset 0 0 0 calc(3px * var(--shell-k)) #ffffff40, inset 0 0 calc(24px * var(--shell-k)) #ffffff1f, 0 calc(14px * var(--shell-k)) calc(36px * var(--shell-k)) #0008; }
+.card-protection--slab .slab-window { inset:calc(92px * var(--shell-k)) calc(9px * var(--shell-k)) calc(9px * var(--shell-k)); border:calc(2px * var(--shell-k)) solid #ffffff4d; border-radius:calc(12px * var(--shell-k)); box-shadow:inset 0 0 0 1px #0000002e; }
+.slab-label { position:absolute; left:calc(12px * var(--shell-k)); right:calc(12px * var(--shell-k)); top:calc(12px * var(--shell-k)); height:calc(70px * var(--shell-k));
+  display:flex; justify-content:space-between; gap:calc(8px * var(--shell-k)); padding:calc(6px * var(--shell-k)) calc(9px * var(--shell-k));
+  background:#fbfbf8; color:#141414; border:calc(3px * var(--shell-k)) solid #d94a4a; border-radius:calc(5px * var(--shell-k)); box-shadow:0 1px 0 #0002;
+  font-family:Arial,Helvetica,sans-serif; font-size:calc(9px * var(--shell-k)); line-height:1.15; text-align:left; }
+.slab-label strong { font-size:calc(11px * var(--shell-k)); font-weight:800; letter-spacing:.02em; }
+.slab-label-left, .slab-label-right { display:flex; flex-direction:column; gap:calc(1px * var(--shell-k)); min-width:0; }
+.slab-label-left span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.slab-label-right { align-items:flex-end; text-align:right; }
+.slab-label-right b { font-size:calc(17px * var(--shell-k)); line-height:1; }
+.slab-barcode { width:calc(120px * var(--shell-k)); height:calc(12px * var(--shell-k)); margin-top:auto; fill:#141414; }
+.slab-label--back { flex-direction:column; justify-content:center; align-items:center; border-color:#9aa6b8; color:#334; font-weight:700; letter-spacing:.08em; text-align:center; }
+/* the slab is taller than the card: scale the whole stage so the label fits where the card used to be */
+.card-stage.is-slab { transform:translateY(5%) scale(.84); }
+.collectible-card-back-stage.is-slab { transform:translateY(5%) scale(.84); }
+
+/* ---------- grading bench (GradingStation.jsx) ---------- */
+.grading-station { position:fixed; inset:0; z-index:200; display:flex; flex-direction:column; gap:12px; padding:16px 20px; background:#080b12; color:#e8edf7; overflow:hidden; }
+.grading-station .muted { color:#93a0b8; }
+.grading-head { display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+.grading-head h2 { margin:2px 0 0; font-size:20px; }
+.grading-head h2 small { color:#93a0b8; font-weight:500; font-size:14px; }
+.grading-counters { display:flex; gap:10px; font-size:13px; }
+.grading-counters span { padding:4px 10px; border-radius:999px; background:#ffffff12; }
+.grading-counters .ok { color:#7ee2a8; }
+.grading-counters .bad { color:#ff8a8a; background:#ff4d4d22; }
+.grading-head-actions { display:flex; gap:8px; }
+.grading-layout { display:grid; grid-template-columns:260px minmax(0,1fr); gap:16px; align-items:start; min-height:0; flex:1; }
+.grading-tools { display:flex; flex-direction:column; gap:12px; max-height:100%; overflow:auto; }
+.grading-hint { color:#ffd58a; line-height:1.35; }
+/* each box holds its card at full size with room around it, so nothing needs panning at 1x; both boxes are the
+   same size and the cards sit at the same spot in them (side by side, wrapping under each other if narrow) */
+.grading-surfaces { display:flex; flex-wrap:wrap; justify-content:center; align-items:flex-start; gap:20px; width:100%; }
+.grading-surface { display:flex; flex-direction:column; gap:6px; flex:1 1 470px; min-width:470px; max-width:560px; }
+.grading-surface-head { display:flex; align-items:baseline; gap:8px; padding:0 4px; }
+.grading-surface-head strong { font-size:13px; }
+.grading-surface-head small { font-size:11px; }
+.grading-tool-group { display:flex; flex-direction:column; gap:8px; padding:12px; border-radius:12px; background:#ffffff0b; border:1px solid #ffffff14; }
+.grading-tool-group > strong { font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:#b8c3d8; }
+.grading-tool-row { display:flex; gap:6px; flex-wrap:wrap; }
+.grading-tool-row button, .grading-flaw-list button { flex:1 1 auto; padding:6px 9px; border-radius:8px; border:1px solid #ffffff22; background:#ffffff0d; color:inherit; font-size:12px; cursor:pointer; }
+.grading-tool-row button.active, .grading-flaw-list button.active { background:#f59e0b33; border-color:#f59e0b; color:#ffd58a; }
+.grading-flaw-list { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+.grading-slider { display:flex; flex-direction:column; gap:4px; font-size:12px; color:#b8c3d8; }
+.grading-marks { max-height:260px; overflow:auto; }
+.grading-call { font-size:12px; padding:4px 0; border-bottom:1px solid #ffffff0d; }
+.grading-call small { color:#93a0b8; margin-left:4px; }
+.grading-call.is-confirmed { color:#7ee2a8; }
+.grading-call.is-rejected { color:#ff8a8a; text-decoration:line-through; text-decoration-color:#ff8a8a88; }
+.grading-call.is-checking { color:#b8c3d8; }
+.grading-bench { display:flex; flex-direction:column; align-items:center; gap:10px; min-width:0; }
+.grading-viewport { position:relative; width:100%; height:630px; overflow:clip; isolation:isolate; border-radius:14px; background:radial-gradient(circle at 50% 40%,#1c2233,#0b0e16); border:1px solid #ffffff12; }
+.grading-face { position:absolute; left:50%; top:50%; width:390px; height:546px; transform-origin:center; user-select:none; touch-action:none; }
+/* measurement guides (reference print): borders, centre lines, printed parts with mm from the cut */
+.grading-guides { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; z-index:29; }
+.grading-guides line.centre { stroke:#22d3ee; stroke-width:1; stroke-dasharray:4 4; opacity:.7; }
+.grading-guides rect { fill:#22d3ee0f; stroke:#22d3ee; stroke-width:1; stroke-dasharray:5 3; }
+.grading-guides text { fill:#cffafe; font-size:9px; font-weight:700; paint-order:stroke; stroke:#04131a; stroke-width:3px; }
+.grading-guides .borders text { fill:#fde68a; font-size:10px; }
+.grading-guides text.sub { fill:#fef3c7; font-size:9px; }
+.grading-face.tool-mark { cursor:crosshair; }
+.grading-face.tool-ruler { cursor:cell; }
+.grading-face.tool-magnifier { cursor:none; }
+.grading-face .card-stage--viewer { width:390px; min-height:546px; }
+.grading-face .trading-card, .grading-lens-content .trading-card { transform:none !important; overflow:clip; }
+.grading-face .collectible-card-back-face { overflow:clip; }
+.grading-back { width:390px; }
+.grading-compare { position:absolute; inset:0; pointer-events:none; mix-blend-mode:difference; }
+.grading-raking-light { position:absolute; inset:0; pointer-events:none; z-index:20; background:linear-gradient(105deg,#000a 0%,#0006 38%,#ffffff1f 47%,#0006 56%,#000b 100%); mix-blend-mode:multiply; }
+.grading-face.is-raking .trading-card, .grading-face.is-raking .collectible-card-back-face { filter:contrast(1.25) brightness(.92); }
+.grading-pins { position:absolute; inset:0; pointer-events:none; z-index:30; }
+.grading-pin { position:absolute; width:14px; height:14px; margin:-7px 0 0 -7px; border-radius:50%; border:2px solid #fff; box-shadow:0 0 0 2px #0008; }
+.grading-pin.is-confirmed { background:#22c55e; }
+.grading-pin.is-rejected { background:#ef4444; opacity:.75; }
+.grading-pin.is-checking { background:#94a3b8; }
+.grading-pin.is-face { border-radius:3px; }
+.grading-ruler { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; z-index:31; }
+.grading-ruler line { stroke:#38bdf8; stroke-width:1.5; }
+.grading-ruler circle { fill:#38bdf8; }
+.grading-ruler text { fill:#e0f2fe; font-size:13px; font-weight:700; paint-order:stroke; stroke:#000; stroke-width:3px; }
+.grading-ruler text.sub { font-size:10px; font-weight:500; }
+.grading-lens { position:absolute; z-index:32; border-radius:50%; overflow:hidden; pointer-events:none; border:3px solid #e2e8f0; box-shadow:0 10px 30px #000a, inset 0 0 18px #0008; background:#0b0e16; }
+.grading-lens-content { position:absolute; left:0; top:0; width:390px; height:546px; transform-origin:0 0; }
+.grading-lens.grading-face { transform:none; }
+.grading-status { min-height:20px; font-size:13px; color:#cbd5e1; text-align:center; }
+.grading-result { flex-direction:row; align-items:center; justify-content:center; gap:40px; }
+.grading-result-card { width:390px; height:620px; display:grid; place-items:center; }
+.grading-result-copy { max-width:340px; display:flex; flex-direction:column; gap:10px; }
+.grading-result-copy h2 { margin:0; font-size:34px; }
+@media (max-width:1100px) { .grading-layout { grid-template-columns:220px minmax(0,1fr); } .grading-surface-head { flex-direction:column; gap:2px; } }
+
+/* ---------- Grading tab (standalone copies) ---------- */
+.grading-lab { display:grid; grid-template-columns:minmax(0,1fr) 420px; gap:20px; align-items:start; }
+.grading-copy-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
+.grading-copy { display:flex; flex-direction:column; gap:6px; padding:10px; border-radius:12px; background:#ffffff0a; border:1px solid #ffffff14; text-align:left; color:inherit; cursor:pointer; }
+.grading-copy.selected { border-color:#f59e0b; background:#f59e0b14; }
+.grading-copy small { color:#93a0b8; }
+.grading-copy-preview { display:flex; flex-direction:column; align-items:center; gap:12px; }
+.grading-copy-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
+
+/* standalone grading debugger */
+.grading-debug-host { position:absolute; inset:0; pointer-events:none; z-index:28; }
+.grading-debug-host .card-stage, .grading-debug { position:absolute; left:0; top:0; width:390px; height:546px; overflow:visible; }
+.grading-debug rect, .grading-debug circle, .grading-debug line { fill:none; stroke-width:3; vector-effect:non-scaling-stroke; stroke-dasharray:6 4; }
+.grading-debug .missed { stroke:#f43f5e; fill:#f43f5e14; }
+.grading-debug .found { stroke:#22c55e; }
+.grading-debug line.missed { stroke-width:6; stroke-opacity:.8; }
+.grading-debug-panel button { padding:5px 8px; border-radius:8px; border:1px solid #ffffff22; background:#ffffff0d; color:inherit; font-size:12px; cursor:pointer; text-align:left; }
+.grading-debug-panel button.active { background:#f43f5e33; border-color:#f43f5e; }
+.grading-debug-item.found { color:#7ee2a8; }
+.grading-debug-item small { color:#93a0b8; float:right; }
+.grading-tolerances { width:100%; font-size:11px; text-align:left; border-collapse:collapse; }
+.grading-tolerances td,.grading-tolerances th { padding:4px 3px; border-bottom:1px solid #ffffff18; }
+.grading-debug-panel pre { max-height:240px; overflow:auto; font-size:10px; }
+
+/* "Foil only": hide the print on both cards and show the holo pattern alone, at full strength and held still, so
+   a shifted (pattern sits higher / lower / sideways) or recoloured foil stands out against the reference */
+.grading-face.foil-only .trading-card { background:#05060a; }
+.grading-face.foil-only .trading-card > :not(.card-foil) { visibility:hidden; }
+.grading-face.foil-only .trading-card .card-foil { opacity:1 !important; mix-blend-mode:normal !important; }
+/* The light switch applies to both prints and the reference overlay. Retain
+   the underlying subject artwork while hiding only its finish/effect layers. */
+.grading-face.foil-light-off .card-foil,
+.grading-face.foil-light-off .card-shine,
+.grading-face.foil-light-off .card-noise,
+.grading-face.foil-light-off .card-sparkles,
+.grading-face.foil-light-off .light-sweep,
+.grading-face.foil-light-off .subject-effect-paint,
+.grading-face.foil-light-off .subject-effect-spectrum,
+.grading-face.foil-light-off .subject-effect-grain,
+.grading-face.foil-light-off .subject-effect-glint,
+.grading-face.foil-light-off .subject-outline-glow,
+.grading-face.foil-light-off .elemental-mask-fx,
+.grading-face.foil-light-off .subject-effect-layer::before,
+.grading-face.foil-light-off .subject-effect-layer::after { visibility:hidden !important; }
+/* CSS mask loops stay at a common phase on the comparison bench. Contour
+   canvases share their live particle frames through the bench's effect map. */
+.grading-face .subject-effect-layer *,
+.grading-face .subject-effect-layer::before,
+.grading-face .subject-effect-layer::after { animation:none !important; }
+
+/* ---------- 3D case in the rotating inspector (ProtectionCase3D.jsx): panes + clear side walls ---------- */
+.case3d { position:absolute; left:0; top:0; width:100%; aspect-ratio:5/7; transform-style:preserve-3d; pointer-events:none; }
+.case3d-face, .case3d-side { position:absolute; display:block; }
+.case3d-face { left:calc(-1 * var(--case-x)); right:calc(-1 * var(--case-x)); top:calc(-1 * var(--case-t)); bottom:calc(-1 * var(--case-b));
+  border-radius:var(--case-r); backface-visibility:hidden; -webkit-backface-visibility:hidden; }
+.case3d-front { transform:translateZ(calc(var(--case-z) / 2)); }
+.case3d-back { transform:rotateY(180deg) translateZ(calc(var(--case-z) / 2)); }
+.case3d-window { position:absolute; inset:0; border-radius:inherit; }
+/* side walls: a strip as thick as the case, standing on each outer edge (the rounded corners stay open) */
+.case3d-left, .case3d-right { top:calc(var(--case-r) - var(--case-t)); bottom:calc(var(--case-r) - var(--case-b)); width:var(--case-z); }
+.case3d-left { left:calc(-1 * var(--case-x) - var(--case-z) / 2); transform:rotateY(90deg); }
+.case3d-right { right:calc(-1 * var(--case-x) - var(--case-z) / 2); transform:rotateY(90deg); }
+.case3d-top, .case3d-bottom { left:calc(var(--case-r) - var(--case-x)); right:calc(var(--case-r) - var(--case-x)); height:var(--case-z); }
+.case3d-top { top:calc(-1 * var(--case-t) - var(--case-z) / 2); transform:rotateX(90deg); }
+.case3d-bottom { bottom:calc(-1 * var(--case-b) - var(--case-z) / 2); transform:rotateX(90deg); }
+
+/* clear plastic: mostly see-through panes with a gloss streak, frosted edges */
+.case3d-face { background:linear-gradient(115deg,#ffffff24 0%,#ffffff08 30%,#ffffff00 46%,#ffffff1a 58%,#ffffff06 78%,#ffffff1c 100%); box-shadow:inset 0 0 0 1px #ffffff40; }
+.case3d-side { background:linear-gradient(90deg,#dfe8f5a6,#ffffffd9 50%,#dfe8f5a6); box-shadow:inset 0 0 0 1px #ffffff55; }
+.case3d-top, .case3d-bottom { background:linear-gradient(180deg,#dfe8f5a6,#ffffffd9 50%,#dfe8f5a6); }
+
+.case3d--sleeve .case3d-face { border:1px solid #ffffff55; background:linear-gradient(112deg,#ffffff26 0%,#ffffff05 32%,#ffffff00 46%,#ffffff18 58%,#ffffff04 72%,#ffffff12 100%); }
+.case3d--sleeve .case3d-front .case3d-window { inset:0 0 auto; height:12px; border-top:2px solid #ffffff40; border-radius:var(--case-r) var(--case-r) 0 0; }
+.case3d--sleeve .case3d-side { background:#ffffff3a; }
+.case3d--sleeve .case3d-top { display:none; } /* open end */
+
+.case3d--toploader .case3d-face { border:3px solid #b9d6ffcc; background:linear-gradient(118deg,#d6e8ff30 0%,#ffffff08 28%,#ffffff00 50%,#d6e8ff20 64%,#ffffff05 80%,#d6e8ff26 100%); box-shadow:inset 0 0 0 2px #ffffff30, inset 0 0 18px #9cc4ff26; }
+.case3d--toploader .case3d-window { inset:7px; border:1px solid #ffffff2e; border-radius:10px; }
+.case3d--toploader .case3d-side { background:linear-gradient(90deg,#a9cbffb3,#e8f2ffe6 50%,#a9cbffb3); }
+.case3d--toploader .case3d-top, .case3d--toploader .case3d-bottom { background:linear-gradient(180deg,#a9cbffb3,#e8f2ffe6 50%,#a9cbffb3); }
+.case3d--toploader .case3d-top { opacity:.55; } /* open end */
+
+.case3d--slab .case3d-face { border:4px solid #eef2f9d9; box-shadow:inset 0 0 0 3px #ffffff40, inset 0 0 24px #ffffff1c; }
+.case3d--slab .case3d-window { inset:98px 10px 10px; border:2px solid #ffffff52; border-radius:12px; box-shadow:inset 0 0 0 1px #0000002e; }
+.case3d--slab .slab-label { left:12px; right:12px; top:12px; height:74px; }
+
+/* the resting front is drawn flat (no perspective): the case front goes flat with it, the rest hides */
+.collectible-rotation[data-native-front="1"] > .case3d > .case3d-front { transform:none; }
+.collectible-rotation[data-native-front="1"] > .case3d > :not(.case3d-front) { visibility:hidden; }
+/* room for the case (the slab label sits above the card) */
+.collectible-rotation-stage.has-case { padding:var(--stage-t, 0px) 0 var(--stage-b, 0px); }
+/* (no scaling of the slab view: a scaled 3D stage rasterises its text once and shrinks it, which blurs the label at
+   rest; the stage just makes room above the card for the label instead) */
+
+/* ---------- final grade picker (GradingStation) ---------- */
+.grading-finalize { position:fixed; inset:0; z-index:220; display:grid; place-items:center; background:#000a; }
+.grading-finalize-box { width:min(520px,92vw); display:flex; flex-direction:column; gap:12px; padding:20px; border-radius:16px; background:#111622; border:1px solid #ffffff1f; box-shadow:0 30px 80px #000b; }
+.grading-finalize-box p { margin:0; color:#cbd5e1; font-size:13px; line-height:1.45; }
+.grading-grade-choices { display:flex; flex-wrap:wrap; gap:8px; }
+.grading-grade-choices button { display:flex; flex-direction:column; align-items:center; gap:2px; min-width:72px; padding:8px 10px; border-radius:10px; border:1px solid #ffffff22; background:#ffffff0d; color:inherit; cursor:pointer; }
+.grading-grade-choices button b { font-size:20px; }
+.grading-grade-choices button small { font-size:10px; color:#93a0b8; }
+.grading-grade-choices button em { font-size:9px; font-style:normal; color:#7ee2a8; }
+.grading-grade-choices button.active { border-color:#f59e0b; background:#f59e0b26; }
+
+/* ---------- grading record lookup (GradeRecord.jsx) ---------- */
+.grade-record { position:fixed; inset:0; z-index:200; display:flex; flex-direction:column; gap:14px; padding:18px 22px; overflow:auto; background:#080b12; color:#e8edf7; }
+.grade-record .muted { color:#93a0b8; }
+.grade-record-head { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+.grade-record-head h2 { margin:2px 0 0; }
+.grade-record-search { display:flex; gap:8px; flex:1; max-width:420px; }
+.grade-record-search input { flex:1; padding:8px 10px; border-radius:8px; border:1px solid #ffffff2a; background:#ffffff0d; color:inherit; font-size:14px; }
+.grade-record-body { display:flex; flex-wrap:wrap; gap:28px; align-items:flex-start; justify-content:center; }
+.grade-record-card { display:flex; flex-direction:column; align-items:center; gap:10px; }
+.grade-record-face { position:relative; width:390px; height:546px; }
+.grade-record-copy { flex:1 1 320px; max-width:460px; display:flex; flex-direction:column; gap:10px; }
+.grade-record-grade { display:flex; align-items:baseline; gap:10px; padding:10px 14px; border-radius:10px; background:#fbfbf8; color:#141414; border:3px solid #d94a4a; width:max-content; }
+.grade-record-grade b { font-size:34px; }
+.grade-record-grade span { font-weight:800; letter-spacing:.04em; }
+.grade-record-copy dl { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin:0; font-size:13px; }
+.grade-record-copy dt { color:#93a0b8; }
+.grade-record-copy dd { margin:0; }
+.grade-record-marks { margin:0; padding-left:20px; display:flex; flex-direction:column; gap:4px; font-size:13px; }
+.grade-record-marks li small { color:#93a0b8; margin-left:8px; }
+
+/* ---------- grading table (GradingStation.jsx GradingTable): one mat, pan / zoom / rotate, movable cards ---------- */
+.grading-bench { width:100%; }
+.grading-table { position:relative; width:100%; height:calc(100dvh - 150px); min-height:520px; overflow:hidden; isolation:isolate; touch-action:none; user-select:none;
+  border-radius:16px; border:1px solid #ffffff14; cursor:crosshair;
+  background:radial-gradient(ellipse at 50% 35%,#1d3a2d 0%,#14291f 55%,#0c1a14 100%); box-shadow:inset 0 0 80px #000a; }
+.grading-table::before { content:""; position:absolute; inset:0; pointer-events:none; opacity:.35;
+  background-image:radial-gradient(#ffffff0d 1px,transparent 1px); background-size:6px 6px; } /* felt texture */
+.grading-table.tool-hand, .grading-table.tool-hand .grading-face { cursor:grab; }
+.grading-table.tool-move .grading-holder { cursor:move; }
+.grading-table.tool-ruler .grading-face { cursor:cell; }
+.grading-table.tool-magnifier .grading-face { cursor:none; }
+.grading-table.is-panning, .grading-table.is-panning * { cursor:grabbing !important; }
+.grading-world { position:absolute; left:0; top:0; transform-origin:0 0; will-change:transform; }
+.grading-holder { position:absolute; width:390px; height:546px; }
+.grading-holder > .grading-face { position:relative; left:auto; top:auto; transform:none; width:390px; height:546px; box-shadow:0 18px 40px #0009, 0 2px 6px #0006; border-radius:24px; }
+.grading-holder-label { position:absolute; left:4px; right:4px; bottom:calc(100% + 8px); display:flex; align-items:baseline; gap:8px; color:#e8edf7; white-space:nowrap; pointer-events:none; }
+.grading-holder-label strong { font-size:14px; }
+.grading-holder-label small { font-size:11px; color:#b8c9bd; }
+.grading-table-zoom { position:absolute; right:12px; bottom:10px; padding:3px 8px; border-radius:999px; background:#0009; color:#cbd5e1; font-size:11px; pointer-events:none; }
+.grading-table .grading-lens { position:absolute; z-index:40; }
+
+/* manufacturing flaws show up better under the raking light */
+.is-raking .card-condition .cond-roller line { stroke-opacity:.45; }
+.is-raking .card-condition .cond-stain { fill-opacity:.28; }
+
+/* footer rarity stars: count = tier, colour = real pull odds (utils/printOdds.js) */
+.rarity-stars { color:var(--star, #d6dde8); letter-spacing:.06em; text-shadow:0 0 3px var(--star, #fff), 0 1px 2px #000; } /* (no color-mix: FiveM's older Chromium drops it) */
+/* star tooltip (FiveM's NUI never shows title= tooltips) */
+.rarity-stars[data-tip] { position:relative; cursor:help; pointer-events:auto; }
+.rarity-stars[data-tip]::after {
+  content:attr(data-tip); position:absolute; right:0; bottom:calc(100% + 4px); z-index:30;
+  padding:5px 8px; border-radius:6px; background:#0b0f17f0; border:1px solid #ffffff22; color:#e5ecf7;
+  font:600 11px/1.3 Inter, "Segoe UI", Arial, sans-serif; letter-spacing:0; text-transform:none; text-shadow:none;
+  white-space:nowrap; opacity:0; visibility:hidden; transition:opacity .12s; pointer-events:none;
+}
+.rarity-stars[data-tip]:hover::after { opacity:1; visibility:visible; }

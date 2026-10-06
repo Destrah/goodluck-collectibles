@@ -1,4 +1,5 @@
 import { resolveCardVariant } from '../cardData.js'
+import { generateCondition } from '../grading/condition.js'
 
 export const weightedPick = (pool, getWeight = item => item.chanceWeight) => {
   if (!pool?.length) return null
@@ -35,5 +36,9 @@ export function makePack(cards) {
     pullFromTier(cards, 'common'),
     pullFromTier(cards, 'uncommon', ['common']),
     pullFromTier(cards, rareTier, ['rare', 'uncommon', 'common']),
-  ].filter(Boolean).map(card => ({ ...card, pullId: crypto.randomUUID() }))
+  ].filter(Boolean).map(card => {
+    const pullId = crypto.randomUUID()
+    // every copy comes out of the pack with its own small print imperfections (src/grading/condition.js)
+    return { ...card, pullId, instanceId: pullId, condition: generateCondition() }
+  })
 }

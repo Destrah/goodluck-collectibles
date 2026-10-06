@@ -16,6 +16,7 @@ shared_scripts {
 
 client_scripts {
     'client/main.lua',
+    'client/vending_machines.lua',
 }
 
 server_scripts {
@@ -35,7 +36,11 @@ server_scripts {
     'server/cards.lua',
     'server/modules/trading_cards.lua',
     'server/modules/objects.lua',
+    'server/modules/grading.lua',
+    'server/modules/sample_cards.lua',
+    'server/modules/set_logos.lua',
     'server/main.lua',
+    'server/modules/vending_machines.lua',
 }
 
 files {
@@ -50,3 +55,4 @@ files {
 
 data_file 'DLC_ITYP_REQUEST' 'stream/booster_props.ytyp'
 data_file 'DLC_ITYP_REQUEST' 'stream/prop_deckbox_01.ytyp'
+data_file 'DLC_ITYP_REQUEST' 'stream/metacomics_props.ytyp'

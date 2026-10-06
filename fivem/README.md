@@ -2,7 +2,23 @@
 
 This folder is an optional FiveM host for the same React application.
 
+## Generate the Sample testing set
+
+Run `/collectablessample` in game with the same management permission as `/collectablesadmin` (or run `collectablessample` in the server console). It imports **Sample**: 100 original illustrated base cards and 800 prints, covering all five rarity tiers, all eight holo choices, four layouts, all supported subject effects, varying base/print weights, and aligned alpha/luminance/inverted masks. Base artwork and masks are uploaded first; only HTTPS URLs are saved. Inventory icons are then drawn/uploaded through the existing background pipeline.
+
+Set `metacomic_fivemanage_key_artwork` in server.cfg, or use the existing `metacomic_fivemanage_key` fallback. Keep secrets in server.cfg. Existing Fivemanage folder settings are respected. Inventory icon uploads also require `Config.CardIcons.Mode = 'upload'` and the existing trading-card upload key. Progress appears in notifications and the server console; the initial run uploads 150 unique artwork/mask assets and then generates the print icons. Allow it to finish before testing a full collection.
+
+Reopen `/collectablesadmin`, choose the Sample set in Sets & containers or the pack lab, and create/open Sample booster packs. The command does not replace other sets, change the default set, or give inventory items. Reruns add missing sample cards and membership links while preserving edits to existing samples. Failed uploads can be retried using the same command; previously uploaded artwork is cached. MySQL saves all new definitions and membership links in one transaction.
+
+For this feature deploy `server/modules/sample_cards.lua`, the updated `server/main.lua`, `server/persistence/mysql.lua`, `fxmanifest.lua`, `data/sample-cards.json`, `img/sample/`, and the rebuilt `web/` folder together. Preserve your current config values. The generated PNG assets and manifest are bundled; Python is only needed if you want to rebuild them with `scripts/generate-sample-cards.py`.
+
+Sample artwork has no embedded lettering, so full-art layouts use only the card's own text. If you already imported the older images, deploy the updated sample images and server files and run `/collectablessample refreshart` to upload and apply the text-free artwork. This explicitly replaces the base artwork on Sample cards while preserving their other edits and print settings. Already acquired items retain their stored snapshots.
+
 ## Existing installation upgrade
+
+For grading troubleshooting, add `Debug = true` inside your existing `Config.Grading` table and restart the resource. The grading bench then offers a debugger with the server's real flaw list, highlights, raw condition values, and print tolerance limits. Small visible shifts inside those limits are normal variation and cannot be confirmed as errors. The reference uses the acquired card's saved print, so later catalog edits do not alter that comparison. Grading checks and inventory updates remain on the server. Set `Debug = false` after testing; while enabled, graders can see the answers.
+
+New card conditions use independent text offsets for subtitle, title, HP, type/rarity, description, attacks, and footer. Each out-of-tolerance section is a separate finding and must be marked on that text. Existing acquired cards with the older text-layer array keep their original condition and single finding. Off-centre borders now confirm only centering; use the artwork and text tools for their respective shifts. Deploy `server/modules/grading.lua`, `server/main.lua`, and rebuilt `web/` together.
 
 The main commands are now `/collectables`, `/collectablesadmin`, `/collectablesoptions`, `/collectablespack`, `/collectablesbox`, and `/collectablesicons`. Existing `/card...` commands remain aliases, and older configuration files still work. `/collectablesrestoreseed` is console-only.
 
@@ -224,6 +240,14 @@ so nothing has to be redrawn when you do.
 The binder shows 9-pocket sleeve pages, cards in the binder's slot order (empty slots = empty sleeves);
 click a card to see it large. If something's off the player gets a message and the server console says what to fix.
 
+## Card case (slab case, ox_inventory container)
+Set up like the binder: `Config.Items.CardCase` (default `{ 'card_case' }`), `setContainerProperties('card_case', { slots = 48, maxWeight = 6000, whitelist = { 'tradingcard' } })`,
+the **View Case** button (`examples/ox_inventory-items.lua`) and the image `examples/ox_inventory_images/card_case.png`.
+Cards stand upright in 8 compartments (hover one to lift it, click to see it large). It holds any card: slabs,
+toploaders, sleeved and raw. The card hand (your inventory's cards) works as in the binder: drag a card onto a
+compartment to put it in, drag a case card onto the hand to take it out (when your inventory has room), or drag
+between compartments to move / swap.
+
 ## Commands
 Defaults:
 
@@ -356,3 +380,36 @@ examples/ox_inventory-items.lua
 ## Plushies and challenge coins
 
 The shared editor now supports plushie boxes/cases and challenge coin bags/boxes with server-owned opening and immutable inventory snapshots. Deploy all updated Lua files and the manifest as well as the NUI build, and register the items from `examples/ox_inventory-collectibles.lua`. See [collectable systems](../docs/collectable-modules.md) for schema, defaults, setup, and extension details.
+
+## Vending machines
+
+`stream/metacomics_vending_machine.ydr` (archetype in `stream/metacomics_props.ytyp`, loaded by `fxmanifest.lua`) can be placed around the map by anyone with the management permission:
+
+- `/placevending` shows a see-through machine where you look (green outline: can place, red: too far). Rotate with the mouse wheel or hold Q / E (hold Shift for fine steps). Left click or Enter places it; right click, Backspace or Esc cancels.
+- `/removevending` removes the closest placed machine within `RemoveDistance`.
+
+Placements are saved with your `Config.Persistence`: MySQL uses the `goodluck_collectibles_vending_machines` table (created at startup when `Config.Database.AutoCreateSchema = true`), anything else uses `data/vending_machines.json`. Every player receives the list when they join and keeps it in memory; each machine is spawned locally (not networked) within `SpawnDistance` and deleted beyond `DespawnDistance`. The distance check sleeps for as long as the player would need to reach the nearest edge, so it costs almost nothing when no machine is near. Settings are in `Config.VendingMachines`; add that block to a preserved config (without it the defaults above are used).
+
+With ox_target and ox_lib running, every machine has up to three target options. Each machine keeps its own products (a card set, booster pack or box, price and stock):
+
+- **Buy** (everyone): lists this machine's products with price and stock left. The server checks the player stands at the machine, the stock, the money (`Shop.Account`: `'money'` is the ox_inventory money item, `'cash'` / `'bank'` the QBCore / Qbox account) and inventory space, then gives a sealed pack or box of that set. If the item can't be added, the money and stock go back.
+- **Restock** (managers and the jobs in `Restock.Jobs`): adds stock to a product. Restocking N always needs N sealed packs / boxes of that set in the restocker's inventory, admins included; they are taken from the inventory. Stock is capped at `Restock.MaxStock` per product.
+- **Manage** (management permission): add products (pick a set, packs and/or boxes and prices; they start empty), change a price, lower stock or remove a product, or **Move machine** to pick it up with the placement preview and set it down somewhere nearby.
+
+A newly placed machine starts with `Shop.Items`. Products and stock are saved per machine in the `products_json` column (MySQL, added automatically to an existing table) or in `data/vending_machines.json`.
+
+Manual MySQL setup (only when `AutoCreateSchema = false`):
+
+```sql
+CREATE TABLE IF NOT EXISTS `goodluck_collectibles_vending_machines` (
+ `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+ `model` VARCHAR(64) NOT NULL,
+ `x` DOUBLE NOT NULL, `y` DOUBLE NOT NULL, `z` DOUBLE NOT NULL,
+ `heading` DOUBLE NOT NULL,
+ `products_json` LONGTEXT NULL,
+ `placed_by` VARCHAR(100) NULL,
+ `placed_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+```
+
+Deploy `fxmanifest.lua`, `client/vending_machines.lua`, `server/modules/vending_machines.lua`, `server/main.lua` and the `stream` folder together.

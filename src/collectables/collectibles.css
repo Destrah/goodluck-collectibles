@@ -12,11 +12,18 @@
 .collectible-object--plush .collectible-object-art img,.collectible-object--plush .collectible-object-art > span { filter:drop-shadow(0 14px 12px #000a); }
 .collectible-object--plush .collectible-object-art > span { font-size:120px; line-height:1; }
 .collectible-object--plush .collectible-object-art.is-mirrored img { transform:scaleX(-1); filter:brightness(.8) drop-shadow(0 14px 12px #000a); }
-.collectible-object--coin .collectible-object-art { width:86%; margin:0 auto; border-radius:50%; overflow:hidden; color:#3b2a10; color:color-mix(in srgb,var(--object-accent),#000 68%);
+/* back set to copy the front: shown at full brightness (coins flip the face, which keeps its framing transform) */
+.collectible-object--plush .collectible-object-art.is-copy img { filter:drop-shadow(0 14px 12px #000a); }
+.collectible-object--coin .collectible-object-art.is-mirrored .collectible-coin-face { transform:scaleX(-1); }
+.collectible-object--coin .collectible-object-art { width:86%; margin:0 auto; border-radius:50%; overflow:hidden; color:#3b2a10;
   border:6px solid var(--object-accent);
   background:radial-gradient(circle at 34% 28%,#fff6d0,var(--object-accent) 48%,#2a1d08 100%);
-  box-shadow:inset 0 0 0 2px #fff4,inset 0 -8px 14px #0007,inset 0 8px 12px #fff5,0 0 0 1px #0006,0 5px 0 #5a3f12,0 7px 0 #2a1d08,0 18px 22px #000b;
-  box-shadow:inset 0 0 0 2px #fff4,inset 0 -8px 14px #0007,inset 0 8px 12px #fff5,0 0 0 1px #0006,0 5px 0 color-mix(in srgb,var(--object-accent),#000 45%),0 7px 0 color-mix(in srgb,var(--object-accent),#000 70%),0 18px 22px #000b; }
+  box-shadow:inset 0 0 0 2px #fff4,inset 0 -8px 14px #0007,inset 0 8px 12px #fff5,0 0 0 1px #0006,0 5px 0 #5a3f12,0 7px 0 #2a1d08,0 18px 22px #000b; }
+/* color-mix() with var() isn't dropped by browsers without color-mix (FiveM's NUI): it voids the whole value */
+@supports (color:color-mix(in srgb,red,blue)) {
+  .collectible-object--coin .collectible-object-art { color:color-mix(in srgb,var(--object-accent),#000 68%);
+    box-shadow:inset 0 0 0 2px #fff4,inset 0 -8px 14px #0007,inset 0 8px 12px #fff5,0 0 0 1px #0006,0 5px 0 color-mix(in srgb,var(--object-accent),#000 45%),0 7px 0 color-mix(in srgb,var(--object-accent),#000 70%),0 18px 22px #000b; }
+}
 .collectible-object--coin .collectible-object-art img { object-fit:cover; }
 .collectible-coin-emblem { width:100%; height:100%; filter:drop-shadow(0 1px 0 #fff6) drop-shadow(0 -1px 0 #0005); }
 .collectible-object figcaption strong,.collectible-object figcaption span { display:block; margin-top:10px; }
@@ -61,6 +68,13 @@
 .collectible-rotation.dragging { transition:none; }
 .collectible-inspect-face { backface-visibility:hidden; -webkit-backface-visibility:hidden; transform:translateZ(3px); }
 .collectible-inspect-back { position:absolute; inset:0; transform:rotateY(180deg) translateZ(3px); }
+/* The inspector owns rotation; nested identity transforms/perspective resample
+   card text. Keep the front at native size when it settles facing the viewer. */
+.collectible-inspect-face .card-stage { perspective:none; }
+.collectible-inspect-face .trading-card.no-interaction { transform:none; }
+.collectible-rotation[data-native-front="1"] > .collectible-inspect-face:not(.collectible-inspect-back) { transform:none; }
+.collectible-rotation[data-native-front="1"] > .collectible-card-edge,
+.collectible-rotation[data-native-front="1"] > .collectible-card-sides { visibility:hidden; }
 .collectible-card-back { display:block; width:100%; aspect-ratio:5/7; border-radius:18px; object-fit:cover; }
 .collectible-inspect-face .collectible-object { width:100%; max-width:none; }
 .collectible-inspect-controls { display:flex; justify-content:center; gap:8px; margin:14px 0 6px; flex-wrap:wrap; }
@@ -186,9 +200,16 @@
 .collectibles-look-row > small { flex-basis:100%; }
 .collectibles-look-picker { display:flex; flex-wrap:wrap; gap:12px; margin:0; padding:10px 14px 4px; border:1px solid #ffffff1c; border-radius:12px; }
 .collectibles-look-picker legend { padding:0 6px; color:#ffd23c; font-size:12px; letter-spacing:.08em; text-transform:uppercase; }
-/* card thickness in the enlarged view: stacked card-stock slices between the two faces */
-.collectible-card-edge { position:absolute; left:0; top:0; width:100%; aspect-ratio:5/7; border-radius:18px; background:#e4dccb; box-shadow:inset 0 0 0 1px #00000040; pointer-events:none; }
+/* card thickness in the enlarged view: stacked card-stock slices between the two faces. Their corner radius must
+   match the viewer card's (.card-stage--viewer .trading-card, 28px) or the slices' corners show past the face. */
+.collectible-card-edge { position:absolute; left:0; top:0; width:100%; aspect-ratio:5/7; border-radius:28px; background:#e4dccb; box-shadow:inset 0 0 0 1px #00000040; pointer-events:none; }
 /* 3D inspector for coins and plushies */
+/* MANUAL PRINT stamp over the 3D model (same look as the trading card's stamp) */
+.collectible-3d-frame { position:relative; }
+.collectible-manual-print { position:absolute; top:10px; left:10px; z-index:3; display:grid; gap:2px; justify-items:start; transform:rotate(-4deg); pointer-events:none; border:2px solid #ff5656; border-radius:6px; padding:5px 8px; color:#ff6666; background:#12090bd9; box-shadow:0 0 0 1px #0008,0 2px 8px #0008; text-shadow:0 1px 0 #000; }
+.collectible-manual-print strong { font-size:11px; font-weight:1000; letter-spacing:.12em; }
+.collectible-manual-print small { font-size:9px; color:#ffb3b3; letter-spacing:.02em; }
+.collectible-inspector { position:relative; } /* the flat (no WebGL) view's stamp */
 .collectible-3d-stage { width:min(420px,82vw); height:min(500px,60vh); margin:0 auto; }
 .collectible-3d-canvas { display:block; width:100%; height:100%; }
 /* coin face art sits in the same inner circle as on the 3D coin, framed with position + zoom */
@@ -197,10 +218,10 @@
 /* solid card-stock sides (perpendicular to the faces) so a card seen exactly edge-on is closed, not two slits */
 .collectible-card-sides { position:absolute; left:0; top:0; width:100%; aspect-ratio:5/7; transform-style:preserve-3d; pointer-events:none; }
 .collectible-card-sides i { position:absolute; background:linear-gradient(90deg,#b9b0a0,#efe8da 50%,#b9b0a0); }
-.collectible-card-sides .side-left,.collectible-card-sides .side-right { top:16px; bottom:16px; width:6px; }
+.collectible-card-sides .side-left,.collectible-card-sides .side-right { top:24px; bottom:24px; width:6px; }
 .collectible-card-sides .side-left { left:-3px; transform:rotateY(90deg); }
 .collectible-card-sides .side-right { right:-3px; transform:rotateY(90deg); }
-.collectible-card-sides .side-top,.collectible-card-sides .side-bottom { left:16px; right:16px; height:6px; background:linear-gradient(180deg,#b9b0a0,#efe8da 50%,#b9b0a0); }
+.collectible-card-sides .side-top,.collectible-card-sides .side-bottom { left:24px; right:24px; height:6px; background:linear-gradient(180deg,#b9b0a0,#efe8da 50%,#b9b0a0); }
 .collectible-card-sides .side-top { top:-3px; transform:rotateX(90deg); }
 .collectible-card-sides .side-bottom { bottom:-3px; transform:rotateX(90deg); }
 
@@ -220,6 +241,14 @@
 .collectibles-run-actions { justify-content:flex-end; margin-top:10px; }
 .collectibles-sealed-card { margin-top:22px; }
 .collectible-object-tint { position:absolute; inset:0; pointer-events:none; mix-blend-mode:color; -webkit-mask:var(--object-mask) center/contain no-repeat; mask:var(--object-mask) center/contain no-repeat; }
+/* editor: colour field with "pick from artwork" */
+.artwork-color-field { display:grid; gap:6px; align-content:start; }
+.artwork-color-sampler { display:grid; gap:6px; }
+.artwork-color-sampler img { width:220px; max-width:100%; height:auto; cursor:crosshair; border-radius:8px; background:repeating-conic-gradient(#0002 0 25%, #fff1 0 50%) 0 0/16px 16px; }
+.artwork-color-sampler small { opacity:.75; }
+/* plushie back colour over the back (solid at full opacity), following its (possibly flipped) outline */
+.is-mirrored .collectible-object-backcolor { transform:scaleX(-1); }
+.collectible-object-backcolor { position:absolute; inset:0; pointer-events:none; -webkit-mask:var(--object-mask) center/contain no-repeat; mask:var(--object-mask) center/contain no-repeat; }
 .gallery-item .collectible-object,.effect-card .collectible-object { width:230px; }
 
 .gallery-item .collectible-object figcaption,.effect-card .collectible-object figcaption { display:none; }

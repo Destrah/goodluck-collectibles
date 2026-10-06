@@ -36,7 +36,7 @@ function useSettled(value, delay = 350) {
   return settled
 }
 
-export default function CollectiblesLab({ typeId, activeTab, onNavigate, onDirty, onBusy, confirm, resetToken, openRequest, canProduce = false }) {
+export default function CollectiblesLab({ typeId, activeTab, onNavigate, onDirty, onBusy, confirm, resetToken, openRequest, canProduce = false, canPrint = false }) {
   const [loaded] = useState(() => { try { return { data: isFiveM ? {definitions:[],sets:[],containers:{},instances:[],sealed:[]} : loadCollectibles() } } catch (error) { return { error: error.message } } })
   const [data, setData] = useState(loaded.data)
   const [draft, setDraft] = useState(null)
@@ -51,6 +51,9 @@ export default function CollectiblesLab({ typeId, activeTab, onNavigate, onDirty
   const [message, setMessage] = useState('')
   const [busy,setBusy] = useState(false)
   const [amount,setAmount] = useState(1)
+  // version (design) of the sealed items being created; blank = the saved look
+  const [sealedStyle,setSealedStyle] = useState('')
+  const [sealedOuterStyle,setSealedOuterStyle] = useState('')
   const lastOpen = useRef(null)
   const generation = useRef(0)
   useEffect(() => {onBusy?.(busy)},[busy,onBusy])
@@ -94,7 +97,7 @@ export default function CollectiblesLab({ typeId, activeTab, onNavigate, onDirty
   const preview = useSettled(previewSource)
   if (loaded.error) return <div role="alert">{loaded.error}</div>
   const attempt = async action => { setBusy(true); try { await action(); setError('') } catch (err) { setError(err.message) } finally {setBusy(false)} }
-  const commit = async (next,operation) => { ++generation.current; const stored = isFiveM ? (await bridge.saveCollectible(operation)).data : saveCollectibles(next); setData(stored);return stored }
+  const commit = async (next,operation) => { ++generation.current; const stored = isFiveM ? ((await bridge.saveCollectible(operation)).data || clone(next)) : saveCollectibles(next); setData(stored);return stored }
   const chooseItem = async item => { if (dirty && !await confirm('Discard unsaved collectable changes?')) return; const next = withPrints(clone(item)); setDraft(next); setPrintId(next.prints[0].id) }
   const newItem = () => chooseItem({ id: crypto.randomUUID(), collectableType: typeId, title: `New ${module.singular}`, description: '', image: '', chanceWeight: 100, accent: '#c9a34d', backImage:'', finish:'none', finishStrength:60, prints:[{ id: crypto.randomUUID(), name: 'Standard', rarityKey: 'common', chanceWeight: 100 }] })
   const duplicateItem = () => draft && chooseItem({ ...clone(draft), id: crypto.randomUUID(), title: `${draft.title} Copy`, prints: printsOf(draft).map(entry => ({ ...entry, id: crypto.randomUUID() })) })
@@ -112,7 +115,7 @@ export default function CollectiblesLab({ typeId, activeTab, onNavigate, onDirty
   const selectedSet = setEdit || typeSets.find(set => set.id === selectedSetId) || typeSets[0]
   const inspect = item => setViewer(item)
   const startOpening = (outer = false, sealedId, slot) => attempt(async () => {
-    if (isFiveM) { ++generation.current; const [response,prefs]=await Promise.all([bridge.openCollectibleContainer({typeId,outer,slot:slot || data.sealed.find(item => item.instanceId === sealedId)?.slot}),loadPackPrefs()]);setData(response.data);setOpening(true);setRun({...response.run,playbackLook:openingLook(response.run,prefs)});return }
+    if (isFiveM) { ++generation.current; const [response,prefs]=await Promise.all([bridge.openCollectibleContainer({typeId,outer,slot:slot || data.sealed.find(item => item.instanceId === sealedId)?.slot}),loadPackPrefs()]);setData(current => response.data || {...current,sealed:(current.sealed || []).filter(item => item.instanceId !== sealedId)});setOpening(true);setRun({...response.run,playbackLook:openingLook(response.run,prefs)});return }
     const result = sealedId ? openSealedContainer(data,sealedId) : outer ? openOuterContainer(data,typeId) : openContainer(data,typeId)
     await commit(result.data); setOpening(true)
     const container = sealedId ? data.sealed.find(item => item.instanceId === sealedId).containerSnapshot : data.containers[typeId]
@@ -121,10 +124,12 @@ export default function CollectiblesLab({ typeId, activeTab, onNavigate, onDirty
   const editBox = patch => setContainerDraft({ ...clone(box), ...patch })
   const saveContainers = () => attempt(async () => {if (!box.label.trim() || !typeSets.some(set => set.id === box.setId && set.itemIds.length)) throw new Error('Choose a saved set with collectables before saving the container.');const value={...clone(box),kind:module.container.kind,count:Math.min(24,Math.max(1,Math.floor(Number(box.count)||1))),outer:{...(box.outer || module.container.outer),count:Math.min(100,Math.max(1,Math.floor(Number(box.outer?.count || module.container.outer.count)||1)))}};await commit({...data,containers:{...data.containers,[typeId]:value}},{kind:'container',typeId,value});setContainerDraft(null);setMessage('Containers saved.')})
   const saveCurrentSet = () => attempt(async () => {await commit(saveSet(data,selectedSet),{kind:'set',value:selectedSet});setSelectedSetId(selectedSet.id);setSetDraft(null);setMessage(`${selectedSet.name} saved.`)})
-  const createSealed = outer => attempt(async () => { const response = await bridge.createCollectibleContainer({typeId,amount:Number(amount)||1,outer}); setData(response.data); setMessage(`Created ${amount} ${outer ? box.outer?.label || module.container.outer.label : box.label} item${Number(amount) === 1 ? '' : 's'} in your inventory.`) })
+  const createSealed = outer => attempt(async () => { const response = await bridge.createCollectibleContainer({typeId,amount:Number(amount)||1,outer,style:chosenStyle,outerStyle:chosenOuterStyle}); setData(response.data); setMessage(`Created ${amount} ${outer ? box.outer?.label || module.container.outer.label : box.label} item${Number(amount) === 1 ? '' : 's'} in your inventory.`) })
   // 3D design + opening animation, saved on the container so every player (and each sealed snapshot) gets it
   const innerLook = normalizeLook(innerKind, box.look)
   const outerLook = normalizeLook('case', box.outer?.look)
+  const chosenStyle = CONTAINER_LOOKS[innerKind].styles.some(entry => entry.id === sealedStyle) ? sealedStyle : innerLook.style
+  const chosenOuterStyle = CONTAINER_LOOKS.case.styles.some(entry => entry.id === sealedOuterStyle) ? sealedOuterStyle : outerLook.style
   const lookGroup = (kind, value, onChange, title) => <>
     <div className="pk-set-group"><span className="pk-set-title">{title} design</span><div className="pk-set-row">{CONTAINER_LOOKS[kind].styles.map(option => <button key={option.id} type="button" className={`pk-opt ${value.style === option.id ? 'selected' : ''}`} disabled={opening} onClick={() => onChange({...value,style:option.id})}>{option.label}</button>)}</div></div>
     <div className="pk-set-group"><span className="pk-set-title">{title} opening</span><div className="pk-set-row">{CONTAINER_LOOKS[kind].animations.map(option => <button key={option.id} type="button" className={`pk-opt ${value.animation === option.id ? 'selected' : ''}`} disabled={opening} onClick={() => onChange({...value,animation:option.id})}>{option.label}</button>)}</div></div>
@@ -163,7 +168,8 @@ export default function CollectiblesLab({ typeId, activeTab, onNavigate, onDirty
 
         <CollectibleEditor module={module} draft={draft} printId={printId} onSelectPrint={setPrintId} onChange={setDraft}
           onSave={saveItem} onRevert={() => { if (saved) { const next = withPrints(clone(saved)); setDraft(next); if (!next.prints.some(entry => entry.id === printId)) setPrintId(next.prints[0].id) } else setDraft(null) }} onDelete={deleteItem} onDuplicate={duplicateItem}
-          dirty={!!dirty} isNew={!saved} saving={busy} saveError={error} />
+          dirty={!!dirty} isNew={!saved} saving={busy} saveError={error}
+          onPrint={canPrint ? async print => { await bridge.printCollectible({ typeId, definitionId: draft.id, printId: print.id }); return `Printed ${draft.title} — ${print.name}. The item is marked MANUAL PRINT.` } : undefined} />
       </section>}
     </>}
 
@@ -209,6 +215,8 @@ export default function CollectiblesLab({ typeId, activeTab, onNavigate, onDirty
           {isFiveM && canProduce && <div className="management-card production-card">
             <div className="management-panel-title"><div><strong>Create sealed inventory items</strong><span>Outer case → sealed {containerNoun} → pulled {module.label.toLowerCase()}.</span></div></div>
             <div className="production-row">
+              <label className="field"><span>{box.label} version</span><select value={chosenStyle} onChange={e => setSealedStyle(e.target.value)}>{CONTAINER_LOOKS[innerKind].styles.map(entry => <option key={entry.id} value={entry.id}>{entry.label}</option>)}</select></label>
+              <label className="field"><span>{box.outer?.label || module.container.outer.label} version</span><select value={chosenOuterStyle} onChange={e => setSealedOuterStyle(e.target.value)}>{CONTAINER_LOOKS.case.styles.map(entry => <option key={entry.id} value={entry.id}>{entry.label}</option>)}</select></label>
               <label className="field amount-field"><span>Amount</span><input type="number" min="1" max="100" value={amount} onChange={e => setAmount(Math.max(1, Number(e.target.value) || 1))} /></label>
               <button className="primary" disabled={busy || !data.containers[typeId]} onClick={() => createSealed(false)}>Create {box.label}</button>
               <button className="primary" disabled={busy || !data.containers[typeId]} onClick={() => createSealed(true)}>Create {box.outer?.label || module.container.outer.label}</button>

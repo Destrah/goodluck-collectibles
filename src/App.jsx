@@ -7,13 +7,23 @@ import CollectibleOpeningOverlay from './collectables/CollectibleOpeningOverlay'
 import { listCollectableTypes } from './collectables/registry'
 import PackOptions from './components/PackOptions'
 import ManagementPanel from './components/ManagementPanel'
+import VendingMapPanel from './components/VendingMapPanel'
 import LazyMount from './components/LazyMount'
 import useConfirm from './components/useConfirm'
 import CardViewer from './components/CardViewer'
 import BinderView from './components/BinderView'
+import CardCaseView from './components/CardCaseView'
 import { renderCardIcon } from './utils/cardIcon'
+import { downscaleImageUrl } from './utils/compressImage'
+import GradingStation from './grading/GradingStation.jsx'
+import GradeRecordLookup from './grading/GradeRecord.jsx'
+import { setPrintOdds, setServerOdds } from './utils/printOdds.js'
+import GradingLab from './grading/GradingLab.jsx'
+import { copyCard, loadCopies } from './grading/standaloneCopies.js'
+import { resolveAsset } from './runtime/assets'
 import { HOLOS, defaultCards, newCard, normalizeCard, normalizeCards, resolveCardVariant } from './cardData'
 import { bridge, isFiveM, storage } from './runtime'
+import { loadPackPrefs } from './runtime/packPrefs'
 import { normalizeCatalogForRuntime } from './runtime/catalog'
 
 
@@ -32,6 +42,9 @@ export default function App() {
   const [catalogReady, setCatalogReady] = useState(false)
   const [catalogError, setCatalogError] = useState('')
   const [sets, setSets] = useState([])
+  // real pull odds per print (footer star colours, inventory icons): from the saved catalogue and its sets.
+  // Computed during render so every card drawn in this pass already sees them.
+  useMemo(() => setPrintOdds(savedCards, sets), [savedCards, sets])
   const [selectedId, setSelectedId] = useState(() => cards[0]?.id)
   const [selectedVariantId, setSelectedVariantId] = useState(() => cards[0]?.variants?.[0]?.id)
   const [tab, setTab] = useState('editor')
@@ -46,8 +59,11 @@ export default function App() {
   const [overlayRun, setOverlayRun] = useState(0)
   // FiveM trading card item used: show just that card, large, in the centre of the screen
   const [cardView, setCardView] = useState(null)
+  const [gradingView, setGradingView] = useState(null) // FiveM: the grading bench for one card item (server session)
+  const [gradeRecordView, setGradeRecordView] = useState(null) // FiveM: /gradecheck cert lookup
   // FiveM binder item "View Binder" / standalone binder preview
   const [binderView, setBinderView] = useState(null)
+  const oddsFetchedAt = useRef(0)
   // FiveM /cardoptions: compact player preference overlay
   const [packOptionsView, setPackOptionsView] = useState(false)
   const [binderPreview, setBinderPreview] = useState(null)
@@ -59,6 +75,14 @@ export default function App() {
   const importRef = useRef(null)
   const previewRef = useRef(null)
   const catalogRevision = useRef(0)
+
+  // FiveM: get coin bag / plushie box openings ready while idle, so using one shows it straight away.
+  useEffect(() => {
+    if (!isFiveM) return undefined
+    const idle = window.requestIdleCallback || (fn => setTimeout(fn, 1500))
+    const handle = idle(() => { loadPackPrefs().catch(() => {}); import('./collectables/Container3D.js').then(module => module.prewarmContainerScenes()).catch(() => {}) }, { timeout: 5000 })
+    return () => (window.cancelIdleCallback || clearTimeout)(handle)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -90,6 +114,11 @@ export default function App() {
     })
 
     const unsubscribe = bridge.subscribe(message => {
+      // FiveM: the server's print odds for the card stars (refreshed at most once a minute, whenever the UI opens)
+      if (isFiveM && message.type === 'metaComic:open' && Date.now() - oddsFetchedAt.current > 60000) {
+        oddsFetchedAt.current = Date.now()
+        bridge.getPrintOdds?.().then(result => setServerOdds(result?.odds)).catch(() => {})
+      }
       if (message.type === 'metaComic:collectibleContainer') {setNuiVisible(true);setOverlayRun(0);setCardView(null);setBinderView(null);setPackOptionsView(false);setObjectOpenRequest({...message,id:crypto.randomUUID()});return}
 
       // FiveM: the server asks for inventory icons of card prints it has no uploaded icon for yet.
@@ -112,9 +141,23 @@ export default function App() {
         })()
         return
       }
+      // FiveM legacy artwork command (collectablesoptimizeart): downscale one saved image here, the server uploads it.
+      if (message?.type === 'metaComic:optimizeArtwork' && typeof message.id === 'string') {
+        ;(async () => {
+          let data = ''
+          try {
+            const state = await resolveAsset(message.src)
+            if (state.status !== 'error' && state.url) data = await downscaleImageUrl(state.url, message.options || {})
+          } catch (error) { console.warn('Could not downscale artwork', error) }
+          await bridge.optimizedArtwork?.(message.id, data).catch(() => {}) // '' = keep / couldn't load: the server moves on
+        })()
+        return
+      }
       if (message?.type === 'metaComic:open') {
         setObjectOpenRequest(null)
         setNuiVisible(true)
+        setGradingView(message.overlay && message.mode === 'grading' && message.grading ? message.grading : null)
+        setGradeRecordView(message.overlay && message.mode === 'gradeRecord' ? { key: Date.now(), cert: message.cert || '', found: message.found || null } : null)
         if (message.mode === 'admin') {
           setCollectibleReset(current => current + 1)
           setPackOptionsView(false)
@@ -168,6 +211,11 @@ export default function App() {
           setOverlayRun(0)
           setCardView(null)
           setBinderView(message.binder)
+        } else if (message.overlay && (message.mode === 'grading' || message.mode === 'gradeRecord')) {
+          setPackOptionsView(false)
+          setOverlayRun(0)
+          setCardView(null)
+          setBinderView(null)
         } else if (message.overlay && message.mode === 'card' && message.card) {
           setPackOptionsView(false)
           setOverlayRun(0)
@@ -186,7 +234,7 @@ export default function App() {
           if (message.view) setTab(message.view)
         }
       }
-      if (message?.type === 'metaComic:close') { setNuiVisible(false); setOverlayRun(0); setObjectOpenRequest(null); setCardView(null); setBinderView(null); setPackOptionsView(false) }
+      if (message?.type === 'metaComic:close') { setNuiVisible(false); setOverlayRun(0); setObjectOpenRequest(null); setCardView(null); setBinderView(null); setPackOptionsView(false); setGradingView(null); setGradeRecordView(null) }
     })
     bridge.uiReady?.().catch?.(() => {}) // FiveM only: listening now, so the server can send icon work
     return () => {
@@ -389,7 +437,10 @@ export default function App() {
 
   const importJson = async (file) => {
     if (!file) return
-    const parsed = JSON.parse(await file.text())
+    await importJsonText(await file.text())
+  }
+  const importJsonText = async (text) => {
+    const parsed = JSON.parse(text)
     if (!Array.isArray(parsed)) throw new Error('Expected an array of cards')
     const normalized = normalizeCards(parsed)
     if (!normalized.length) throw new Error('The card array is empty')
@@ -401,7 +452,10 @@ export default function App() {
     setSelectedVariantId(normalized[0].variants[0]?.id)
   }
 
-  const requestImport = () => guardUnsaved(() => importRef.current?.click())
+  // FiveM's game browser can't open a file dialog, so there the JSON is pasted into a box instead.
+  const [pasteImport, setPasteImport] = useState(null)
+  const requestImport = () => guardUnsaved(() => isFiveM ? setPasteImport('') : importRef.current?.click())
+  const submitPasteImport = () => importJsonText(pasteImport).then(() => setPasteImport(null)).catch(err => alert(err.message))
 
   const reset = () => guardUnsaved(async () => {
     if (!await confirm('Replace the saved catalog with the bundled demo cards?', 'Replace')) return
@@ -423,14 +477,35 @@ export default function App() {
   // booster pack item used in FiveM: only the centre-screen opening, no app shell
   if (overlayRun) return <PackSimulator cards={savedCards} sets={sets} overlay overlayKey={overlayRun} onClose={performCloseNui} />
   // FiveM binder item: only the binder, the game stays visible around it
-  if (isFiveM && binderView) return <BinderView binder={binderView} onClose={performCloseNui} />
+  if (isFiveM && binderView) return binderView.kind === 'case'
+    ? <CardCaseView binder={binderView} onClose={performCloseNui} />
+    : <BinderView binder={binderView} onClose={performCloseNui} />
+  // FiveM /gradecheck: look up a slab's grading record by cert number
+  if (gradeRecordView) return <GradeRecordLookup key={gradeRecordView.key} initial={gradeRecordView.found} initialCert={gradeRecordView.cert}
+    lookup={cert => bridge.gradingRecord(cert)} onClose={performCloseNui} />
+  // FiveM "Grade card" item button: the grading bench, every mark checked by the server
+  if (gradingView) {
+    const sessionId = gradingView.sessionId
+    const session = {
+      maxWrong: gradingView.maxWrong,
+      gradeAdjust: gradingView.gradeAdjust,
+      mark: mark => bridge.gradingMark({ sessionId, mark }),
+      submit: ({ grade } = {}) => bridge.gradingSubmit({ sessionId, grade }),
+      cancel: () => bridge.gradingCancel({ sessionId }),
+    }
+    return <GradingStation key={sessionId} card={gradingView.card} reference={gradingView.reference} session={session} debug={gradingView.debug === true} debugFlaws={gradingView.debugFlaws} onDone={performCloseNui} onCancel={performCloseNui} />
+  }
   // trading card item used in FiveM: only that card, centred
   if (cardView) {
     const { card, shownBy } = cardView
+    // your own raw card spun hard in the viewer: the server may crease / bend / tear it, and sends the result back
+    const onRough = !shownBy && isFiveM && (!card.collectableType || card.collectableType === 'trading_card')
+      ? () => bridge.roughHandling?.().then(response => { if (response?.card) setCardView(current => current && { ...current, card: response.card }) }).catch(() => {})
+      : undefined
     return (
       <>
         {shownBy && <div className="card-shown-by">{shownBy} is showing you a card</div>}
-        <CardViewer bare card={card} onClose={performCloseNui} title={`${card.title || 'Card'} ${card.variantName || ''}`.trim()} />
+        <CardViewer bare card={card} onClose={performCloseNui} onRough={onRough} title={`${card.title || 'Card'} ${card.variantName || ''}`.trim()} />
       </>
     )
   }
@@ -444,6 +519,10 @@ export default function App() {
             <button className="ghost" onClick={requestImport} disabled={isFiveM && !catalogReady}>Import JSON</button>
             <input ref={importRef} hidden type="file" accept="application/json" onChange={e => importJson(e.target.files?.[0]).catch(err => alert(err.message))} />
             <button className="ghost" onClick={exportJson}>Export JSON</button>
+            {pasteImport !== null && <div className="paste-import" role="dialog" aria-label="Import card JSON">
+              <textarea autoFocus rows="8" placeholder="Paste the exported card JSON here (Ctrl+V)" value={pasteImport} onChange={e => setPasteImport(e.target.value)} />
+              <div><button className="ghost" onClick={() => setPasteImport(null)}>Cancel</button><button className="primary" disabled={!pasteImport.trim()} onClick={submitPasteImport}>Import</button></div>
+            </div>}
             <button className="primary" onClick={add} disabled={isFiveM && !catalogReady}>+ New card</button>
           </>}
           {isFiveM && <button className="ghost" onClick={requestCloseNui}>Close</button>}
@@ -464,8 +543,10 @@ export default function App() {
       <div className="mode-tabs">
         {editorAllowed && <button className={tab === 'editor' ? 'active' : ''} onClick={() => changeTab('editor')}>Editor</button>}
         {managementAllowed && <button className={tab === 'management' ? 'active' : ''} onClick={() => changeTab('management')}>Sets & containers</button>}
+        {managementAllowed && system === 'trading_card' && <button className={tab === 'vending' ? 'active' : ''} onClick={() => changeTab('vending')}>Vending machines</button>}
         <button className={tab === 'gallery' ? 'active' : ''} onClick={() => changeTab('gallery')}>Collection</button>
         <button className={tab === 'effects' ? 'active' : ''} onClick={() => changeTab('effects')}>Effect sampler</button>
+        {!isFiveM && system === 'trading_card' && <button className={tab === 'grading' ? 'active' : ''} onClick={() => changeTab('grading')}>Grading</button>}
         <button className={tab === 'pack' ? 'active' : ''} onClick={() => changeTab('pack')}>{system === 'trading_card' ? 'Pack / box lab' : system === 'plushie' ? 'Box / case lab' : 'Bag / box lab'}</button>
       </div>
 
@@ -511,6 +592,7 @@ export default function App() {
           <CardEditor
             card={selected}
             selectedVariantId={selectedVariantId}
+            catalog={savedCards}
             onSelectVariant={setSelectedVariantId}
             onChange={changeSelected}
             onDelete={remove}
@@ -521,19 +603,24 @@ export default function App() {
             saveError={saveState.error}
             onSave={saveSelected}
             onRevert={revertSelected}
+            onPrint={isFiveM && runtimeInfo.capabilities?.manualPrint === true ? async variant => { await bridge.printCard({ baseCardId: selected.id, variantId: variant.id }); return `Printed ${selected.title} — ${variant.name}. The item is marked MANUAL PRINT.` } : undefined}
           />
         </section>
       )}
 
       {tab === 'management' && managementAllowed && <ManagementPanel cards={cards} sets={sets} onSetsChange={setSets} />}
+      {tab === 'vending' && managementAllowed && <VendingMapPanel />}
 
       {tab === 'gallery' && (
         <div className="binder-preview-bar">
           <span>Binder preview: every print in collection order, 9 per sleeve page (in FiveM the order comes from the binder item's slots).</span>
-          <button className="ghost" onClick={() => setBinderPreview({ label: 'Binder preview', slots: Math.max(18, Math.ceil(allPrints.length / 18) * 18), pockets: allPrints.map((card, i) => ({ slot: i + 1, card })) })}>View binder</button>
+          <button className="ghost" onClick={() => setBinderPreview({ label: 'Binder preview', slots: Math.max(18, Math.ceil(allPrints.length / 18) * 18), pockets: allPrints.slice(8).map((card, i) => ({ slot: i + 1, card })), hand: [...loadCopies().map(copy => copyCard(copy, cards)).filter(Boolean).slice(0, 8), ...allPrints.slice(0, 4)].map((card, i) => ({ slot: i + 1, card })) })}>View binder</button>
+          <button className="ghost" onClick={() => setBinderPreview({ kind: 'case', label: 'Card case preview', slots: 48, pockets: allPrints.slice(4, 34).map((card, i) => ({ slot: i + 1 + Math.floor(i / 4) * 2, card })), hand: [...loadCopies().map(copy => copyCard(copy, cards)).filter(Boolean).slice(0, 8), ...allPrints.slice(0, 4)].map((card, i) => ({ slot: i + 1, card })) })}>View card case</button>
         </div>
       )}
-      {binderPreview && <BinderView binder={binderPreview} onClose={() => setBinderPreview(null)} />}
+      {binderPreview && (binderPreview.kind === 'case'
+        ? <CardCaseView binder={binderPreview} onClose={() => setBinderPreview(null)} />
+        : <BinderView binder={binderPreview} onClose={() => setBinderPreview(null)} />)}
 
       {tab === 'gallery' && (
         <section className="gallery-grid">
@@ -562,8 +649,9 @@ export default function App() {
       )}
 
       {tab === 'pack' && <PackSimulator cards={savedCards} sets={sets} />}
+      {tab === 'grading' && !isFiveM && <GradingLab cards={savedCards} />}
       </>}
-      <div hidden={system === 'trading_card'}><CollectiblesLab typeId={system === 'trading_card' ? 'challenge_coin' : system} activeTab={tab} onNavigate={changeTab} onDirty={setCollectibleDirty} onBusy={setCollectibleBusy} confirm={confirm} resetToken={collectibleReset} canProduce={runtimeInfo.capabilities?.createSealed === true} /></div>
+      <div hidden={system === 'trading_card'}><CollectiblesLab typeId={system === 'trading_card' ? 'challenge_coin' : system} activeTab={tab} onNavigate={changeTab} onDirty={setCollectibleDirty} onBusy={setCollectibleBusy} confirm={confirm} resetToken={collectibleReset} canProduce={runtimeInfo.capabilities?.createSealed === true} canPrint={isFiveM && runtimeInfo.capabilities?.manualPrint === true} /></div>
 
       {previewViewer && (
         <CardViewer

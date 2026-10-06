@@ -170,3 +170,21 @@ html:not(.fivem-runtime) .bd-overlay{background:rgba(5,7,12,.9)}
   .bd-drag-page-edge.is-hot{animation:none!important}
   .bd-drag-float.is-dropping,.bd-crosspage-insert,.bd-card.is-crosspage-return{animation-duration:1ms!important}
 }
+
+/* card hand: the inventory's trading cards fanned out along the bottom of the screen */
+.bd-head-actions{display:flex;align-items:center;gap:10px}
+.bd-hand-toggle{height:38px;padding:0 14px;border-radius:19px;border:1px solid rgba(255,255,255,.2);background:rgba(15,12,24,.85);color:#e8e2f4;font-size:12px;font-weight:700}
+.bd-hand-toggle.is-on{border-color:#a78bfa;box-shadow:0 0 0 1px #a78bfa66 inset;color:#fff}
+.bd-hand{position:fixed;left:0;right:0;bottom:0;z-index:150;pointer-events:none;border-top:1px solid transparent;transition:background .15s,border-color .15s}
+.bd-hand.is-receiving{z-index:5;background:linear-gradient(to top,rgba(167,139,250,.22),transparent);border-top-color:rgba(167,139,250,.35)}
+.bd-hand.is-hot{background:linear-gradient(to top,rgba(74,222,128,.32),transparent);border-top-color:#4ade80}
+.bd-hand-hint{position:absolute;left:50%;top:-30px;transform:translateX(-50%);padding:5px 12px;border-radius:12px;background:rgba(15,12,24,.88);color:#e8e2f4;font-size:12px;white-space:nowrap}
+.bd-hand-card{position:absolute;left:50%;bottom:-38%;padding:0;border:0;border-radius:8px;background:none;pointer-events:auto;cursor:grab;touch-action:none;
+  transform-origin:50% 100%;transform:translateX(calc(-50% + var(--hand-x))) translateY(var(--hand-y)) rotate(var(--hand-r));
+  transition:transform .16s ease-out,filter .16s;filter:drop-shadow(0 10px 16px rgba(0,0,0,.6))}
+.bd-hand-card .bd-card-scale{position:absolute;left:0;top:0;transform-origin:0 0;pointer-events:none}
+.bd-hand-card:hover{z-index:200!important;transform:translateX(calc(-50% + var(--hand-x))) translateY(-34%) rotate(0deg) scale(1.06)}
+.bd-hand-card.is-lifted{opacity:.25}
+.bd-hand-float{z-index:300;transform:rotate(-2deg) scale(1.04)}
+.bd-hand-float.is-blocked{opacity:.6}
+.bd-pocket.is-hand-blocked{box-shadow:inset 0 0 0 2px #f87171}

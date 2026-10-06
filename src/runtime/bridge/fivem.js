@@ -27,6 +27,15 @@ async function nuiFetch(endpoint, body = {}) {
 
 installMessageListener()
 
+// The server sends each uploaded image of an opening once (run.images); items point at it as '@img:N'.
+function unpackRunImages(response) {
+  const images = Array.isArray(response?.run?.images) ? response.run.images : []
+  if (!images.length) return response
+  const expand = value => typeof value === 'string' && value.startsWith('@img:') ? images[Number(value.slice(5)) - 1] ?? '' : value
+  const items = (response.run.items || []).map(item => Object.fromEntries(Object.entries(item).map(([key, value]) => [key, expand(value)])))
+  return { ...response, run: { ...response.run, items, images: undefined } }
+}
+
 export const fivemBridge = {
   runtime: 'fivem',
   getInfo: () => nuiFetch('getRuntimeInfo'),
@@ -36,19 +45,33 @@ export const fivemBridge = {
   getCollection: () => nuiFetch('getCollection'),
   getCollectibles: () => nuiFetch('getCollectibles'),
   saveCollectible: payload => nuiFetch('saveCollectible', payload),
-  openCollectibleContainer: payload => nuiFetch('openCollectibleContainer', payload),
+  openCollectibleContainer: payload => nuiFetch('openCollectibleContainer', payload).then(unpackRunImages),
   claimCollectibles: () => nuiFetch('claimCollectibles'),
   createCollectibleContainer: payload => nuiFetch('createCollectibleContainer', payload),
   swapBinderCards: payload => nuiFetch('swapBinderCards', payload || {}),
+  binderStoreCard: payload => nuiFetch('binderStoreCard', payload || {}), // card hand -> binder pocket (server moves the item)
+  binderTakeCard: payload => nuiFetch('binderTakeCard', payload || {}), // binder pocket -> inventory, if there is room
+  getPrintOdds: () => nuiFetch('getPrintOdds'),
   getCatalog: () => nuiFetch('getCatalog'),
   getSets: () => nuiFetch('getSets'),
   saveSets: sets => nuiFetch('saveSets', { sets }),
+  getVendingMachines: () => nuiFetch('getVendingMachines'), // managers: every placed machine + stock
+  vendingWaypoint: (x, y) => nuiFetch('vendingWaypoint', { x, y }),
   printCard: payload => nuiFetch('printCard', payload || {}),
+  printCollectible: payload => nuiFetch('printCollectible', payload || {}),
+  // card grading (server checks every mark against the card's real condition)
+  gradingMark: payload => nuiFetch('gradingMark', payload || {}),
+  gradingSubmit: payload => nuiFetch('gradingSubmit', payload || {}),
+  gradingCancel: payload => nuiFetch('gradingCancel', payload || {}),
+  gradingRecord: cert => nuiFetch('gradingRecord', { cert }), // cert lookup: { record, card }
+  roughHandling: () => nuiFetch('roughHandling', {}), // own card spun hard in the viewer: the server may wear it
   createSealed: payload => nuiFetch('createSealed', payload || {}),
   getPackPrefs: () => nuiFetch('getPackPrefs'),
   savePackPrefs: prefs => nuiFetch('savePackPrefs', { prefs }),
-  packProp: state => nuiFetch('packProp', { state }), // 'start' | 'stop': character pack-opening animation
+  packProp: (state, kind) => nuiFetch('packProp', { state, kind }), // 'start' | 'stop': character opening animation; kind: undefined = booster pack, 'bag' | 'box' | 'case'
+  holdCollectibles: payload => nuiFetch('holdCollectibles', payload || {}), // { kind | typeId, count }: the character holds the pulls
   cardIcon: (key, data) => nuiFetch('cardIcon', { key, data }),
+  optimizedArtwork: (id, data) => nuiFetch('optimizedArtwork', { id, data }), // legacy artwork command: downscaled image -> server upload
   uiReady: () => nuiFetch('uiReady', {}), // NUI loaded -> server may ask it to draw missing card icons // rendered inventory icon -> server upload
   claimCards: () => nuiFetch('claimCards'), // give the pulled card items once they've been revealed / the opening closes
   saveCatalog: cards => nuiFetch('saveCatalog', { cards }),

@@ -70,9 +70,11 @@ local function collectibleMetadata(typeId,snapshot)
  local imageurl,image
  if service.icon then imageurl,image=service.icon(snapshot) end
  local printPart=snapshot.printName and snapshot.printName~='Standard' and (' ('..snapshot.printName..')') or ''
- return {instanceId=snapshot.instanceId,collectableType=typeId,label=(snapshot.title or 'Collectible')..printPart,
-  description=('%s · %s'):format(snapshot.rarity or 'Common',snapshot.printName or 'Standard')..(snapshot.description and snapshot.description~='' and ('\n'..snapshot.description) or ''),
-  rarity=snapshot.rarity,rarityKey=snapshot.rarityKey,printName=snapshot.printName,imageurl=imageurl,image=image,collectibleSnapshot=copy(snapshot)}
+ local manual=snapshot.manualPrint==true
+ return {instanceId=snapshot.instanceId,collectableType=typeId,label=(snapshot.title or 'Collectible')..printPart..(manual and ' [Manual Print]' or ''),
+  description=(manual and 'MANUAL PRINT · ' or '')..('%s · %s'):format(snapshot.rarity or 'Common',snapshot.printName or 'Standard')..(snapshot.description and snapshot.description~='' and ('\n'..snapshot.description) or ''),
+  rarity=snapshot.rarity,rarityKey=snapshot.rarityKey,printName=snapshot.printName,imageurl=imageurl,image=image,collectibleSnapshot=copy(snapshot),
+  acquisitionSource=snapshot.acquisitionSource,manualPrint=manual or nil,printType=manual and 'MANUAL PRINT' or nil,printedBy=snapshot.printedBy,printedAt=snapshot.printedAt}
 end
 local function validType(id) assert(types[id],'Unknown collectible type');return types[id] end
 local function bounded(value,max) local n=tonumber(value); assert(n and n==n and n>=1 and n<=max and n%1==0,'Invalid container count');return n end
@@ -172,10 +174,38 @@ function service.get(source)
  return data
 end
 
+-- Copies of the pulled snapshots with each inline data: image (several hundred KB) replaced by a shared reference.
+local function packImages(items)
+ local images,index,packed={},{},{}
+ for i,item in ipairs(items) do
+  local entry=copy(item)
+  for key,value in pairs(entry) do
+   if type(value)=='string' and #value>4096 and value:sub(1,5)=='data:' then
+    if not index[value] then images[#images+1]=value;index[value]='@img:'..#images end
+    entry[key]=index[value]
+   end
+  end
+  packed[i]=entry
+ end
+ return packed,images
+end
+
 local serial=0
 local function unique() serial=serial+1;return ('%s-%s-%s'):format(os.time(),GetGameTimer(),serial) end
+-- Container designs (src/collectables/container3dOptions.js); the first one is the default.
+local CONTAINER_STYLES={bag={'velvet','satin','leather'},box={'window','cube','gift'},case={'display','chest','crate'}}
+local function styleOf(kind,look)
+ for _,id in ipairs(CONTAINER_STYLES[kind]) do if type(look)=='table' and look.style==id then return id end end
+ return CONTAINER_STYLES[kind][1]
+end
+-- Each design has its own inventory picture: ox_inventory/web/images/<item name>_<design>.png (fivem/img/containers).
+-- Config.Collectibles.ContainerImages = false keeps the item's own picture for every design.
 local function containerMetadata(typeId,container,outer)
- return {instanceId=unique(),collectableType=typeId,containerSnapshot=copy(container),outer=outer==true,label=outer and container.outer.label or container.label,description='Meta Comics · '..(outer and (container.outer.count..' sealed containers') or (container.count..' collectables'))}
+ local names=types[typeId]
+ local style=outer and styleOf('case',container.outer and container.outer.look) or styleOf(container.kind=='bag' and 'bag' or 'box',container.look)
+ local image=Config.Collectibles.ContainerImages~=false and ((outer and names.outer or names.inner)..'_'..style) or nil
+ return {instanceId=unique(),collectableType=typeId,containerSnapshot=copy(container),outer=outer==true,label=outer and container.outer.label or container.label,image=image,
+  description='Meta Comics · '..(outer and (container.outer.count..' sealed containers') or (container.count..' collectables'))}
 end
 local busy,last={},{ }
 local function deliver(source,outputs,consumed)
@@ -200,18 +230,48 @@ end
 
 local claimBusy={}
 local pendingJson
+-- MySQL: each owner's undelivered openings are read once, then kept in memory next to the table (only this
+-- resource writes it), so opening and claiming don't query the database every time.
+local pendingCache={}
 local function ownerOf(source) return assert(MetaComic.Framework.getIdentifier(source),'Player identity is unavailable') end
 local function pendingFor(owner)
  if MetaComic.Persistence.name=='mysql' then
-  local list={};for _,row in ipairs(query('SELECT id,outputs_json FROM goodluck_collectibles_openings WHERE owner=?',{owner})) do list[#list+1]={id=row.id,outputs=decode(row.outputs_json)} end;return list
+  if not pendingCache[owner] then
+   local list={};for _,row in ipairs(query('SELECT id,outputs_json FROM goodluck_collectibles_openings WHERE owner=?',{owner})) do list[#list+1]={id=row.id,outputs=decode(row.outputs_json)} end
+   pendingCache[owner]=list
+  end
+  return copy(pendingCache[owner])
  end
  if not pendingJson then local raw=LoadResourceFile(resource,'data/collectible_openings.json');pendingJson=raw and raw~='' and decode(raw) or {} end
  local list={};for id,entry in pairs(pendingJson) do if entry.owner==owner then list[#list+1]={id=id,outputs=copy(entry.outputs)} end end;return list
 end
+-- Receipt writes run in order on their own thread, so an opening doesn't wait for the database: the in-memory
+-- copy above is updated first and is what openings / claims read.
+local writeQueue,writing={},false
+local function queueWrite(sql,params)
+ writeQueue[#writeQueue+1]={sql=sql,params=params}
+ if writing then return end
+ writing=true
+ CreateThread(function()
+  while #writeQueue>0 do
+   local write=table.remove(writeQueue,1)
+   local ok,err=pcall(query,write.sql,write.params)
+   if not ok then print('[meta-comic] could not save a collectible delivery receipt: '..tostring(err)) end
+  end
+  writing=false
+ end)
+end
 local function savePending(id,owner,outputs)
  if MetaComic.Persistence.name=='mysql' then
-  if outputs then query('INSERT INTO goodluck_collectibles_openings (id,owner,outputs_json) VALUES (?,?,?)',{id,owner,json.encode(outputs)})
-  else query('DELETE FROM goodluck_collectibles_openings WHERE id=? AND owner=?',{id,owner}) end
+  if not pendingCache[owner] then pendingFor(owner) end
+  if outputs then queueWrite('INSERT INTO goodluck_collectibles_openings (id,owner,outputs_json) VALUES (?,?,?)',{id,owner,json.encode(outputs)})
+  else queueWrite('DELETE FROM goodluck_collectibles_openings WHERE id=? AND owner=?',{id,owner}) end
+  local cached=pendingCache[owner]
+  if cached then
+   local kept={};for _,entry in ipairs(cached) do if entry.id~=id then kept[#kept+1]=entry end end
+   if outputs then kept[#kept+1]={id=id,outputs=copy(outputs)} end
+   pendingCache[owner]=kept
+  end
  else
   pendingFor(owner)
   local next=copy(pendingJson);next[id]=outputs and {owner=owner,outputs=copy(outputs)} or nil
@@ -244,10 +304,32 @@ function service.claim(source)
 end
 
 function service.create(source,payload)
- local names=validType(payload.typeId);local container=assert(service.data.containers[payload.typeId],'Save this container first');local outer=payload.outer==true
+ local names=validType(payload.typeId);local container=copy(assert(service.data.containers[payload.typeId],'Save this container first'));local outer=payload.outer==true
+ -- the version chosen when creating them; the sealed items keep it, and so do the containers inside an outer case
+ local innerKind=container.kind=='bag' and 'bag' or 'box'
+ container.look=container.look or {};container.look.style=styleOf(innerKind,{style=payload.style or container.look.style})
+ container.outer=container.outer or {};container.outer.look=container.outer.look or {};container.outer.look.style=styleOf('case',{style=payload.outerStyle or container.outer.look.style})
  local outputs={};for _=1,bounded(payload.amount or 1,100) do outputs[#outputs+1]={name=outer and names.outer or names.inner,metadata=containerMetadata(payload.typeId,container,outer)} end
  deliver(source,outputs)
  return service.get(source)
+end
+
+-- Manual print from the editor: one item of a saved print, marked MANUAL PRINT (like printCard for trading cards).
+-- Built from the saved catalogue, never from the editor's draft.
+function service.printManual(source,payload,printer)
+ local names=validType(payload.typeId);validId(payload.definitionId)
+ local item=assert(find(service.data.definitions,payload.definitionId),'Save this collectible before printing it')
+ assert(item.collectableType==payload.typeId,'Collectible type does not match')
+ local chosen;for _,print in ipairs(printsOf(item)) do if print.id==payload.printId then chosen=print end end
+ assert(chosen,'Save this print before printing it')
+ local snapshot=MetaComic.Collectables.snapshot(payload.typeId,withPrint(item,chosen))
+ local now=os.date('!%Y-%m-%dT%H:%M:%SZ')
+ snapshot.instanceId='manual-'..unique();snapshot.acquiredAt=now;snapshot.snapshotVersion=2
+ snapshot.acquisitionSource='manual_print';snapshot.manualPrint=true
+ snapshot.printedBy=printer.name;snapshot.printedByIdentifier=printer.identifier;snapshot.printedAt=now
+ deliver(source,{{name=names.item,metadata=collectibleMetadata(payload.typeId,snapshot)}})
+ if service.onPulled then SetTimeout(0,function() pcall(service.onPulled,source,{withPrint(item,chosen)}) end) end -- shared icon, no stamp
+ return snapshot
 end
 
 function service.open(source,payload,management)
@@ -305,8 +387,12 @@ function service.open(source,payload,management)
    savePending(openingId,ownerOf(source),outputs)
   end
   -- new prints get their inventory icon drawn during the reveal (by this player) and uploaded
-  if not outer and service.onPulled then pcall(service.onPulled,source,items) end
-  return {data=service.get(source),run={id=openingId,typeId=payload.typeId,container=container,outer=outer,items=items}}
+  -- (next tick: its latent icon request must queue behind this reply, not delay the opening animation)
+  if not outer and service.onPulled then SetTimeout(0,function() pcall(service.onPulled,source,items) end) end
+  -- Lean reply so the opening starts quickly: no full catalogue/inventory echo (the UI refreshes after the claim),
+  -- and an uploaded image shared by several pulls is sent once (items reference it as '@img:N').
+  local runItems,images=packImages(items)
+  return {run={id=openingId,typeId=payload.typeId,container=container,outer=outer,items=runItems,images=images}}
  end)
  busy[source]=nil
  if not ok then error(result) end

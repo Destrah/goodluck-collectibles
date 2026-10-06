@@ -42,6 +42,7 @@ local function loadCatalog()
         end
         card.imagePositionX, card.imagePositionY, card.imageZoom = nil, nil, nil
     end
+    MetaComic.Cards.oddsCache, MetaComic.Cards.oddsBest = nil, nil -- the catalogue changed: pull odds are worked out again on next use
     return catalog
 end
 
@@ -191,6 +192,65 @@ function MetaComic.Cards.iconPrints()
     return list
 end
 
+-- How rare each print really is: expected copies per booster pack over the whole catalogue (mirrors
+-- src/utils/printOdds.js computePrintOdds). Used for the colour of the rarity stars on inventory icons.
+local PACK_SLOTS = {
+    { 1, { 'common' } }, { 1, { 'common' } }, { 1, { 'common' } },
+    { 1, { 'uncommon', 'common' } },
+    { 0.75, { 'rare', 'uncommon', 'common' } }, { 0.2, { 'ultra_rare', 'rare', 'uncommon', 'common' } }, { 0.05, { 'legendary', 'rare', 'uncommon', 'common' } },
+}
+local function oddsWeight(value) return math.max(1, tonumber(value) or 1) end
+function MetaComic.Cards.printOdds()
+    if MetaComic.Cards.oddsCache then return MetaComic.Cards.oddsCache end
+    local pools, order = {}, {} -- tier -> { [cardId] = { card = card, variants = { ... } } }
+    for _, card in ipairs(catalog or {}) do
+        for _, variant in ipairs(card.variants or {}) do
+            local tier = variant.rarityKey or 'common'
+            pools[tier] = pools[tier] or {}
+            if not pools[tier][card.id] then pools[tier][card.id] = { card = card, variants = {} }; order[tier] = (order[tier] or 0) + 1 end
+            table.insert(pools[tier][card.id].variants, variant)
+        end
+    end
+    local share = {}
+    for _, slot in ipairs(PACK_SLOTS) do
+        for _, tier in ipairs(slot[2]) do
+            if order[tier] then share[tier] = (share[tier] or 0) + slot[1] break end
+        end
+    end
+    local odds = {}
+    for tier, bases in pairs(pools) do
+        local draws = share[tier] or 0
+        if draws > 0 then
+            local baseTotal = 0
+            for _, entry in pairs(bases) do baseTotal = baseTotal + oddsWeight(entry.card.chanceWeight) end
+            for id, entry in pairs(bases) do
+                local variantTotal = 0
+                for _, variant in ipairs(entry.variants) do variantTotal = variantTotal + oddsWeight(variant.chanceWeight) end
+                for _, variant in ipairs(entry.variants) do
+                    odds[('%s::%s'):format(id, variant.id)] = draws * oddsWeight(entry.card.chanceWeight) / baseTotal * oddsWeight(variant.chanceWeight) / variantTotal
+                end
+            end
+        end
+    end
+    MetaComic.Cards.oddsCache = odds
+    return odds
+end
+-- star colour by how many times rarer than the catalogue's commonest print this one is (same bands as
+-- printOdds.js ODDS_COLOURS: relative, since a big catalogue makes every print rare in absolute terms)
+local ODDS_COLOURS = { { 2, '#d6dde8' }, { 6, '#4ade80' }, { 20, '#38bdf8' }, { 80, '#a78bfa' }, { 300, '#fbbf24' }, { math.huge, '#ff4d6d' } }
+function MetaComic.Cards.starColour(baseCardId, variantId)
+    local all = MetaComic.Cards.printOdds()
+    local odds = all[('%s::%s'):format(tostring(baseCardId), tostring(variantId))]
+    if not odds or odds <= 0 then return nil end
+    local best = MetaComic.Cards.oddsBest
+    if not best then
+        best = 0
+        for _, value in pairs(all) do if value > best then best = value end end
+        MetaComic.Cards.oddsBest = best
+    end
+    for _, band in ipairs(ODDS_COLOURS) do if best / odds <= band[1] then return band[2] end end
+end
+
 function MetaComic.Cards.reloadCatalog()
     return loadCatalog()
 end
@@ -295,6 +355,8 @@ function MetaComic.Cards.openPack(owner, setId)
             card.seriesId = set.id -- alias for servers that call these series rather than sets
             card.setName = set.name
             card.acquisitionSource = 'booster_pack'
+            -- this copy's print imperfections (server/modules/grading.lua): what grading looks for
+            if MetaComic.Grading then card.condition = MetaComic.Grading.generate() end
             result[#result + 1] = card
         end
     end

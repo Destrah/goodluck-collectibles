@@ -146,6 +146,8 @@ export default function PackSimulator({ cards, sets = [], overlay = false, overl
       const response = await responsePromise
       const result = Array.isArray(response?.cards) ? response.cards : []
       setOpened(result)
+      // FiveM: the character holds the pulled cards while they're on screen (until the UI closes)
+      if (result.length) bridge.holdCollectibles?.({ kind: 'card', count: result.length }).catch(() => {})
       resetFlips()
       if (packsRemaining > 0) setPacksRemaining(value => Math.max(0, value - 1))
       result.forEach((_, index) => setTimeout(() => soundFx.deal(), index * 80))

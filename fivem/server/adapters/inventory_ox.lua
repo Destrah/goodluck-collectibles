@@ -91,6 +91,30 @@ MetaComic.InventoryAdapters.ox_inventory = function()
 
             return true, nil, checkB, 'move'
         end,
+        -- Move one whole slot between two inventories (player <-> binder container). toSlot nil = any free slot.
+        -- Checks room first, then removes and adds the exact item; puts it back where it was if the add fails.
+        moveSlot = function(fromInv, fromSlot, toInv, toSlot)
+            if type(fromInv) == 'table' then fromInv = fromInv.id end
+            if type(toInv) == 'table' then toInv = toInv.id end
+            fromSlot, toSlot = tonumber(fromSlot), tonumber(toSlot)
+            if fromInv == nil or toInv == nil or not fromSlot then return false end
+            local item = exports.ox_inventory:GetSlot(fromInv, fromSlot)
+            if type(item) ~= 'table' then return false end
+            if toSlot and exports.ox_inventory:GetSlot(toInv, toSlot) ~= nil then return false, 'occupied' end
+            local count = tonumber(item.count) or 1
+            local metadata = item.metadata
+            local ok, encoded = pcall(json.encode, metadata or {})
+            if ok and encoded then metadata = json.decode(encoded) or metadata end
+            if exports.ox_inventory:CanCarryItem(toInv, item.name, count, metadata) ~= true then return false, 'full' end
+
+            if exports.ox_inventory:RemoveItem(fromInv, item.name, count, metadata, fromSlot, false, true) ~= true then return false end
+            local added = exports.ox_inventory:AddItem(toInv, item.name, count, metadata, toSlot)
+            if added ~= true then
+                exports.ox_inventory:AddItem(fromInv, item.name, count, metadata, fromSlot)
+                return false
+            end
+            return true
+        end,
         slotsOf = function(source, item)
             return exports.ox_inventory:Search(source, 'slots', item) or {}
         end,

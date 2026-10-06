@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { resolveCardVariant } from '../cardData'
 import { bridge, isFiveM } from '../runtime'
+import ArtworkFileInput from './ArtworkFileInput'
+import './vendingMap.css'
 
 const slug = value => String(value || 'set')
   .toLowerCase()
@@ -139,6 +141,16 @@ export default function ManagementPanel({ cards, sets, onSetsChange }) {
                 <label className="field"><span>Code</span><input value={selectedSet.code || ''} onChange={e => patchSet({ code: e.target.value.toUpperCase() })} /></label>
                 <label className="field span-2"><span>Set ID</span><input value={selectedSet.id} onChange={e => renameId(e.target.value)} /></label>
                 <label className="field span-2"><span>Description</span><textarea rows="2" value={selectedSet.description || ''} onChange={e => patchSet({ description: e.target.value })} /></label>
+                <div className="field span-2"><span>Logo (vending machines, set lists)</span>
+                  <div className="set-logo-field">
+                    {selectedSet.logo ? <img className="set-logo-preview" src={selectedSet.logo} alt="" /> : <span className="set-logo-preview" />}
+                    <div className="set-logo-inputs">
+                      <input placeholder="https://… image URL" value={selectedSet.logo?.startsWith('data:') ? '' : (selectedSet.logo || '')} onChange={e => patchSet({ logo: e.target.value })} />
+                      <ArtworkFileInput onLoaded={value => patchSet({ logo: value })} options={{ maxEdge: 256 }} />
+                      {selectedSet.logo && <button className="ghost small-button" onClick={() => patchSet({ logo: '' })}>Remove logo</button>}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 

@@ -6,6 +6,7 @@
  */
 import { rarityFx } from './rarityFx'
 import { resolveAsset } from '../runtime/assets'
+import { packsPerCopy, starStyle } from './printOdds.js'
 
 const PIPS = { common: 1, uncommon: 2, rare: 3, ultra_rare: 4, legendary: 5 }
 const clamp = (n, min, max) => Math.min(Math.max(Number(n) || 0, min), max)
@@ -113,11 +114,12 @@ export async function renderCardIcon(card, size = 100, format = 'webp') {
   ctx.fillStyle = 'rgba(255,255,255,.14)'
   for (let i = 0; i < 3; i++) ctx.fillRect(ax, y + h * (0.7 + i * 0.065), aw * (i === 2 ? 0.6 : 1), h * 0.022)
 
-  // rarity pips
+  // rarity stars: how many = the tier; colour = the print's real pull odds (the server sends starColour; otherwise
+  // the odds this UI worked out from the catalogue, see utils/printOdds.js), the same as on the card itself
   const pips = PIPS[card?.rarityKey] || 1
   const pr = h * 0.032, gap = pr * 2.5
   const startX = x + w / 2 - ((pips - 1) * gap) / 2
-  ctx.fillStyle = fx.color
+  ctx.fillStyle = card?.starColour || (packsPerCopy(card) ? starStyle(card).colour : fx.color)
   ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = scale
   for (let i = 0; i < pips; i++) { star(ctx, startX + i * gap, y + h * 0.92, pr); ctx.fill(); ctx.stroke() }
 

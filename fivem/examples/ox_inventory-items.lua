@@ -80,3 +80,46 @@
 --     maxWeight = 3600,
 --     whitelist = { 'tradingcard' },
 -- })
+
+-------------------------------------------------------------------------------------------------
+-- Card case (slab case): an aluminium carry case. Cards stand upright in 8 compartments, slabs and toploaders
+-- included. Same two parts as the binder; its name must be in Config.Items.CardCase. Image: card_case.png.
+-------------------------------------------------------------------------------------------------
+-- ['card_case'] = {
+--     label = 'Card Case', weight = 1500, stack = false, close = false, consume = 0,
+--     description = 'Aluminium carry case for slabs, toploaders and sleeved cards.',
+--     client = { image = 'card_case.png' },
+--     buttons = {
+--         { label = 'View Case', action = function(slot)
+--             exports.ox_inventory:closeInventory()
+--             exports['meta-comic']:ViewCardCase(slot)
+--         end },
+--     },
+-- },
+--
+-- containers.lua:
+-- setContainerProperties('card_case', {
+--     slots = 48,               -- 8 compartments of 6 (any multiple of 8 lays out evenly)
+--     maxWeight = 6000,
+--     whitelist = { 'tradingcard' },
+-- })
+
+-------------------------------------------------------------------------------------------------
+-- Grading and card protection (Config.Grading). Add these buttons to your 'tradingcard' item (next to Show Card),
+-- and the three supply items. 'meta-comic' must be your resource folder name.
+-------------------------------------------------------------------------------------------------
+-- ['tradingcard'] = {
+--     ...,
+--     buttons = {
+--         { label = 'Show Card', action = function(slot) exports.ox_inventory:closeInventory() exports['meta-comic']:ShowOthersCard(slot) end },
+--         { label = 'Grade card', action = function(slot) exports.ox_inventory:closeInventory() exports['meta-comic']:GradeCard(slot) end },
+--         { label = 'Put in sleeve', action = function(slot) exports['meta-comic']:SleeveCard(slot) end },
+--         { label = 'Put in toploader', action = function(slot) exports['meta-comic']:ToploaderCard(slot) end },
+--         { label = 'Take out of sleeve / toploader', action = function(slot) exports['meta-comic']:UnprotectCard(slot) end },
+--     },
+-- },
+-- Pictures: copy card_sleeve.png, card_toploader.png and grading_slab.png from examples/ox_inventory_images/
+-- into ox_inventory/web/images/.
+-- ['card_sleeve'] = { label = 'Card Sleeve', weight = 1, stack = true, close = true, description = 'A soft penny sleeve. Keeps a card from scuffing.', client = { image = 'card_sleeve.png' } },
+-- ['card_toploader'] = { label = 'Toploader', weight = 15, stack = true, close = true, description = 'A rigid clear holder. Stops cards bending and creasing.', client = { image = 'card_toploader.png' } },
+-- ['grading_slab'] = { label = 'Grading Slab', weight = 60, stack = true, close = true, description = 'An empty grading case. Grade a card to seal it inside.', client = { image = 'grading_slab.png' } },

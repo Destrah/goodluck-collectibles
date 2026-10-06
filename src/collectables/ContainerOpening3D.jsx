@@ -17,11 +17,13 @@ const plural = (label, count) => count === 1 ? label : /(x|s|ch|sh)$/i.test(labe
 // what a landing / revealed item sounds like
 const itemKind = item => item?.containerSnapshot ? (item.containerSnapshot.kind === 'bag' ? 'bag' : 'box') : item?.collectableType === 'challenge_coin' ? 'coin' : 'plush'
 const sceneKind = run => run.outer ? 'case' : innerLookKind(run.container)
-const caseInfo = run => ({ count: run.items.length, innerLabel: run.container.label })
+const caseInfo = run => ({ count: run.items.length || run.container.outer?.count, innerLabel: run.container.label })
 
 // Opening of a coin bag / plushie box / outer case rendered by Container3D.js. Falls back to the 2D CSS
 // version when WebGL is unavailable. `look` is the container's saved design and animation.
-export default function ContainerOpening3D({ run, look, onInspect, onComplete, onAllRevealed, flipAllKey = 0, compact = false, frame }) {
+// pendingItems (optional Promise of run.items): start the scene before the server has answered; run is then
+// a provisional run (same id, no items) that the parent swaps for the real one when it arrives.
+export default function ContainerOpening3D({ run, pendingItems, look, onInspect, onComplete, onAllRevealed, flipAllKey = 0, compact = false, frame }) {
   const host = useRef(null)
   const scene = useRef(null)
   const [failed, setFailed] = useState(false)
@@ -32,6 +34,8 @@ export default function ContainerOpening3D({ run, look, onInspect, onComplete, o
   const chosen = normalizeLook(kind, look)
   const handlers = useRef({})
   handlers.current = { onInspect, onComplete }
+  const runRef = useRef(run)
+  runRef.current = run
 
   useEffect(() => {
     let dead = false, created = null
@@ -40,20 +44,21 @@ export default function ContainerOpening3D({ run, look, onInspect, onComplete, o
     const soundBase = { kind, style: chosen.style, animation: chosen.animation, innerKind: innerLookKind(run.container) }
     import('./Container3D.js')
       .then(({ createContainerScene }) => createContainerScene(canvas, {
-        kind, style: chosen.style, animation: chosen.animation, items: run.items, caseInfo: caseInfo(run), frame,
+        kind, style: chosen.style, animation: chosen.animation, items: pendingItems || run.items, caseInfo: caseInfo(run), frame,
         onPhase: (name, index) => {
           if (dead) return
           if (name === 'charge' || name === 'open' || name === 'emerge') soundFx.container({ ...soundBase, event: name })
-          if (name === 'land') soundFx.container({ ...soundBase, event: 'land', itemKind: itemKind(run.items[index]) })
+          if (name === 'land') soundFx.container({ ...soundBase, event: 'land', itemKind: itemKind(runRef.current.items[index]) })
           if (name === 'charge' || name === 'open' || name === 'emerge') setPhase(name)
           if (name === 'settled') { setPhase('settled'); handlers.current.onComplete?.() }
         },
         onReveal: index => { if (!dead) setRevealed(current => current.includes(index) ? current : [...current, index]) },
         onLayout: positions => { if (!dead) setLabels(positions) },
         onPick: (index, isRevealed) => {
-          if (run.outer) return
-          if (isRevealed) handlers.current.onInspect(run.items[index])
-          else { soundFx.container({ ...soundBase, event: 'reveal', itemKind: itemKind(run.items[index]) }); created?.reveal(index) }
+          const { outer, items } = runRef.current
+          if (outer) return
+          if (isRevealed) handlers.current.onInspect(items[index])
+          else { soundFx.container({ ...soundBase, event: 'reveal', itemKind: itemKind(items[index]) }); created?.reveal(index) }
         },
       }))
       .then(result => {

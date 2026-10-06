@@ -24,6 +24,14 @@
     consume = 0,
     description = 'A Meta Comics challenge coin. Use it to inspect it in 3D.',
     client = { image = 'challenge_coin.png' },
+    -- "Show" button: shows the coin to the players standing near you (like Show Card).
+    -- 'rush-tradingcards' must be this resource's folder name.
+    buttons = {
+        { label = 'Show', action = function(slot)
+            exports.ox_inventory:closeInventory()
+            exports['rush-tradingcards']:ShowOthersCollectible(slot)
+        end },
+    },
 },
 ['collectible_plushie'] = {
     label = 'Plushie',
@@ -33,6 +41,12 @@
     consume = 0,
     description = 'A Meta Comics plushie. Use it to inspect it in 3D.',
     client = { image = 'collectible_plushie.png' },
+    buttons = {
+        { label = 'Show', action = function(slot)
+            exports.ox_inventory:closeInventory()
+            exports['rush-tradingcards']:ShowOthersCollectible(slot)
+        end },
+    },
 },
 ['coin_bag'] = {
     label = 'Meta Comics Coin Bag',
@@ -75,8 +89,10 @@
 -- B) Standalone + ox_inventory (no QBCore / Qbox): items call this resource's client export.
 --    The export name is the resource folder name: change 'rush-tradingcards' if yours differs.
 -------------------------------------------------------------------------------------------------
--- ['challenge_coin']      = { label = 'Challenge Coin', weight = 40, stack = false, close = true, consume = 0, description = 'A Meta Comics challenge coin. Use it to inspect it in 3D.', client = { image = 'challenge_coin.png', export = 'rush-tradingcards.UseCollectible' } },
--- ['collectible_plushie'] = { label = 'Plushie', weight = 200, stack = false, close = true, consume = 0, description = 'A Meta Comics plushie. Use it to inspect it in 3D.', client = { image = 'collectible_plushie.png', export = 'rush-tradingcards.UseCollectible' } },
+-- ['challenge_coin']      = { label = 'Challenge Coin', weight = 40, stack = false, close = true, consume = 0, description = 'A Meta Comics challenge coin. Use it to inspect it in 3D.', client = { image = 'challenge_coin.png', export = 'rush-tradingcards.UseCollectible' },
+--     buttons = { { label = 'Show', action = function(slot) exports.ox_inventory:closeInventory() exports['rush-tradingcards']:ShowOthersCollectible(slot) end } } },
+-- ['collectible_plushie'] = { label = 'Plushie', weight = 200, stack = false, close = true, consume = 0, description = 'A Meta Comics plushie. Use it to inspect it in 3D.', client = { image = 'collectible_plushie.png', export = 'rush-tradingcards.UseCollectible' },
+--     buttons = { { label = 'Show', action = function(slot) exports.ox_inventory:closeInventory() exports['rush-tradingcards']:ShowOthersCollectible(slot) end } } },
 -- ['coin_bag']            = { label = 'Meta Comics Coin Bag', weight = 150, stack = false, close = true, consume = 0, description = 'A sealed velvet pouch of challenge coins.', client = { image = 'coin_bag.png', export = 'rush-tradingcards.UseCollectible' } },
 -- ['coin_bag_box']        = { label = 'Meta Comics Coin Bag Box', weight = 1500, stack = false, close = true, consume = 0, description = 'A case of sealed coin bags.', client = { image = 'coin_bag_box.png', export = 'rush-tradingcards.UseCollectible' } },
 -- ['plushie_box']         = { label = 'Meta Comics Plushie Box', weight = 250, stack = false, close = true, consume = 0, description = 'A sealed collector plushie box.', client = { image = 'plushie_box.png', export = 'rush-tradingcards.UseCollectible' } },

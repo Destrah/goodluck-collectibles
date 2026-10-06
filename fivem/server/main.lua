@@ -8,6 +8,7 @@ do
     if not MetaComic.Legacy then missing[#missing + 1] = 'shared/legacy.lua' end
     if not MetaComic.Collectables then missing[#missing + 1] = 'shared/collectables.lua' end
     if not MetaComic.Objects then missing[#missing + 1] = 'server/modules/objects.lua' end
+    if not MetaComic.Grading then missing[#missing + 1] = 'server/modules/grading.lua' end
     if #missing > 0 then
         print(('^1[meta-comic] fxmanifest.lua is out of date: %s %s not loaded. Replace fxmanifest.lua with the one from this version (keep your config.lua) and restart the resource.^7')
             :format(table.concat(missing, ', '), #missing == 1 and 'is' or 'are'))
@@ -237,6 +238,8 @@ local function canManage(source)
     return false
 end
 
+MetaComic.CanManage = canManage -- used by server/modules/vending_machines.lua
+
 local function requireManage(source)
     if canManage(source) then return true end
     return false, 'You do not have permission to manage trading cards, sets, packs, or boxes.'
@@ -260,6 +263,22 @@ local function sealedMetadata(kind, set)
         label = ('%s %s'):format(set.name or 'Trading Card', noun),
         description = ('Sealed %s for the %s set.'):format(noun:lower(), set.name or set.id),
     }
+end
+
+-- Gives sealed pack / box items of a set (default set when setId is empty). Used by server/modules/vending_machines.lua.
+function MetaComic.GiveSealed(source, kind, setId, count)
+    count = math.max(1, math.floor(tonumber(count) or 1))
+    if MetaComic.Inventory.name == 'none' then return false, 'Buying packs needs an inventory adapter.' end
+    local set = setById(setId)
+    if not set then return false, ('Unknown card set: %s'):format(tostring(setId)) end
+    local item = kind == 'box' and Config.Items.BoosterBox or Config.Items.BoosterPack
+    if MetaComic.Inventory.canCarry and not MetaComic.Inventory.canCarry(source, item, count) then
+        return false, 'You cannot carry that.'
+    end
+    if MetaComic.Inventory.add(source, item, count, sealedMetadata(kind, set)) ~= true then
+        return false, 'Could not add it to your inventory (is it full?).'
+    end
+    return true, set
 end
 
 local function metadataSetId(metadata)
@@ -453,9 +472,16 @@ end
 
 -- Exactly the fields each icon renderer draws (src/utils/cardIcon.js, renderCollectibleIcon in Container3D.js).
 -- Only these decide whether two prints share an icon, and only these are sent to the NUI that draws it.
-local CARD_ICON_FIELDS = { 'title', 'hp', 'accent', 'rarityKey', 'image', 'imagePositionX', 'imagePositionY', 'imageZoom' }
+-- starColour: the rarity stars' colour from the print's real pull odds (MetaComic.Cards.starColour), worked out here
+local CARD_ICON_FIELDS = { 'title', 'hp', 'accent', 'rarityKey', 'image', 'imagePositionX', 'imagePositionY', 'imageZoom', 'starColour' }
+local function iconField(card, field)
+    if field == 'starColour' then
+        return card.baseCardId and MetaComic.Cards.starColour and MetaComic.Cards.starColour(card.baseCardId, card.variantId) or nil
+    end
+    return card[field]
+end
 local OBJECT_ICON_FIELDS = { 'collectableType', 'title', 'accent', 'image', 'imagePositionX', 'imagePositionY', 'imageZoom',
-    'finish', 'finishStrength', 'rimImage', 'edgeImage', 'edgeStyle', 'tint', 'tintStrength', 'stitchColor', 'stitchPattern', 'stitchWidth', 'backImage' }
+    'finish', 'finishStrength', 'rimImage', 'edgeImage', 'edgeStyle', 'tint', 'tintStrength', 'stitchColor', 'stitchPattern', 'stitchWidth', 'backImage', 'backColor', 'backColorBlend', 'backStyle', 'plushThickness', 'plushFullness' }
 
 local FIELD_DEFAULTS = { imagePositionX = 50, imagePositionY = 50, imageZoom = 100 }
 -- 50, 50.0 and "50" are the same look: item snapshots pass through the inventory's JSON, which may change number types
@@ -492,7 +518,7 @@ end
 local function iconSig(card)
     local parts = { tostring(ICON_STYLE) }
     for _, field in ipairs(OBJECT_ICON_PREFIX[card.collectableType] and OBJECT_ICON_FIELDS or CARD_ICON_FIELDS) do
-        local value = card[field]
+        local value = iconField(card, field)
         if value == nil or value == '' then value = FIELD_DEFAULTS[field] end
         parts[#parts + 1] = sigPart(value)
     end
@@ -516,7 +542,7 @@ end
 -- what the NUI needs to draw an icon (not the whole snapshot: keeps the latent event small)
 local function iconCard(card)
     local drawn = {}
-    for _, field in ipairs(OBJECT_ICON_PREFIX[card.collectableType] and OBJECT_ICON_FIELDS or CARD_ICON_FIELDS) do drawn[field] = card[field] end
+    for _, field in ipairs(OBJECT_ICON_PREFIX[card.collectableType] and OBJECT_ICON_FIELDS or CARD_ICON_FIELDS) do drawn[field] = iconField(card, field) end
     return drawn
 end
 
@@ -583,6 +609,14 @@ local function cardMetadata(card)
     local manual = card.manualPrint == true or card.acquisitionSource == 'manual_print'
     local setPart = card.setName and card.setName ~= '' and (' · ' .. card.setName) or ''
     local prefix = manual and 'MANUAL PRINT · ' or ''
+    -- grading / protection (server/modules/grading.lua): shown in the item's name and description
+    local graded = type(card.graded) == 'table' and card.graded or nil
+    local protectionNames = { sleeve = 'In a sleeve', toploader = 'In a toploader' }
+    if graded then
+        prefix = ('GRADED %s %s · '):format(tostring(graded.grade), tostring(graded.name or '')) .. prefix
+    elseif protectionNames[card.protection] then
+        setPart = setPart .. ' · ' .. protectionNames[card.protection]
+    end
     return {
         instanceId = card.instanceId,
         collectableType = 'trading_card',
@@ -601,7 +635,9 @@ local function cardMetadata(card)
         printedBy = card.printedBy,
         printedByIdentifier = card.printedByIdentifier,
         printedAt = card.printedAt,
-        label = ('%s (%s)%s'):format(card.title or 'Trading Card', card.variantName or 'Standard', manual and ' [Manual Print]' or ''),
+        protection = graded and 'slab' or card.protection,
+        grade = graded and graded.grade or nil,
+        label = ('%s (%s)%s%s'):format(card.title or 'Trading Card', card.variantName or 'Standard', manual and ' [Manual Print]' or '', graded and (' [Graded %s]'):format(tostring(graded.grade)) or ''),
         description = ('%s%s · %s%s'):format(prefix, card.rarity or 'Common', card.variantName or 'Standard', setPart),
         rarity = card.rarity,
         imageurl = imageurl,
@@ -678,7 +714,11 @@ local function refreshPlayerItems(source)
         if refreshCardItem(source, item.slot, item.metadata) then updated = updated + 1 end
     end
     if MetaComic.Inventory.getContainer then
-        local binders = type(Config.Items.Binder) == 'table' and Config.Items.Binder or { Config.Items.Binder }
+        -- binders and card cases
+        local binders = {}
+        for _, configured in ipairs({ Config.Items.Binder, Config.Items.CardCase }) do
+            for _, name in ipairs(type(configured) == 'table' and configured or { configured }) do binders[#binders + 1] = name end
+        end
         for _, name in ipairs(binders) do
             for _, binder in pairs(MetaComic.Inventory.slotsOf(source, name)) do
                 if binder.metadata and binder.metadata.container then
@@ -847,6 +887,76 @@ local function urlForHash(hash)
     for _, entry in pairs(iconUrls) do
         if entry.hash == hash and entry.url then return entry.url end
     end
+end
+
+-- ---------- uploaded artwork on Fivemanage ----------
+-- Editor uploads arrive as inline data:image URLs (hundreds of KB each). When a Fivemanage key is set they are
+-- stored in Config.FivemanageFolders.artwork and only the short URL is saved, so the database, inventory
+-- metadata, pending openings and every NUI reply stay small. Without a key the inline image is kept as before.
+local ARTWORK_URLS_FILE = 'data/artwork_urls.json'
+local artworkUrls -- content hash -> Fivemanage url: the same picture is never uploaded twice
+local function artworkFolder()
+    local configured = type(Config.FivemanageFolders) == 'table' and Config.FivemanageFolders.artwork or {}
+    return configured.Path or 'Collectibles/Artwork', configured.KeyConvar or 'metacomic_fivemanage_key_artwork'
+end
+local function artworkKey()
+    local _, convar = artworkFolder()
+    local own = GetConvar(convar, '')
+    return own ~= '' and own or fivemanageKey('trading_card')
+end
+local function loadArtworkUrls()
+    if not artworkUrls then
+        local ok, decoded = pcall(json.decode, LoadResourceFile(resourceName, ARTWORK_URLS_FILE) or '')
+        artworkUrls = ok and type(decoded) == 'table' and decoded or {}
+    end
+    return artworkUrls
+end
+local function uploadArtwork(dataUrl)
+    local apiKey = artworkKey()
+    if apiKey == '' then return nil end
+    loadArtworkUrls()
+    local hash = iconHash(dataUrl)
+    if artworkUrls[hash] then return artworkUrls[hash] end
+    local ext = dataUrl:match('^data:image/(%a+);') or 'png'
+    local path = artworkFolder()
+    local done = promise.new()
+    PerformHttpRequest('https://api.fivemanage.com/api/v3/file/base64', function(status, body)
+        local ok, res = pcall(json.decode, body or '')
+        local data = ok and type(res) == 'table' and type(res.data) == 'table' and res.data or nil
+        if not (data and data.url) then
+            print(('[meta-comic] artwork upload failed (HTTP %s): %s'):format(tostring(status), tostring(body):sub(1, 200)))
+        end
+        done:resolve(data and data.url or nil)
+    end, 'POST', json.encode({ base64 = dataUrl, filename = ('art_%s.%s'):format(hash, ext), path = path, retentionExempt = true,
+        metadata = json.encode({ kind = 'artwork' }) }), {
+        ['Content-Type'] = 'application/json',
+        ['Authorization'] = apiKey,
+    })
+    local url = Citizen.Await(done)
+    if url then
+        artworkUrls[hash] = url
+        SaveResourceFile(resourceName, ARTWORK_URLS_FILE, json.encode(artworkUrls), -1)
+    end
+    return url
+end
+MetaComic.UploadArtwork = uploadArtwork -- set logos (server/modules/set_logos.lua) use the same artwork folder
+
+-- Replaces every inline image inside a card / collectible (prints, variants, subject layers...) with its
+-- Fivemanage URL. An image that can't be uploaded stays inline, so a save never fails because of Fivemanage.
+local function externalizeArtwork(value, depth)
+    depth = depth or 0
+    if type(value) ~= 'table' or depth > 6 then return value, 0 end
+    local count = 0
+    for key, entry in pairs(value) do
+        if type(entry) == 'string' and #entry > 2048 and entry:sub(1, 11) == 'data:image/' then
+            local url = uploadArtwork(entry)
+            if url then value[key] = url count = count + 1 end
+        elseif type(entry) == 'table' then
+            local _, nested = externalizeArtwork(entry, depth + 1)
+            count = count + nested
+        end
+    end
+    return value, count
 end
 
 local uploadedThisSession = {} -- icon key -> true: never upload the same look twice
@@ -1284,10 +1394,43 @@ AddEventHandler('onResourceStart', function(name)
     end)
 end)
 
-local function viewCard(source, metadata)
-    if type(metadata) ~= 'table' then return notify(source, 'This card has no card data.', 'error') end
+-- ---------- card condition, wear and protection (server/modules/grading.lua) ----------
+local Grading = MetaComic.Grading
+local gradingConfig = Config.Grading or {}
+local lastViewed = {} -- source -> { slot, instanceId }: the card item the player is looking at (rough handling)
+
+-- Writes a changed copy (condition / protection / grade) back onto its card item in the player's inventory.
+local function saveCardItem(source, slot, metadata, card)
+    if not MetaComic.Inventory.setMetadata or not slot then return false end
+    local updated = MetaComic.CopyTable(metadata or {})
+    for key, value in pairs(cardMetadata(card)) do
+        if key ~= 'imageurl' and key ~= 'image' and key ~= 'cardIconSnapshotSignature' then updated[key] = value end
+    end
+    MetaComic.Inventory.setMetadata(source, tonumber(slot), updated)
+    return true
+end
+
+-- The card on an item, with a condition (items made before conditions existed get one now) and, when handled,
+-- a roll for wear. Returns the card and whether it changed (and was saved).
+local function handleCardItem(source, slot, metadata, handling)
     local card = findCard(source, metadata)
+    if not card then return nil end
+    if not Grading then return card, false end
+    local changed = false
+    if type(card.condition) ~= 'table' then card.condition = Grading.generate() changed = true end
+    if handling and gradingConfig.Wear ~= false then
+        local worn = Grading.applyWear(card.condition, card.graded and 'slab' or card.protection, handling == 'rough')
+        if worn ~= card.condition then card.condition = worn changed = true end
+    end
+    if changed then saveCardItem(source, slot, metadata, card) end
+    return card, changed
+end
+
+local function viewCard(source, metadata, slot)
+    if type(metadata) ~= 'table' then return notify(source, 'This card has no card data.', 'error') end
+    local card = slot and handleCardItem(source, slot, metadata, 'view') or findCard(source, metadata)
     if not card then return notify(source, 'That card is no longer in the catalog.', 'error') end
+    lastViewed[source] = slot and { slot = tonumber(slot), instanceId = card.instanceId } or nil
     TriggerLatentClientEvent('meta_comic:client:viewCard', source, 512 * 1024, card)
 end
 
@@ -1296,13 +1439,8 @@ local lastShow = {}
 local lastBinder = {} -- throttle opening
 local activeBinder = {} -- source -> { slot = player inventory slot, container = ox container id }
 local lastBinderSwap = {}
-local function showCardToOthers(source, metadata)
-    local now = GetGameTimer()
-    if lastShow[source] and now - lastShow[source] < 2000 then return end
-    lastShow[source] = now
-    local card = findCard(source, metadata)
-    if not card then return notify(source, 'That card has no card data.', 'error') end
-
+-- shown: a card or a coin / plushie snapshot (the viewer renders either); kind: what the shower holds up
+local function showToNearby(source, card, kind)
     local maxDistance = (Config.ShowCard and Config.ShowCard.Distance) or 3.0
     local myPed = GetPlayerPed(source)
     if not myPed or myPed == 0 then return end
@@ -1319,11 +1457,25 @@ local function showCardToOthers(source, metadata)
             end
         end
     end
+    local noun = kind == 'coin' and 'coin' or kind == 'plush' and 'plushie' or 'card'
     if shown == 0 then
-        notify(source, 'Nobody is close enough to see your card.', 'error')
+        notify(source, ('Nobody is close enough to see your %s.'):format(noun), 'error')
     else
-        notify(source, ('Showing %s to %d player%s.'):format(card.title or 'your card', shown, shown == 1 and '' or 's'), 'success')
+        notify(source, ('Showing %s to %d player%s.'):format(card.title or ('your ' .. noun), shown, shown == 1 and '' or 's'), 'success')
+        TriggerClientEvent('meta_comic:client:showingCollectable', source, kind, (Config.ShowCard and Config.ShowCard.Seconds) or 8)
     end
+end
+local function throttledShow(source)
+    local now = GetGameTimer()
+    if lastShow[source] and now - lastShow[source] < 2000 then return false end
+    lastShow[source] = now
+    return true
+end
+local function showCardToOthers(source, metadata, slot)
+    if not throttledShow(source) then return end
+    local card = slot and handleCardItem(source, slot, metadata, 'view') or findCard(source, metadata) -- handling it can wear it
+    if not card then return notify(source, 'That card has no card data.', 'error') end
+    showToNearby(source, card, 'card')
 end
 
 -- Called when a player uses a booster pack / booster box item (framework usable item or ox_inventory client export).
@@ -1409,6 +1561,7 @@ AddEventHandler('playerDropped', function()
 end)
 
 local handlers = {}
+MetaComic.RpcHandlers = handlers -- server/modules add their own NUI actions here (vending machine map)
 
 handlers.getCollectibles = function(source)
     if not MetaComic.Objects then return fail('Coins and plushies are off: update fxmanifest.lua (see the server console).') end
@@ -1417,9 +1570,12 @@ end
 handlers.saveCollectible = function(source,payload)
     local allowed,err=requireManage(source);if not allowed then return fail(err) end
     if not MetaComic.Objects then return fail('Coins and plushies are off: update fxmanifest.lua (see the server console).') end
+    if payload.kind == 'definition' then externalizeArtwork(payload.value) end
     MetaComic.Objects.save(payload)
     if MetaComic.Objects.afterSave then MetaComic.Objects.afterSave(source) end
-    return {ok=true,data=MetaComic.Objects.get(source)}
+    -- No catalogue echo: every definition's artwork plus every pulled copy in the inventory made the reply
+    -- several MB of latent traffic per save. The editor already holds the saved state.
+    return {ok=true}
 end
 handlers.openCollectibleContainer = function(source,payload)
     if not MetaComic.Objects then return fail('Coins and plushies are off: update fxmanifest.lua (see the server console).') end
@@ -1436,6 +1592,172 @@ handlers.createCollectibleContainer = function(source,payload)
     if not MetaComic.Objects then return fail('Coins and plushies are off: update fxmanifest.lua (see the server console).') end
     return {ok=true,data=MetaComic.Objects.create(source,payload)}
 end
+handlers.printCollectible = function(source,payload)
+    local allowed,err=requireManage(source);if not allowed then return fail(err) end
+    if MetaComic.Inventory.name=='none' then return fail('Manual printing needs an inventory adapter.') end
+    if not MetaComic.Objects then return fail('Coins and plushies are off: update fxmanifest.lua (see the server console).') end
+    local printer={identifier=MetaComic.Framework.getIdentifier(source),name=MetaComic.Framework.getName and MetaComic.Framework.getName(source) or GetPlayerName(source)}
+    local snapshot=MetaComic.Objects.printManual(source,payload,printer)
+    return {ok=true,instanceId=snapshot.instanceId}
+end
+
+-- ---------- card grading: a player inspects one of their raw cards and marks its flaws ----------
+-- Every mark is checked here against the card's real condition (nothing that isn't there can be marked); the
+-- grade on the slab is made of what the grader found, so a careless grader can over-grade by missing flaws.
+local gradingSessions, lastRough = {}, {}
+local function cardItemAt(source, slot)
+    local item = slot and MetaComic.Inventory.getSlot and MetaComic.Inventory.getSlot(source, tonumber(slot))
+    if item and item.name == Config.Items.TradingCard then return item end
+end
+local function gradingAllowed(source)
+    if not Grading or gradingConfig.Enabled == false then return false, 'Card grading is turned off.' end
+    if type(gradingConfig.Ace) == 'string' and gradingConfig.Ace ~= '' and not IsPlayerAceAllowed(source, gradingConfig.Ace) then return false, 'You are not a certified card grader.' end
+    return true
+end
+local function maxWrongMarks() return math.max(1, math.floor(tonumber(gradingConfig.MaxWrongMarks) or 6)) end
+-- how far (in grades) a grader may put the slab's grade from what their confirmed calls suggest
+local function gradeAdjust() return math.max(0, tonumber(gradingConfig.GradeAdjust) or 1) end
+
+handlers.startGrading = function(source, payload)
+    local allowed, err = gradingAllowed(source)
+    if not allowed then return fail(err) end
+    local slot = tonumber(payload and payload.slot)
+    local item = cardItemAt(source, slot)
+    if not item then return fail('Choose a trading card from your inventory.') end
+    local card = handleCardItem(source, slot, item.metadata or item.info)
+    if not card then return fail('That card has no card data.') end
+    if card.graded then return fail('That card is already graded and slabbed.') end
+    local slabItem = gradingConfig.SlabItem or 'grading_slab'
+    if gradingConfig.RequireSlabItem ~= false and not MetaComic.Inventory.has(source, slabItem, 1) then return fail('You need an empty grading slab to grade a card.') end
+    local id = ('grade-%d-%d'):format(os.time(), math.random(100000, 999999))
+    gradingSessions[source] = { id = id, slot = slot, instanceId = card.instanceId, flaws = Grading.listFlaws(card.condition, Grading.flawOptions(card)), found = {}, foundCount = 0, wrong = 0, calls = {} }
+    local reference = MetaComic.CopyTable(card) -- compare with this acquired print, including historical edits
+    if reference then reference.condition, reference.protection, reference.graded = nil, nil, nil end
+    return { ok = true, sessionId = id, card = card, reference = reference, maxWrong = maxWrongMarks(), gradeAdjust = gradeAdjust(),
+        debug = gradingConfig.Debug == true, debugFlaws = gradingConfig.Debug == true and gradingSessions[source].flaws or nil }
+end
+
+handlers.gradingMark = function(source, payload)
+    local session = gradingSessions[source]
+    if not session or session.id ~= (payload and payload.sessionId) then return fail('This grading session has ended.') end
+    if session.wrong >= maxWrongMarks() then return fail('Too many wrong calls: submit your grade or cancel.') end
+    local mark = type(payload.mark) == 'table' and payload.mark or {}
+    local flaw = Grading.matchMark(session.flaws, { type = tostring(mark.type or ''), side = mark.side, textPart = mark.textPart, x = tonumber(mark.x), y = tonumber(mark.y) }, session.found)
+    if flaw then
+        session.found[flaw.id] = true
+        session.foundCount = session.foundCount + 1
+        -- kept for the grading record: what the grader called and where they clicked
+        session.calls[#session.calls + 1] = { type = flaw.type, side = flaw.side, label = flaw.label, deduction = flaw.deduction, x = tonumber(mark.x), y = tonumber(mark.y) }
+        return { ok = true, confirmed = true, flaw = { id = flaw.id, type = flaw.type, side = flaw.side, label = flaw.label, deduction = flaw.deduction }, found = session.foundCount }
+    end
+    session.wrong = session.wrong + 1
+    return { ok = true, confirmed = false, wrong = session.wrong, maxWrong = maxWrongMarks() }
+end
+
+handlers.gradingSubmit = function(source, payload)
+    local session = gradingSessions[source]
+    if not session or session.id ~= (payload and payload.sessionId) then return fail('This grading session has ended.') end
+    local item = cardItemAt(source, session.slot)
+    local metadata = item and (item.metadata or item.info)
+    local card = metadata and findCard(source, metadata)
+    if not card or card.graded or (session.instanceId and card.instanceId ~= session.instanceId) then
+        gradingSessions[source] = nil
+        return fail('The card was moved or changed: grading cancelled.')
+    end
+    if gradingConfig.RequireSlabItem ~= false and not MetaComic.Inventory.remove(source, gradingConfig.SlabItem or 'grading_slab', 1) then
+        return fail('You need an empty grading slab to grade a card.')
+    end
+    -- the grader's final pick, within GradeAdjust of what their confirmed calls suggest
+    local suggested = Grading.gradeFromFound(session.flaws, session.found)
+    local grade = Grading.allowedGrade(payload.grade, suggested, gradeAdjust())
+    card.graded = {
+        grade = grade, name = Grading.GRADE_NAMES[grade] or '', cert = Grading.newCert(), gradedAt = os.date('!%Y-%m-%dT%H:%M:%SZ'), found = session.foundCount,
+        grader = MetaComic.Framework.getName and MetaComic.Framework.getName(source) or GetPlayerName(source), graderId = MetaComic.Framework.getIdentifier(source),
+    }
+    card.protection = 'slab'
+    saveCardItem(source, session.slot, metadata, card)
+    -- the public record: anyone can look the cert up (/gradecheck) and see the grade and the grader's calls
+    Grading.saveRecord({
+        cert = card.graded.cert, grade = grade, name = card.graded.name, suggested = suggested, grader = card.graded.grader, gradedAt = card.graded.gradedAt,
+        title = card.title, variantName = card.variantName, setName = card.setName, baseCardId = card.baseCardId, variantId = card.variantId,
+        condition = card.condition, marks = session.calls,
+    })
+    gradingSessions[source] = nil
+    return { ok = true, card = card, grade = grade }
+end
+
+handlers.gradingCancel = function(source)
+    gradingSessions[source] = nil
+    return { ok = true }
+end
+
+-- cert lookup: the record plus the print to draw it on (the catalogue print, with the copy's condition laid over)
+handlers.gradingRecord = function(source, payload)
+    if not Grading then return fail('Card grading is turned off.') end
+    local record = Grading.getRecord(payload and payload.cert)
+    if not record then return { ok = true, record = nil } end
+    local card = MetaComic.Cards.resolve(record.baseCardId, record.variantId)
+    if card then card.condition = record.condition end
+    return { ok = true, record = record, card = card }
+end
+
+-- expected copies per pack of every print ("baseCardId::variantId"), for the card stars' tooltip and colour
+handlers.getPrintOdds = function()
+    return { ok = true, odds = MetaComic.Cards.printOdds() }
+end
+
+-- other resources (e.g. a grading business) can read a record too
+exports('GetGradingRecord', function(cert) return Grading and Grading.getRecord(cert) or nil end)
+
+-- item buttons: put a card in a penny sleeve / toploader, or take it out (the outer layer comes back as an item)
+handlers.protectCard = function(source, payload)
+    if not Grading then return fail('Card protection is unavailable.') end
+    local slot = tonumber(payload and payload.slot)
+    local item = cardItemAt(source, slot)
+    if not item then return fail('Choose a trading card from your inventory.') end
+    local metadata = item.metadata or item.info
+    local card = handleCardItem(source, slot, metadata)
+    if not card then return fail('That card has no card data.') end
+    if card.graded then return fail('Graded cards stay sealed in their slab.') end
+    local items = { sleeve = gradingConfig.SleeveItem or 'card_sleeve', toploader = gradingConfig.ToploaderItem or 'card_toploader' }
+    local nouns = { sleeve = 'card sleeve', toploader = 'toploader' }
+    local current, want = card.protection or 'none', payload.kind
+    if want == 'sleeve' or want == 'toploader' then
+        if current == want or (want == 'sleeve' and current == 'toploader') then return fail('That card is already protected.') end
+        if not MetaComic.Inventory.remove(source, items[want], 1) then return fail(('You need a %s.'):format(nouns[want])) end
+        card.sleeved = (want == 'toploader' and current == 'sleeve') or nil
+        card.protection = want
+    elseif want == 'none' then
+        if not items[current] then return fail('That card is not in a sleeve or toploader.') end
+        MetaComic.Inventory.add(source, items[current], 1)
+        card.protection = (current == 'toploader' and card.sleeved) and 'sleeve' or 'none'
+        card.sleeved = nil
+    else
+        return fail('Unknown protection.')
+    end
+    local fresh = cardItemAt(source, slot)
+    saveCardItem(source, slot, fresh and (fresh.metadata or fresh.info) or metadata, card)
+    return { ok = true, protection = card.protection }
+end
+
+-- the NUI saw the player spin / flip their own card hard in the viewer: unprotected cards can crease, bend or tear
+handlers.roughHandling = function(source)
+    local viewed = lastViewed[source]
+    if not viewed or not Grading or gradingConfig.Wear == false then return { ok = true } end
+    local now = GetGameTimer()
+    if lastRough[source] and now - lastRough[source] < 4000 then return { ok = true } end
+    lastRough[source] = now
+    local item = cardItemAt(source, viewed.slot)
+    local metadata = item and (item.metadata or item.info)
+    local current = metadata and findCard(source, metadata)
+    if not current or (viewed.instanceId and current.instanceId ~= viewed.instanceId) then return { ok = true } end
+    local card, changed = handleCardItem(source, viewed.slot, metadata, 'rough')
+    return { ok = true, card = changed and card or nil }
+end
+
+AddEventHandler('playerDropped', function()
+    gradingSessions[source], lastRough[source], lastViewed[source] = nil, nil, nil
+end)
 
 handlers.getRuntimeInfo = function(source)
     local management = canManage(source)
@@ -1468,16 +1790,177 @@ handlers.resolveRemoteAsset = function(_, payload)
     return { ok = false, code = code or 'LOAD_FAILED', error = message or 'Could not load remote asset.' }
 end
 
-handlers.getCatalog = function()
-    -- Administrative reads refresh persisted definitions; normal pulls still use the cache.
-    if MetaComic.Persistence.reloadDefinitions then
-        local ok,err=MetaComic.Persistence.reloadDefinitions()
-        if not ok then return fail(tostring(err)) end
-        MetaComic.Cards.reloadCatalog()
-        MetaComic.Sets.reload()
+-- Served from memory: every catalog/set write goes through this resource, so the cache is always current.
+-- (Re-reading the four definition tables on each UI open cost a 300+ ms server hitch.) After editing the
+-- tables by hand, run 'collectablesreload' in the server console.
+-- The persistence adapter's load while the resource script is starting can come back empty (e.g. the database
+-- resource still connecting); this used to be hidden by re-reading on every UI open. Load once more from a real
+-- thread after startup, and again on the first catalog request if that still hasn't worked.
+local definitionsLoaded = MetaComic.Persistence.reloadDefinitions == nil
+local function loadDefinitions()
+    if definitionsLoaded then return true end
+    local ok, err = MetaComic.Persistence.reloadDefinitions()
+    if not ok then
+        print('[meta-comic] could not load the card catalog from the database: ' .. tostring(err))
+        return false, err
     end
+    MetaComic.Cards.reloadCatalog()
+    MetaComic.Sets.reload()
+    definitionsLoaded = true
+    print(('[meta-comic] card catalog loaded: %d cards, %d sets.'):format(#MetaComic.Cards.getCatalog(), #MetaComic.Sets.getAll()))
+    return true
+end
+CreateThread(function() Wait(0) loadDefinitions() end)
+
+handlers.getCatalog = function()
+    local ok, err = loadDefinitions()
+    if not ok then return fail(tostring(err)) end
     return { ok = true, cards = MetaComic.Cards.getCatalog(), sets = MetaComic.Sets.getAll() }
 end
+
+-- Moves artwork that was saved inline (before uploads went to Fivemanage) to Fivemanage, then saves the URLs.
+RegisterCommand('collectablesartwork', function(source)
+    if source ~= 0 then return notify(source, 'Run collectablesartwork from the server console.', 'error') end
+    if artworkKey() == '' then return print('[meta-comic] set metacomic_fivemanage_key_artwork (or metacomic_fivemanage_key) in server.cfg first.') end
+    CreateThread(function()
+        local cards, cardCount = externalizeArtwork(MetaComic.Cards.getCatalog())
+        if cardCount > 0 then
+            local ok, err = MetaComic.Cards.saveCatalog(cards)
+            if not ok then return print('[meta-comic] could not save the card catalog: ' .. tostring(err)) end
+        end
+        local objectCount = 0
+        for _, item in ipairs(MetaComic.Objects and MetaComic.CopyTable(MetaComic.Objects.data.definitions) or {}) do
+            local _, moved = externalizeArtwork(item)
+            if moved > 0 then MetaComic.Objects.save({ kind = 'definition', value = item }) objectCount = objectCount + moved end
+        end
+        print(('[meta-comic] artwork moved to Fivemanage: %d card image%s, %d coin / plushie image%s. Copies already pulled keep their own picture.'):format(
+            cardCount, cardCount == 1 and '' or 's', objectCount, objectCount == 1 and '' or 's'))
+        if cardCount + objectCount > 0 then syncIcons() end
+    end)
+end, true)
+
+-- ---------- legacy artwork: downscale every saved image and store it on Fivemanage ----------
+-- Old cards / collectibles keep full-size artwork inline (data: URLs in the catalog) or on other hosts (fetched
+-- through this server and sent to the NUI as base64), which is what makes /cardadmin slow to load them. The server
+-- can't resize images, so a player's NUI does it (like the inventory icons); the server uploads the result.
+local optimizeJobs, optimizeRunning, optimizeSerial = {}, false, 0
+local FIVEMANAGE_HOSTS = { ['r2.fivemanage.com'] = true, ['i.fmfile.com'] = true }
+local function onFivemanage(url)
+    local host = (url:match('^https?://([^/%?#:]+)') or ''):lower()
+    if FIVEMANAGE_HOSTS[host] then return true end
+    for _, saved in pairs(loadArtworkUrls()) do if saved == url then return true end end -- custom CDN domain
+    return false
+end
+-- every image string in a card / collectible (prints, variants, subject layers...), deduped by value
+local function collectArtwork(value, found, order, depth)
+    if type(value) ~= 'table' or depth > 6 then return end
+    for key, entry in pairs(value) do
+        if type(entry) == 'string' and not found[entry] then
+            local name = tostring(key):lower()
+            local inline = entry:sub(1, 11) == 'data:image/' and #entry > 2048
+            local remote = entry:match('^https?://') and (name:find('image') or name:find('mask') or name:find('art'))
+            if inline or remote then
+                found[entry] = true
+                -- already on Fivemanage: only replaced when downscaling makes it smaller
+                order[#order + 1] = { src = entry, lossless = name:find('mask') ~= nil, onlyIfSmaller = not inline and onFivemanage(entry) }
+            end
+        elseif type(entry) == 'table' then
+            collectArtwork(entry, found, order, depth + 1)
+        end
+    end
+end
+local function replaceArtwork(value, urls, depth)
+    if type(value) ~= 'table' or depth > 6 then return 0 end
+    local count = 0
+    for key, entry in pairs(value) do
+        if type(entry) == 'string' and urls[entry] then value[key] = urls[entry] count = count + 1
+        elseif type(entry) == 'table' then count = count + replaceArtwork(entry, urls, depth + 1) end
+    end
+    return count
+end
+
+RegisterNetEvent('meta_comic:server:optimizedArtwork', function(id, dataUrl)
+    local job = type(id) == 'string' and optimizeJobs[id]
+    if not job or job.worker ~= source then return end -- only images we asked this player for
+    optimizeJobs[id] = nil
+    if type(dataUrl) ~= 'string' or #dataUrl > 8 * 1024 * 1024 or not dataUrl:match('^data:image/[%w%+%.%-]+;base64,') then dataUrl = '' end
+    job.promise:resolve(dataUrl)
+end)
+
+local function optimizeArtwork(requestedBy)
+    local function report(message, notifyType)
+        print('[meta-comic] ' .. message)
+        if requestedBy then notify(requestedBy, message, notifyType or 'inform') end
+    end
+    if optimizeRunning then return report('Artwork optimization is already running.', 'error') end
+    if artworkKey() == '' then return report('Set metacomic_fivemanage_key_artwork (or metacomic_fivemanage_key) in server.cfg first.', 'error') end
+    optimizeRunning = true
+    CreateThread(function()
+        local ok, err = pcall(function()
+            assert(loadDefinitions())
+            loadArtworkUrls() -- lets onFivemanage recognise uploads on a custom CDN domain
+            local found, order = {}, {}
+            collectArtwork(MetaComic.Cards.getCatalog(), found, order, 0)
+            if MetaComic.Objects then collectArtwork(MetaComic.Objects.data.definitions, found, order, 0) end
+            if #order == 0 then return report('No artwork to optimize.') end
+            report(('Optimizing %d image%s: downscaling in a player\'s game UI, then uploading to Fivemanage...'):format(#order, #order == 1 and '' or 's'))
+            local urls, moved, kept, failed = {}, 0, 0, 0
+            for index, entry in ipairs(order) do
+                local worker = requestedBy and readyWorkers[requestedBy] and GetPlayerName(requestedBy) and requestedBy or pickWorker()
+                if not worker then failed = failed + #order - index + 1 report('No player with the game UI loaded is online to downscale the images; the rest are left as they are.', 'error') break end
+                optimizeSerial = optimizeSerial + 1
+                local id = ('art-%d-%d'):format(os.time(), optimizeSerial)
+                local job = { worker = worker, promise = promise.new() }
+                optimizeJobs[id] = job
+                TriggerLatentClientEvent('meta_comic:client:optimizeArtwork', worker, 1024 * 1024, id, entry.src,
+                    { maxEdge = 1024, quality = 0.85, lossless = entry.lossless, onlyIfSmaller = entry.onlyIfSmaller })
+                SetTimeout(120000, function() if optimizeJobs[id] then optimizeJobs[id] = nil job.promise:resolve(nil) end end)
+                local dataUrl = Citizen.Await(job.promise)
+                if dataUrl == '' and entry.onlyIfSmaller then kept = kept + 1
+                elseif not dataUrl or dataUrl == '' then failed = failed + 1
+                else
+                    local url = uploadArtwork(dataUrl)
+                    if url then urls[entry.src] = url moved = moved + 1 else failed = failed + 1 end
+                end
+                if index % 10 == 0 then print(('[meta-comic] artwork: %d / %d done'):format(index, #order)) end
+            end
+            if moved == 0 then return report(('Artwork: nothing changed (%d already small, %d could not be loaded).'):format(kept, failed)) end
+            -- applied to the current catalog (not the one read at the start), so edits made meanwhile are kept
+            local cards = MetaComic.CopyTable(MetaComic.Cards.getCatalog())
+            local cardChanges = replaceArtwork(cards, urls, 0)
+            if cardChanges > 0 then
+                freezeOnlineItems()
+                local saved, saveErr = MetaComic.Cards.saveCatalog(cards)
+                if not saved then error('could not save the card catalog: ' .. tostring(saveErr)) end
+            end
+            local objectChanges = 0
+            for _, item in ipairs(MetaComic.Objects and MetaComic.CopyTable(MetaComic.Objects.data.definitions) or {}) do
+                local changed = replaceArtwork(item, urls, 0)
+                if changed > 0 then MetaComic.Objects.save({ kind = 'definition', value = item }) objectChanges = objectChanges + changed end
+            end
+            report(('Artwork optimized: %d image%s downscaled and moved to Fivemanage (%d card, %d coin / plushie field%s), %d already small, %d could not be loaded. Copies already pulled keep their own picture.'):format(
+                moved, moved == 1 and '' or 's', cardChanges, objectChanges, objectChanges == 1 and '' or 's', kept, failed), 'success')
+            syncIcons(requestedBy) -- the artwork url is part of each print's look, so its inventory icon is drawn again
+        end)
+        optimizeRunning = false
+        if not ok then report('Artwork optimization failed: ' .. tostring(err), 'error') end
+    end)
+end
+-- Console, or in game by a card manager (whose game UI then does the downscaling).
+RegisterCommand('collectablesoptimizeart', function(source)
+    if source ~= 0 and not canManage(source) then return notify(source, 'You are not allowed to use this command.', 'error') end
+    optimizeArtwork(source ~= 0 and source or nil)
+end, false)
+
+RegisterCommand('collectablesreload', function(source)
+    if source ~= 0 then return notify(source, 'Run collectablesreload from the server console.', 'error') end
+    if not MetaComic.Persistence.reloadDefinitions then return print('[meta-comic] nothing to reload: definitions are not stored in a database.') end
+    local ok, err = MetaComic.Persistence.reloadDefinitions()
+    if not ok then return print('[meta-comic] reload failed: ' .. tostring(err)) end
+    MetaComic.Cards.reloadCatalog()
+    MetaComic.Sets.reload()
+    print('[meta-comic] card catalog and sets reloaded from the database.')
+end, true)
 
 -- Explicit recovery only; never automatically resurrect intentionally deleted definitions.
 local function restoreSeed(source)
@@ -1495,11 +1978,30 @@ end
 RegisterCommand('collectablesrestoreseed',restoreSeed,true)
 RegisterCommand('cardrestoreseed',restoreSeed,true)
 
+RegisterCommand('collectablessample',function(source,args)
+    local allowed,err=requireManage(source)
+    if not allowed then return notify(source,err,'error') end
+    if not Config.Catalog.AllowWrite then return notify(source,'Catalog writes are disabled in config.lua','error') end
+    CreateThread(function()
+        local function report(message)
+            print('[meta-comic] '..message)
+            if source~=0 and GetPlayerName(source) then notify(source,message,'inform') end
+        end
+        local ok,result=pcall(MetaComic.SampleCards.generate,{
+            refreshArt=args[1]=='refreshart',
+            hasKey=function() return artworkKey()~='' end,upload=uploadArtwork,report=report,
+            freeze=freezeOnlineItems,sync=function() syncIcons(source~=0 and source or nil) end,
+        })
+        if not ok then report('Sample generation stopped: '..tostring(result)) end
+    end)
+end,false)
+
 handlers.saveCatalog = function(source, payload)
     local allowed, permissionError = requireManage(source)
     if not allowed then return fail(permissionError) end
     if not Config.Catalog.AllowWrite then return fail('FiveM catalog write is disabled in config.lua') end
     freezeOnlineItems()
+    externalizeArtwork(payload.cards)
     local ok, err = MetaComic.Cards.saveCatalog(payload.cards)
     if not ok then return fail(err or 'Could not save catalog') end
     syncIcons(source) -- new / changed prints get their inventory icon drawn (by this player) and uploaded
@@ -1511,6 +2013,7 @@ handlers.saveCard = function(source, payload)
     if not allowed then return fail(permissionError) end
     if not Config.Catalog.AllowWrite then return fail('FiveM catalog write is disabled in config.lua') end
     freezeOnlineItems()
+    externalizeArtwork(payload.card)
     local ok, err = MetaComic.Cards.saveCard(payload.card)
     if not ok then return fail(err or 'Could not save card') end
     syncIcons(source)
@@ -1528,16 +2031,32 @@ handlers.deleteCard = function(source, payload)
     return { ok = true, cardId = payload.cardId }
 end
 
+-- card sets for the NUI, each with its logo (server/modules/set_logos.lua)
+local function setsWithLogos()
+    local list = MetaComic.Sets.getAll()
+    local logos = MetaComic.SetLogos and MetaComic.SetLogos.all('trading_card') or {}
+    for _, set in ipairs(list) do set.logo = logos[set.id] end
+    return list
+end
+
 handlers.getSets = function()
-    return { ok = true, sets = MetaComic.Sets.getAll(), defaultSet = MetaComic.Sets.defaultId() }
+    return { ok = true, sets = setsWithLogos(), defaultSet = MetaComic.Sets.defaultId() }
 end
 
 handlers.saveSets = function(source, payload)
     local allowed, permissionError = requireManage(source)
     if not allowed then return fail(permissionError) end
+    local logos = {}
+    for _, set in ipairs(type(payload.sets) == 'table' and payload.sets or {}) do
+        if type(set) == 'table' and set.id ~= nil then logos[tostring(set.id)] = set.logo; set.logo = nil end
+    end
     local ok, err = MetaComic.Sets.save(payload.sets)
     if not ok then return fail(err or 'Could not save card sets') end
-    return { ok = true, sets = MetaComic.Sets.getAll() }
+    if MetaComic.SetLogos then
+        local saved, logoError = pcall(MetaComic.SetLogos.replaceKind, 'trading_card', logos, uploadArtwork)
+        if not saved then return fail('Sets saved, but not their logos: ' .. tostring(logoError)) end
+    end
+    return { ok = true, sets = setsWithLogos() }
 end
 
 handlers.printCard = function(source, payload)
@@ -1561,6 +2080,7 @@ handlers.printCard = function(source, payload)
     card.printedBy = printedBy
     card.printedByIdentifier = owner
     card.printedAt = now
+    if MetaComic.Grading then card.condition = MetaComic.Grading.generate() end
     if set then card.setId, card.seriesId, card.setName = set.id, set.id, set.name end
 
     if MetaComic.Inventory.add(source, Config.Items.TradingCard, 1, cardMetadata(card)) ~= true then
@@ -1623,7 +2143,12 @@ handlers.openPack = function(source, payload)
         if consumedContext then MetaComic.Inventory.add(source, Config.Items.BoosterPack, 1, consumedContext.metadata) end
         return fail(packError or 'Could not roll this card set.')
     end
-    MetaComic.Persistence.addCards(owner, cards)
+    -- the collection record is written on its own thread so the pack opens without waiting for the database
+    local record = MetaComic.CopyTable(cards)
+    CreateThread(function()
+        local ok, err = pcall(MetaComic.Persistence.addCards, owner, record)
+        if not ok then print(('[meta-comic] could not record the opened cards for %s: %s'):format(tostring(owner), tostring(err))) end
+    end)
 
     -- card items only for packs that were paid for (free /cardpack test opens don't hand out items)
     if paid then
@@ -1731,7 +2256,8 @@ if frameworkRoute then
     local c = MetaComic.Framework.registerUsableItem(Config.Items.TradingCard, function(source, item)
         -- QBCore passes item.info, ox_inventory / Qbox pass item.metadata
         if item and item.metadata then refreshCardItem(source, item.slot, item.metadata) end
-        viewCard(source, item and (item.metadata or item.info))
+        local fresh = item and item.slot and MetaComic.Inventory.getSlot and MetaComic.Inventory.getSlot(source, item.slot)
+        viewCard(source, fresh and fresh.metadata or (item and (item.metadata or item.info)), item and item.slot)
     end)
     frameworkRegistered = a == true and b == true and c == true
 end
@@ -1745,7 +2271,9 @@ local function useObjectItem(source,slot)
         if item.name==names.item and type(metadata.collectibleSnapshot)=='table' then
             return TriggerLatentClientEvent('meta_comic:client:viewCard',source,512*1024,metadata.collectibleSnapshot)
         elseif item.name==names.inner or item.name==names.outer then
-            return TriggerClientEvent('meta_comic:client:openCollectible',source,typeId,item.slot,item.name==names.outer)
+            -- the sealed container's look travels with the event so the UI can show it before the server's roll returns
+            local container=type(metadata.containerSnapshot)=='table' and metadata.containerSnapshot or (MetaComic.Objects.data.containers or {})[typeId]
+            return TriggerClientEvent('meta_comic:client:openCollectible',source,typeId,item.slot,item.name==names.outer,container)
         end
     end
 end
@@ -1780,7 +2308,8 @@ RegisterNetEvent('meta_comic:server:useItem', function(kind, slot)
         local item = MetaComic.Inventory.getSlot and MetaComic.Inventory.getSlot(source, tonumber(slot))
         if not item or item.name ~= Config.Items.TradingCard then return end
         refreshCardItem(source, item.slot or tonumber(slot), item.metadata)
-        return viewCard(source, item.metadata)
+        local fresh = MetaComic.Inventory.getSlot(source, item.slot or tonumber(slot)) or item
+        return viewCard(source, fresh.metadata, item.slot or tonumber(slot))
     end
     if kind ~= 'pack' and kind ~= 'box' then return end
     useItem(source, kind, slot)
@@ -1811,20 +2340,39 @@ if refreshCommand and refreshCommand ~= '' then
 end
 
 -- Binder item "View Binder" button: send the cards in the binder's pockets, in the binder's own slot order.
-local function isBinder(name)
-    local binder = Config.Items.Binder
-    if type(binder) == 'table' then
-        for _, value in ipairs(binder) do if value == name then return true end end
+local function isItem(configured, name)
+    if type(configured) == 'table' then
+        for _, value in ipairs(configured) do if value == name then return true end end
         return false
     end
-    return binder ~= nil and binder == name
+    return configured ~= nil and configured == name
+end
+local function isBinder(name) return isItem(Config.Items.Binder, name) end
+-- card holders: binders (sleeve pages) and card cases (upright rows, any card incl. slabs); both are ox containers
+local function holderKind(name)
+    if isBinder(name) then return 'binder' end
+    if isItem(Config.Items.CardCase, name) then return 'case' end
+    return nil
+end
+
+-- The trading cards in the player's own inventory, for the binder's card hand (slot order).
+local function binderHand(source)
+    local hand = {}
+    if not MetaComic.Inventory.slotsOf then return hand end
+    for _, stored in pairs(MetaComic.Inventory.slotsOf(source, Config.Items.TradingCard) or {}) do
+        local card = type(stored) == 'table' and stored.slot and findCard(source, stored.metadata)
+        if card then hand[#hand + 1] = { slot = tonumber(stored.slot), card = card } end
+    end
+    table.sort(hand, function(a, b) return a.slot < b.slot end)
+    return hand
 end
 
 local function binderPayload(source, binderSlot)
     binderSlot = tonumber(binderSlot)
     local item = binderSlot and MetaComic.Inventory.getSlot and MetaComic.Inventory.getSlot(source, binderSlot)
     if not item then return nil, nil, nil, 'That binder is no longer in your inventory.' end
-    if not isBinder(item.name) then return nil, nil, nil, 'That item is not a configured trading card binder.' end
+    local kind = holderKind(item.name)
+    if not kind then return nil, nil, nil, 'That item is not a configured trading card binder or card case.' end
     if not MetaComic.Inventory.getContainer then return nil, nil, nil, 'Binders need ox_inventory.' end
     if not (item.metadata and item.metadata.container) then
         return nil, nil, nil, 'This binder has no ox_inventory container.'
@@ -1833,7 +2381,8 @@ local function binderPayload(source, binderSlot)
     local container = MetaComic.Inventory.getContainer(source, binderSlot)
     if not container then return nil, item, nil, 'Could not open this binder container.' end
 
-    local slots = tonumber(container.slots) or (item.metadata.size and tonumber(item.metadata.size[1])) or (Config.Binder and Config.Binder.DefaultPockets) or 36
+    local fallback = kind == 'case' and (Config.CardCase and Config.CardCase.DefaultSlots or 48) or (Config.Binder and Config.Binder.DefaultPockets) or 36
+    local slots = tonumber(container.slots) or (item.metadata.size and tonumber(item.metadata.size[1])) or fallback
     local pockets = {}
     for index, stored in pairs(container.items or {}) do
         if type(stored) == 'table' and stored.name == Config.Items.TradingCard then
@@ -1845,8 +2394,8 @@ local function binderPayload(source, binderSlot)
     end
     table.sort(pockets, function(a, b) return a.slot < b.slot end)
 
-    local label = (item.metadata and item.metadata.label) or item.label or 'Trading Card Binder'
-    return { label = label, slots = slots, pockets = pockets }, item, container
+    local label = (item.metadata and item.metadata.label) or item.label or (kind == 'case' and 'Card Case' or 'Trading Card Binder')
+    return { kind = kind, style = kind == 'case' and Config.CardCase and Config.CardCase.Style or nil, label = label, slots = slots, pockets = pockets, hand = binderHand(source) }, item, container
 end
 
 -- NUI binder reorder. The client only supplies source/destination pocket numbers; the server uses the binder
@@ -1897,6 +2446,62 @@ handlers.swapBinderCards = function(source, payload)
     return { ok = true, binder = updated }
 end
 
+-- The binder the player has open, checked again for every move (it may have been moved or dropped since).
+local function openBinder(source)
+    if MetaComic.Inventory.name ~= 'ox_inventory' or not MetaComic.Inventory.moveSlot then
+        return nil, 'Moving cards in and out of binders requires ox_inventory.'
+    end
+    local now = GetGameTimer()
+    if lastBinderSwap[source] and now - lastBinderSwap[source] < 250 then return nil, 'Please wait for the current binder move.' end
+    lastBinderSwap[source] = now
+    local active = activeBinder[source]
+    if not active then return nil, 'Open the binder again before moving cards.' end
+    local binder, item, container, err = binderPayload(source, active.slot)
+    if not binder or tostring(item.metadata.container) ~= tostring(active.container) then
+        activeBinder[source] = nil
+        return nil, err or 'That binder changed. Open it again before moving cards.'
+    end
+    return binder, item, container, active
+end
+
+-- Card hand -> binder pocket. The client names the inventory slot and the (empty) pocket; the server checks the
+-- slot really holds a trading card and the pocket is empty, then moves that exact item into the binder container.
+handlers.binderStoreCard = function(source, payload)
+    local binder, item, container, active = openBinder(source)
+    if not binder then return fail(item) end
+    local fromSlot = math.floor(tonumber(payload and payload.invSlot) or 0)
+    local toSlot = math.floor(tonumber(payload and payload.toSlot) or 0)
+    if toSlot < 1 or toSlot > binder.slots then return fail('That binder pocket does not exist.') end
+    if fromSlot == tonumber(active.slot) then return fail('A binder cannot go inside itself.') end
+    local card = MetaComic.Inventory.getSlot(source, fromSlot)
+    if type(card) ~= 'table' or card.name ~= Config.Items.TradingCard then return fail('That card is no longer in your inventory.') end
+    -- sleeved and toploaded cards fit a binder pocket; a graded slab does not (a card case holds anything)
+    local meta = type(card.metadata) == 'table' and card.metadata or {}
+    if binder.kind == 'binder' and (meta.protection == 'slab' or (type(meta.cardSnapshot) == 'table' and meta.cardSnapshot.graded)) then
+        return fail('A graded slab is too big for a binder pocket.')
+    end
+    if container.items and container.items[toSlot] ~= nil then return fail('That pocket already holds a card. Drop it on an empty pocket.') end
+
+    local moved, why = MetaComic.Inventory.moveSlot(source, fromSlot, active.container, toSlot)
+    if not moved then return fail(why == 'full' and 'The binder has no room for that card.' or 'Could not put that card in the binder.') end
+    local updated = binderPayload(source, active.slot)
+    return { ok = true, binder = updated }
+end
+
+-- Binder pocket -> card hand: only when the player's inventory has room for it.
+handlers.binderTakeCard = function(source, payload)
+    local binder, item, container, active = openBinder(source)
+    if not binder then return fail(item) end
+    local fromSlot = math.floor(tonumber(payload and payload.fromSlot) or 0)
+    local stored = container.items and container.items[fromSlot]
+    if type(stored) ~= 'table' or stored.name ~= Config.Items.TradingCard then return fail('That pocket no longer holds a trading card.') end
+
+    local moved, why = MetaComic.Inventory.moveSlot(active.container, fromSlot, source, nil)
+    if not moved then return fail(why == 'full' and 'Your inventory has no room for that card.' or 'Could not take that card out of the binder.') end
+    local updated = binderPayload(source, active.slot)
+    return { ok = true, binder = updated }
+end
+
 RegisterNetEvent('meta_comic:server:viewBinder', function(slot)
     local source = source
     local now = GetGameTimer()
@@ -1906,8 +2511,8 @@ RegisterNetEvent('meta_comic:server:viewBinder', function(slot)
     slot = tonumber(slot)
     local binder, item, container, err = binderPayload(source, slot)
     if not binder then
-        if item and not isBinder(item.name) then
-            print(('[meta-comic] View Binder used on "%s", which is not in Config.Items.Binder.'):format(tostring(item.name)))
+        if item and not holderKind(item.name) then
+            print(('[meta-comic] View Binder / View Case used on "%s", which is not in Config.Items.Binder or Config.Items.CardCase.'):format(tostring(item.name)))
         end
         return notify(source, err or 'Could not open that binder.', 'error')
     end
@@ -1921,7 +2526,22 @@ RegisterNetEvent('meta_comic:server:showCardToOthers', function(slot)
     local source = source
     local item = MetaComic.Inventory.getSlot and MetaComic.Inventory.getSlot(source, tonumber(slot))
     if not item or item.name ~= Config.Items.TradingCard then return end
-    showCardToOthers(source, item.metadata)
+    showCardToOthers(source, item.metadata, item.slot or tonumber(slot))
+end)
+
+-- ox_inventory "Show" button on a challenge coin / plushie: its own snapshot, read from the player's own slot.
+RegisterNetEvent('meta_comic:server:showCollectibleToOthers', function(slot)
+    local source = source
+    local item = MetaComic.Inventory.getSlot and MetaComic.Inventory.getSlot(source, tonumber(slot))
+    if not item then return end
+    local metadata = item.metadata or item.info or {}
+    for typeId, names in pairs(objectTypes()) do
+        if item.name == names.item then
+            if type(metadata.collectibleSnapshot) ~= 'table' then return notify(source, 'That item has no collectible data.', 'error') end
+            if not throttledShow(source) then return end
+            return showToNearby(source, metadata.collectibleSnapshot, typeId == 'challenge_coin' and 'coin' or 'plush')
+        end
+    end
 end)
 
 exports('GetCollection', function(source)

@@ -77,6 +77,11 @@ button.danger { color: #ff8b9d; }
 .field input::placeholder { color:#4e596a; }
 .span-2 { grid-column:span 2; }
 .file-input { padding:7px!important; font-size:10px; color:#8d98aa!important; }
+/* FiveM: no file dialog in the game browser, so image fields become paste boxes and JSON import a paste panel */
+.paste-target { cursor: copy; font-size: 11px!important; border-style: dashed!important; }
+.paste-import { position: fixed; top: 82px; right: 16px; z-index: 50; width: min(440px, calc(100vw - 32px)); display: grid; gap: 8px; padding: 12px; border: 1px solid #ffffff1f; border-radius: 12px; background: #0d111bf2; box-shadow: 0 18px 50px #0009; }
+.paste-import textarea { width: 100%; resize: vertical; color: inherit; background: #ffffff0d; border: 1px solid #ffffff1f; border-radius: 8px; padding: 8px; font-family: ui-monospace, Consolas, monospace; font-size: 11px; }
+.paste-import div { display: flex; justify-content: flex-end; gap: 8px; }
 .range-field input[type=range] { padding:0; height:34px; accent-color:#ff874c; background:transparent; border:0; box-shadow:none; }
 
 .variant-editor,.color-section,.attacks-editor,.subject-editor { margin-top:20px; padding-top:18px; border-top:1px solid #ffffff0c; }
@@ -105,6 +110,8 @@ button.danger { color: #ff8b9d; }
 .card-stage--large { width: 370px; min-height: 476px; }
 .card-stage--medium { width: 230px; min-height: 322px; }
 .trading-card {
+  --card-border-color:var(--accent);
+  --card-radius:24px;
   --card-w: 340px;
   --card-h: 476px;
   width:var(--card-w);
@@ -117,14 +124,13 @@ button.danger { color: #ff8b9d; }
   transition:transform .12s ease-out, box-shadow .2s ease;
   isolation:isolate;
   color:#f8fafc;
-  border:6px solid var(--accent); /* fallback for FiveM's older Chromium (no color-mix) */
-  border:6px solid color-mix(in srgb,var(--accent),#fff 18%);
+  border:6px solid var(--card-border-color); /* FiveM's older Chromium: plain accent (color-mix version in the @supports below) */
   background:#10131b;
   box-shadow:0 32px 65px #0009, 0 0 0 1px #ffffff28 inset;
   user-select:none;
 }
-.card-stage--medium .trading-card { --card-w:230px; --card-h:322px; border-radius:16px; border-width:4px; }
-.trading-card.is-active { box-shadow:0 34px 62px #000a; box-shadow:0 34px 62px #000a, 0 0 26px color-mix(in srgb,var(--foil-a),transparent 62%); }
+.card-stage--medium .trading-card { --card-w:230px; --card-h:322px; --card-radius:16px; border-radius:16px; border-width:4px; }
+.trading-card.is-active { box-shadow:0 34px 62px #000a; }
 
 .card-art-wrap { position:absolute; overflow:hidden; z-index:0; background:#12151d; }
 .card-art { width:100%; height:100%; object-fit:cover; object-position:center; display:block; }
@@ -133,12 +139,31 @@ button.danger { color: #ff8b9d; }
 .layout-classic .card-body { top:305px; }
 .layout-classic .card-info-row { top:288px; }
 .layout-full-art .card-art-wrap,.layout-illustration .card-art-wrap,.layout-dark-borderless .card-art-wrap { inset:0; }
+/* Full-bleed print sits on stock matching the cut border. Any area exposed
+   by print registration or pixel rounding is solid border color, not black. */
+.trading-card.layout-full-art,
+.trading-card.layout-illustration,
+.trading-card.layout-dark-borderless,
+.layout-full-art .card-art-wrap,
+.layout-illustration .card-art-wrap,
+.layout-dark-borderless .card-art-wrap { background-color:var(--card-border-color); }
+.layout-full-art .art-vignette,
+.layout-illustration .art-vignette,
+.layout-dark-borderless .art-vignette { transform:translate(var(--art-offset-x,0%),var(--art-offset-y,0%)); }
 .layout-full-art .art-vignette,.layout-illustration .art-vignette,.layout-dark-borderless .art-vignette { background:linear-gradient(to bottom,#0003 0,#0000 30%,#080b12cc 64%,#080b12f4 100%); }
 .layout-full-art .card-body,.layout-illustration .card-body,.layout-dark-borderless .card-body { top:265px; }
 .layout-full-art .card-info-row,.layout-illustration .card-info-row,.layout-dark-borderless .card-info-row { top:244px; }
-.layout-illustration { border-color:#e9c98c; border-color:color-mix(in srgb,var(--accent),#f7d8a0 38%); }
+.layout-illustration { --card-border-color:#e9c98c; }
+/* color-mix() with var() is only checked when drawn, so a browser without color-mix (FiveM's NUI) doesn't fall back
+   to the plain declaration before it: it drops the whole border / shadow, leaving the card's black edge. */
+@supports (color:color-mix(in srgb,red,blue)) {
+  .trading-card:not(.layout-dark-borderless) { --card-border-color:color-mix(in srgb,var(--accent),#fff 18%); }
+  .trading-card.is-active { box-shadow:0 34px 62px #000a, 0 0 26px color-mix(in srgb,var(--foil-a),transparent 62%); }
+  .trading-card.layout-illustration { --card-border-color:color-mix(in srgb,var(--accent),#f7d8a0 38%); }
+  .holo-reverse.layout-classic .card-art-wrap { box-shadow:0 0 0 1px #ffffff55,0 0 14px color-mix(in srgb,var(--foil-a),transparent 68%); }
+}
 .layout-illustration:after { content:""; position:absolute; inset:5px; border:1px solid #fff6; border-radius:16px; pointer-events:none; z-index:14; }
-.layout-dark-borderless { border-color:#151822; box-shadow:0 32px 65px #000b,0 0 0 1px #ffffff18 inset; }
+.layout-dark-borderless { --card-border-color:#151822; box-shadow:0 32px 65px #000b,0 0 0 1px #ffffff18 inset; }
 
 .card-header { position:absolute; z-index:10; top:14px; left:17px; right:14px; height:48px; display:flex; justify-content:space-between; align-items:start; text-shadow:0 2px 5px #000a; }
 .card-kicker { font-size:8px; color:#d5d9e2; text-transform:uppercase; letter-spacing:.14em; font-weight:800; }
@@ -174,7 +199,7 @@ button.danger { color: #ff8b9d; }
 .holo-cosmos .card-sparkles { opacity:var(--sparkle-alpha); background-image:radial-gradient(circle,#fff 0 1px,transparent 1.8px),radial-gradient(circle,var(--foil-c) 0 1.1px,transparent 2px),radial-gradient(circle,var(--foil-b) 0 .8px,transparent 1.6px); background-size:29px 31px,43px 47px,71px 61px; background-position:calc(var(--mx) * .35) calc(var(--my) * .4),calc(var(--mx) * -.2) calc(var(--my) * .1),30px 20px; filter:drop-shadow(0 0 3px #fff); mix-blend-mode:screen; }
 .holo-reverse .card-foil { inset:0; opacity:var(--foil-reverse-alpha); background:repeating-linear-gradient(128deg,#ffffff16 0 5px,transparent 5px 12px),linear-gradient(118deg,var(--foil-a),#e2e8f0,var(--foil-c),#fff,var(--foil-b),var(--foil-a)); background-size:100% 100%,300% 300%; background-position:0 0,var(--mx) var(--my); mix-blend-mode:screen; }
 /* Reverse holo exclusion is structural: the art window itself sits above the foil, so the cutout always matches the actual picture at every card size. */
-.holo-reverse.layout-classic .card-art-wrap { z-index:7; box-shadow:0 0 0 1px #ffffff55; box-shadow:0 0 0 1px #ffffff55,0 0 14px color-mix(in srgb,var(--foil-a),transparent 68%); }
+.holo-reverse.layout-classic .card-art-wrap { z-index:7; box-shadow:0 0 0 1px #ffffff55; }
 .holo-reverse.layout-classic .subject-layer-host { z-index:8; }
 .holo-etched .card-foil { inset:0; opacity:var(--foil-etched-alpha); background:repeating-linear-gradient(35deg,#ffffff28 0 1px,transparent 1px 4px),repeating-linear-gradient(125deg,transparent 0 9px,var(--foil-a) 10px 11px,transparent 12px 21px),radial-gradient(circle at var(--mx) var(--my),#fff8,var(--foil-b) 18%,transparent 42%); background-size:8px 8px,34px 34px,100% 100%; mix-blend-mode:screen; filter:saturate(.9) contrast(1.18); }
 .holo-aurora .card-foil { opacity:var(--foil-aurora-alpha); background:radial-gradient(ellipse at calc(var(--mx) - 18%) calc(var(--my) + 10%),var(--foil-a),transparent 27%),radial-gradient(ellipse at calc(var(--mx) + 18%) calc(var(--my) - 12%),var(--foil-b),transparent 29%),conic-gradient(from 210deg at var(--mx) var(--my),transparent,var(--foil-c),transparent,var(--foil-a),transparent); filter:blur(3px) saturate(1.5); mix-blend-mode:screen; }
@@ -1185,6 +1210,8 @@ html.fivem-runtime #root {
 }
 
 .card-stage--viewer .trading-card {
+  --card-radius:28px;
+  --cb:7px;
   --card-w:390px;
   --card-h:546px;
   border-radius:28px;
@@ -1958,6 +1985,16 @@ html.fivem-runtime #root {
 }
 .subject-cutout {
   object-position: var(--subject-position-x) var(--subject-position-y) !important;
+}
+/* Mask fills stay inside the artwork window (the zoom scale would otherwise push them over the frame). */
+.subject-effect-layer > .subject-cutout,
+.subject-effect-layer > .subject-effect-paint,
+.subject-effect-layer > .subject-effect-spectrum,
+.subject-effect-layer > .subject-effect-grain,
+.subject-effect-layer > .subject-effect-glint,
+.subject-effect-layer::before,
+.subject-effect-layer::after {
+  clip-path: var(--subject-clip, none);
 }
 .subject-effect-paint,
 .subject-effect-spectrum,

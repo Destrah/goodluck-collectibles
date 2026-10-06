@@ -50,14 +50,18 @@ export async function loadPackLimits() {
 }
 
 /** Per-player preferences. Standalone: localStorage. FiveM: client KVP via NUI (survives cache clears). */
+// Last loaded/saved preferences, so a collectible opening can pick its animation without waiting on a NUI round trip.
+let lastPrefs = null
+export const cachedPackPrefs = () => lastPrefs
+
 export async function loadPackPrefs(maxSpeed = DEFAULT_MAX_SPEED) {
   try {
     if (isFiveM) {
       const res = await bridge.getPackPrefs()
-      return sanitizePrefs(res?.prefs, maxSpeed)
+      return (lastPrefs = sanitizePrefs(res?.prefs, maxSpeed))
     }
     const saved = readMigratedStorage(KEY)
-    return sanitizePrefs(saved ? JSON.parse(saved) : null, maxSpeed)
+    return (lastPrefs = sanitizePrefs(saved ? JSON.parse(saved) : null, maxSpeed))
   } catch {
     return defaultPackPrefs()
   }
@@ -74,5 +78,6 @@ export async function savePackPrefs(prefs, maxSpeed = DEFAULT_MAX_SPEED, throwOn
     if (throwOnError) throw error
     console.warn('Could not save pack animation preferences.', error)
   }
+  lastPrefs = clean
   return clean
 }

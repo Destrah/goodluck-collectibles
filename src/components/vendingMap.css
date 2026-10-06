@@ -1,0 +1,51 @@
+.vending-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:18px;align-items:start}
+.vending-map-card{background:#0d121b;border:1px solid #ffffff10;border-radius:18px;box-shadow:0 16px 45px #0004;overflow:hidden;display:flex;flex-direction:column}
+.vending-map-toolbar{display:flex;align-items:center;gap:7px;padding:10px 12px;border-bottom:1px solid #ffffff0d;flex-wrap:wrap}
+.vending-toolbar-gap{flex:1}
+.vending-pill{font-size:9px;border-radius:999px;padding:4px 8px;border:1px solid #ffffff14;color:#cfd8e6}
+.vending-pill.ok{border-color:#4ad48a55;color:#7ee7ac}.vending-pill.low{border-color:#ffbc5a55;color:#ffcf86}.vending-pill.soldout{border-color:#ff5d5d55;color:#ff8f8f}.vending-pill.empty{color:#8f9aae}
+.vending-map-viewport{position:relative;height:min(68vh,720px);min-height:380px;overflow:hidden;background:#0b1622;cursor:grab;touch-action:none;user-select:none}
+.vending-map-viewport:active{cursor:grabbing}
+.vending-map{position:absolute;transform-origin:0 0;will-change:transform}
+.vending-map-image{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;image-rendering:auto}
+.vending-map--grid{background-color:#0e1b29;background-image:linear-gradient(#ffffff0a 1px,transparent 1px),linear-gradient(90deg,#ffffff0a 1px,transparent 1px);background-size:6.25% 6.25%;border:1px solid #ffffff12}
+.vending-map-note{position:absolute;left:12px;bottom:12px;right:12px;font-size:10px;color:#9aa7ba;background:#0d121bcc;border:1px solid #ffffff12;border-radius:10px;padding:8px 10px;pointer-events:none}
+.vending-marker-layer{position:absolute;inset:0;pointer-events:none}
+.vending-marker{position:absolute;width:22px;height:30px;padding:0;border:0;background:none;transform:translate(-50%,-100%);cursor:pointer;pointer-events:auto;filter:drop-shadow(0 2px 3px #000c)}
+.vending-marker svg{width:100%;height:100%;display:block}
+.vending-marker svg rect{fill:#ff9b59;stroke:#1b1108;stroke-width:1.2}
+.vending-marker svg .glass{fill:#bfe4ff;stroke:none}.vending-marker svg .slot{fill:#2a1b10;stroke:none}
+.vending-marker.ok svg rect:first-child{fill:#3fcf82}.vending-marker.low svg rect:first-child{fill:#ffb54d}.vending-marker.soldout svg rect:first-child{fill:#ff5d5d}.vending-marker.empty svg rect:first-child{fill:#8d97a8}
+.vending-marker.selected{filter:drop-shadow(0 0 6px #fff) drop-shadow(0 2px 3px #000c);z-index:2}
+.vending-side{display:flex;flex-direction:column;gap:14px;position:sticky;top:12px}
+.vending-hint{display:flex;flex-direction:column;gap:5px}.vending-hint span{font-size:10px;color:#7f8ba0}
+.vending-detail{display:flex;flex-direction:column;gap:12px}
+.vending-products{display:flex;flex-direction:column;gap:8px;max-height:360px;overflow:auto}
+.vending-product{display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;gap:10px;padding:8px;border:1px solid #ffffff0d;border-radius:12px;background:#ffffff04}
+.vending-product.soldout{border-color:#ff5d5d40;background:#ff5d5d0a}.vending-product.low{border-color:#ffb54d40}
+.vending-product-info{min-width:0;display:flex;flex-direction:column;gap:3px}
+.vending-product-info strong{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vending-product-info span{font-size:9px;color:#8f9aae}
+.vending-stock-bar{height:4px;border-radius:4px;background:#ffffff12;overflow:hidden;margin-top:2px}
+.vending-stock-bar i{display:block;height:100%;background:#3fcf82;border-radius:4px}
+.vending-product.low .vending-stock-bar i{background:#ffb54d}.vending-product.soldout .vending-stock-bar i{background:#ff5d5d}
+.vending-stock-count{font-size:10px;color:#cfd8e6;white-space:nowrap}
+.vending-product.soldout .vending-stock-count{color:#ff8f8f}
+.vending-logo{width:40px;height:40px;border-radius:9px;object-fit:contain;background:#ffffff08;flex:none}
+.vending-logo--text{display:grid;place-items:center;font-size:12px;font-weight:800;color:#ffcfa8;background:#ff9b5914;border:1px solid #ff9b5933}
+.vending-list-card .management-panel-title select{font-size:10px}
+.vending-list{display:flex;flex-direction:column;gap:6px;max-height:340px;overflow:auto}
+.vending-list button{display:grid;grid-template-columns:10px minmax(0,1fr) auto;align-items:center;gap:9px;border:1px solid #ffffff0d;background:#ffffff04;border-radius:12px;padding:8px 10px;text-align:left;color:#dce4f2}
+.vending-list button:hover{background:#ffffff08}
+.vending-list button.active{border-color:#ff9b5966;background:#ff9b5910;box-shadow:inset 3px 0 0 #ff9b59}
+.vending-list button span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.vending-list button small{font-size:9px;color:#768298}
+.vending-list .vending-logos{flex-direction:row;gap:4px}
+.vending-list .vending-logo{width:22px;height:22px;border-radius:6px;font-size:8px}
+.vending-dot{width:9px;height:9px;border-radius:50%;background:#8d97a8}
+.vending-dot.ok{background:#3fcf82}.vending-dot.low{background:#ffb54d}.vending-dot.soldout{background:#ff5d5d}
+.vending-empty{margin:0;font-size:10px;color:#8f9aae;line-height:1.5}
+.set-logo-field{display:flex;align-items:center;gap:12px}
+.set-logo-preview{width:56px;height:56px;border-radius:12px;object-fit:contain;background:#ffffff08;border:1px solid #ffffff12;flex:none}
+.set-logo-field .set-logo-inputs{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+@media (max-width:1100px){.vending-layout{grid-template-columns:1fr}.vending-side{position:static}}

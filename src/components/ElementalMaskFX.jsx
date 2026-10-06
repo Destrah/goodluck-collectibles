@@ -556,7 +556,7 @@ function drawPop(ctx, pop) {
   ctx.restore()
 }
 
-export default function ElementalMaskFX({ layer, active = false, framing }) {
+export default function ElementalMaskFX({ layer, active = false, framing, comparison }) {
   const canvasRef = useRef(null)
   const activeRef = useRef(active)
   const framingX = clamp(Number(framing?.x ?? 50), 0, 100)
@@ -571,6 +571,29 @@ export default function ElementalMaskFX({ layer, active = false, framing }) {
 
     const host = canvas.parentElement
     if (!host) return undefined
+
+    // A grading pair uses the very same particle frame. Independent random
+    // emitters otherwise make identical prints look like different masks.
+    const comparisonKey = JSON.stringify([layer.image, layer.maskSource, layer.mode, layer.strength, framingX, framingY, framingZoom])
+    const shared = comparison?.get(comparisonKey)
+    if (shared) {
+      const copyFrame = () => {
+        const source = shared.canvas
+        if (!source.width || !source.height || !source.style.width) return
+        if (canvas.width !== source.width) canvas.width = source.width
+        if (canvas.height !== source.height) canvas.height = source.height
+        const ratio = host.offsetWidth / (source.parentElement?.offsetWidth || host.offsetWidth || 1)
+        for (const name of ['left', 'top', 'width', 'height']) canvas.style[name] = `${parseFloat(source.style[name]) * ratio}px`
+        const ctx = canvas.getContext('2d')
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+        ctx.drawImage(source, 0, 0)
+      }
+      shared.listeners.add(copyFrame)
+      copyFrame()
+      return () => shared.listeners.delete(copyFrame)
+    }
+    const published = comparison ? { canvas, listeners: new Set() } : null
+    if (published) comparison.set(comparisonKey, published)
 
     let cancelled = false
     let frame = 0
@@ -591,6 +614,7 @@ export default function ElementalMaskFX({ layer, active = false, framing }) {
     let dpr = 1
     let overscanX = 0
     let overscanY = 0
+    let windowRect = { x0: 0, y0: 0, x1: 1, y1: 1 }
     let particles = []
     let arcs = []
     let bubbles = []
@@ -672,10 +696,19 @@ export default function ElementalMaskFX({ layer, active = false, framing }) {
       const focusX = framingX / 100
       const focusY = framingY / 100
       const fit = coverRect(img.naturalWidth, img.naturalHeight, analysisW, analysisH, focusX, focusY)
+      // The subject layer is scaled by the art zoom around the focus point, so only part of this (unscaled) box
+      // shows through the artwork window. Mask parts outside it sit behind the card frame: they must not emit
+      // anything (flames from inside the window may still rise past the border).
+      const shown = 100 / framingZoom
+      windowRect = {
+        x0: focusX * cssWidth * (1 - shown), y0: focusY * cssHeight * (1 - shown),
+        x1: focusX * cssWidth * (1 - shown) + cssWidth * shown, y1: focusY * cssHeight * (1 - shown) + cssHeight * shown,
+      }
+      const inWindow = (x, y) => x >= windowRect.x0 && x <= windowRect.x1 && y >= windowRect.y0 && y <= windowRect.y1
       offCtx.clearRect(0, 0, analysisW, analysisH)
       offCtx.drawImage(img, fit.x, fit.y, fit.w, fit.h)
 
-      const cacheKey = `${layer.image.length}:${layer.image.slice(-48)}|${mode}|${effect}|${strength}|${Math.round(focusX * 100)}:${Math.round(focusY * 100)}|${Math.round(cssWidth)}x${Math.round(cssHeight)}`
+      const cacheKey = `${layer.image.length}:${layer.image.slice(-48)}|${mode}|${effect}|${strength}|${Math.round(focusX * 100)}:${Math.round(focusY * 100)}:${Math.round(framingZoom)}|${Math.round(cssWidth)}x${Math.round(cssHeight)}`
       try {
         const hit = fxCache.get(cacheKey)
         if (hit) {
@@ -687,9 +720,10 @@ export default function ElementalMaskFX({ layer, active = false, framing }) {
         const data = offCtx.getImageData(0, 0, analysisW, analysisH)
         const derived = deriveMask(data, analysisW, analysisH, mode)
         insideMap = derived.inside
-        insideSamples = derived.samples
         const sx = cssWidth / analysisW
         const sy = cssHeight / analysisH
+        derived.edges = derived.edges.filter(edge => inWindow(edge.x * sx, edge.y * sy))
+        insideSamples = derived.samples.filter(sample => inWindow(sample.x * sx, sample.y * sy))
         edges = derived.edges.map(edge => ({
           x: overscanX + edge.x * sx,
           y: overscanY + edge.y * sy,
@@ -874,6 +908,9 @@ export default function ElementalMaskFX({ layer, active = false, framing }) {
       // Layer strength is also the water opacity: 0 = invisible, 1 = full water fill.
       ctx.save()
       ctx.globalAlpha = strength
+      ctx.beginPath()
+      ctx.rect(overscanX + windowRect.x0, overscanY + windowRect.y0, windowRect.x1 - windowRect.x0, windowRect.y1 - windowRect.y0)
+      ctx.clip()
       ctx.drawImage(waterCanvas, overscanX, overscanY, cssWidth, cssHeight)
       ctx.restore()
 
@@ -1041,6 +1078,7 @@ export default function ElementalMaskFX({ layer, active = false, framing }) {
         }
       }
 
+      published?.listeners.forEach(copyFrame => copyFrame())
     }
 
     frame = requestAnimationFrame(tick)
@@ -1051,8 +1089,9 @@ export default function ElementalMaskFX({ layer, active = false, framing }) {
       observer?.disconnect()
       visibilityObserver?.disconnect()
       document.removeEventListener('visibilitychange', onPageVisibility)
+      if (published && comparison.get(comparisonKey) === published) comparison.delete(comparisonKey)
     }
-  }, [layer.image, layer.maskSource, layer.mode, layer.strength, framingX, framingY, framingZoom])
+  }, [layer.image, layer.maskSource, layer.mode, layer.strength, framingX, framingY, framingZoom, comparison])
 
   return <canvas ref={canvasRef} className={`elemental-mask-fx elemental-mask-fx--${layer.mode}`} aria-hidden="true" />
 }

@@ -54,6 +54,12 @@ export const STITCH_PATTERNS = [
   { value: 'double', label: 'Double row' },
   { value: 'none', label: 'Hidden seam' },
 ]
+// Back of a coin / plushie that has no back artwork of its own.
+export const backStyles = defaultLabel => [
+  { value: '', label: defaultLabel },
+  { value: 'mirror', label: 'Mirror of the front' },
+  { value: 'same', label: 'Same as the front' },
+]
 export const EDGE_STYLES = [
   { value: 'reeded', label: 'Reeded' },
   { value: 'smooth', label: 'Smooth' },
