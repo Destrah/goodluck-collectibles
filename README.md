@@ -10,9 +10,9 @@ The same React interface runs as a standalone browser lab for designing and prev
 
 Captured from the resource's actual renderers in standalone mode, using bundled/sample artwork. These silent GIFs show the shared NUI presentation; FiveM inventory checks, rewards, and persistence run on the server.
 
-| Card pack opening | Card inspection and foil |
+| 3D card pack opening (back peel) | Card inspection and foil |
 | --- | --- |
-| ![Booster pack tearing, cards fanning out, and pulls revealing](docs/media/pack-opening.gif) | ![Trading card rotating to show its front, back, thickness, and foil](docs/media/card-viewing.gif) |
+| ![3D booster pack rotating to its back, peeling open to expose the silver foil, and releasing cards before fan-out and reveals](docs/media/pack-opening.gif) | ![Trading card rotating to show its front, back, thickness, and foil](docs/media/card-viewing.gif) |
 
 | Coin bag opening | Plushie box opening |
 | --- | --- |
