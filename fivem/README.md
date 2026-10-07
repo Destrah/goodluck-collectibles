@@ -87,6 +87,15 @@ Config.Persistence = 'json' -- or mysql
 
 Qbox player access uses `qbx_core` exports. Inventory remains its own adapter so Qbox can use ox_inventory without coupling card logic to the framework.
 
+### ox_core
+```lua
+Config.Framework = 'ox_core'
+Config.Inventory = 'ox_inventory'
+Config.Persistence = 'mysql' -- or json
+```
+
+Players are identified by character (`char:<charId>`) and named after it. `Config.Management.OxGroups` (group = minimum grade) grants management, and the active group counts as the job for `Config.Management.Jobs` and vending `Restock.Jobs`. Vending machines with `Shop.Account = 'bank'` charge the ox_core bank account; cash is the ox_inventory money item (`Config.Money.Cash = 'auto'`). Notifications use ox_lib when it is running (on any framework).
+
 ### Auto detection
 ```lua
 Config.Framework = 'auto'
@@ -94,7 +103,7 @@ Config.Inventory = 'auto'
 Config.Persistence = 'json'
 ```
 
-Framework auto-detection checks Qbox first, then QBCore, otherwise standalone.
+Framework auto-detection checks Qbox first, then QBCore, then ox_core, otherwise standalone.
 Inventory auto-detection checks ox_inventory first, then QBCore inventory, otherwise none.
 
 ## MySQL
@@ -392,7 +401,7 @@ Placements are saved with your `Config.Persistence`: MySQL uses the `goodluck_co
 
 With ox_target and ox_lib running, every machine has up to three target options. Each machine keeps its own products (a card set, booster pack or box, price and stock):
 
-- **Buy** (everyone): lists this machine's products with price and stock left. The server checks the player stands at the machine, the stock, the money (`Shop.Account`: `'money'` is the ox_inventory money item, `'cash'` / `'bank'` the QBCore / Qbox account) and inventory space, then gives a sealed pack or box of that set. If the item can't be added, the money and stock go back.
+- **Buy** (everyone): lists this machine's products with price and stock left. The server checks the player stands at the machine, the stock, the money (`Shop.Account`, paid the way `Config.Money` says) and inventory space, then gives a sealed pack or box of that set. If the item can't be added, the money and stock go back.
 - **Restock** (managers and the jobs in `Restock.Jobs`): adds stock to a product. Restocking N always needs N sealed packs / boxes of that set in the restocker's inventory, admins included; they are taken from the inventory. Stock is capped at `Restock.MaxStock` per product.
 - **Manage** (management permission): add products (pick a set, packs and/or boxes and prices; they start empty), change a price, lower stock or remove a product, or **Move machine** to pick it up with the placement preview and set it down somewhere nearby.
 
@@ -413,3 +422,72 @@ CREATE TABLE IF NOT EXISTS `goodluck_collectibles_vending_machines` (
 ```
 
 Deploy `fxmanifest.lua`, `client/vending_machines.lua`, `server/modules/vending_machines.lua`, `server/main.lua` and the `stream` folder together.
+
+### Machine ownership, serials and records
+
+Every machine has a serial number (`VM-7F3K-2Q9D`), kept by the placed machine and by its item when it is picked up, stolen or crafted. The serial's record is what decides who owns the machine and where its card payments go, so the owner stays with the machine wherever it ends up.
+
+- **Machines as items.** The `vending` crafting result (and `exports['<resource>']:GiveVendingMachine(source)`) gives a `vending_machine` item with a new serial owned by the business. Using the item places it with the usual preview (`Ownership.ItemPlacement`: `'anyone'` or `'managers'`). **Manage > Pick up** turns it back into the item with its serial, stock and cash.
+- **Owners and tax.** In the admin UI **Machine records** tab a manager registers people as owners (an online player or an identifier), sets each owner's tax %, and assigns machines to them. A machine keeps its owner and the owner's routing number until the business assigns it to someone else.
+- **Payments.** Buyers pick card or cash (`Shop.Payment`). A card sale pays the tax to the business account (`Ownership.Business`) and the rest to the routing number on the record; offline owners are paid when they next join. Cash stays in the machine (`Shop.MaxCash`) until the owner collects it in **Manage** (the tax is taken then).
+- **Records.** The records tab lists every serial with its owner, routing, status (placed, item, stolen, removed) and history. Managers can reset a hacked routing, print a `vending_registration` certificate for one machine, or take a `vending_ledger` that lists every owner and machine. Using either item shows the paper in game; a certificate warns when it is out of date, the machine is reported stolen or its payments are rerouted.
+
+The business's share goes to the first banking resource found (`Ownership.Business.Banking = 'auto'`: Renewed-Banking, okokBanking, qb-banking, qb-management or the ox_core group account), or to your own `Deposit` function with `'custom'`. If nothing takes it, it is held in the records and a manager can pay it out from the tab.
+
+### Vending machine crime and police alerts
+
+Players holding the configured items get extra ox_target options on machines they don't control (`Config.VendingMachines.Crime`):
+
+- **Break in** (lockpick): takes the cash stored in the machine, and sometimes a few sealed packs or boxes.
+- **Hack payment terminal** (laptop and electronic kit): reroutes the machine's card payments to the hacker and gives them control of it until the owner or the business resets the routing (`Hack.Hours = 0`), or for that many hours.
+- **Unbolt machine** (drill, only shortly after a break-in): the thief gets the machine item with the same serial. The record is marked stolen and payments still go to the owner unless it is also hacked.
+
+Each action has its own items (`remove`, `breakChance`), minigames, animation and hand prop, duration, cooldowns and failure message. Timers and item checks run on the server. `Config.Minigames` holds the skill-check presets: the built-in games at three difficulties (lockpick, wires, keypad, sequence, plus simon: repeat a growing colour signal, grid: click the squares that flashed, safe: turn a combination dial by feel, reaction: hit green nodes and avoid red ones, order: click numbers in order while they move, circle: stop a speeding, reversing needle on each arc), plus presets for ox_lib skill checks, ps-ui, bl_ui, memorygame, qb-minigames, utk_fingerprint and glow_minigames. If a preset's resource isn't running, the built-in lockpick of the same level is used. Other scripts can call `exports['<resource>']:Minigame('lockpick_hard')` (or a list of names), which returns true or false. A list entry can be `{ random = { ... } }`, so the defaults pick a different game each time. Managers can try every preset at different speeds in the admin UI **Minigames** tab.
+
+### Dispatch, optional phone alerts, GPS and skimmers
+
+`Config.Police.CrimeAlertStage` selects the only crime stage that can send a police dispatch (`'start'` by default; `'fail'` or `'success'` are alternatives). An attempt gets one chance at that stage; failing or completing it does not send a second call. Phone stages and GPS movement alerts are independent.
+
+Crime progress defaults are 45 seconds for break-in, 90 seconds for hacking, 30 seconds for GPS disabling/skimmer installation, and 180 seconds for unbolting, in addition to minigame time. Break-in uses two hard games; hacking and theft use three. Theft requires the thief's own recent break-in and disabled GPS (`Steal.NeedsGPSDisabled`, ignored when GPS is globally disabled). The 600-second break-in window and GPS state are checked again when drilling finishes. Configure durations, games and prerequisites under `Config.VendingMachines.Crime`.
+
+Start `rush-dispatch` before this resource. `Config.Police.System = 'auto'` now detects it first; set `'rush-dispatch'` explicitly to pin that choice. The adapter calls the supplied fork's client `CustomAlert` export with `dispatchCode`, `message`, `description`, coordinates and `job`. Configure its actual department names in `Config.Police.RushDispatchJobs` (defaults: `lspd`, `bcso`, `sasp`); `Jobs` still controls police counts and `DispatchJobs` still controls ps-dispatch groups. Existing crime chances remain in `Config.Police.Alerts`.
+
+Phone delivery is optional and **disabled by default**. The supplied dispatch ZIP has no phone messaging export; its phone notifications use LB Phone. `Config.Police.Phone.Enabled = true` enables direct LB Phone server exports independently of the police chance roll. `Recipient = 'controller'` resolves the current network-chip controller from the serial registry (active hacker, otherwise the owner). `Mode = 'notification'` uses `SendNotification`; `'sms'` uses `SendMessage` and requires a valid `FromNumber`. Configure `Stages`, `Cooldown`, `Title` and `Message`; templates support `{serial}`, `{action}`, `{stage}`, `{title}` and `{message}`. An offline controller is resolved by their framework identifier via `GetEquippedPhoneNumber`; delivery requires a phone number known to LB Phone. A business-owned machine without a personal controller has no personal recipient. [LB Phone export reference](https://docs.lbscripts.com/phone/exports/server-exports/).
+
+`Config.VendingMachines.GPS` controls movement detection. The first placed location is stored against the serial and survives picking up, towing, dropping and replacing the machine. Movement beyond `MovementThreshold` triggers an in-game alert to the **current chip controller**, throttled by `Cooldown` and checked every `CheckInterval` milliseconds. **Disable machine GPS** requires the configured electronic kit and wire minigame; disabling persists until someone with management/control access uses **Enable machine GPS**, which registers the current spot as the new home position. GPS movement phone messages remain optional. `Config.Police.Alerts.gps.chance.movement` defaults to 0: raise it to also send GPS movement to police dispatch.
+
+`Config.VendingMachines.Skimmer` configures the custom prop, item and payment mode. Stream your own `metacomics_card_skimmer` drawable and register its archetype in the loaded `metacomics_props.ytyp` (or add your own YTYP to the manifest). **Install card skimmer** is blocked until that model is available on the installing client. `Offset` and `Rotation` attach it to the cabinet near the coin/card slot; tune these so the device slightly overlaps the slot. The prop is cosmetic; installation, payment recording, item removal and collection are server authoritative. Add `card_skimmer` from the inventory examples.
+
+Skimmer `Mode` is `'record'` (default, logs purchases without diverting money), `'cut'` (retains `Percent` of card revenue), or `'divert'` (retains the entire card payment). The remaining revenue follows the machine's normal routing/tax rules. Cash purchases are unaffected. **Read card skimmer** lets its installer collect retained funds and see the recorded purchase count. Records are bounded by `MaxRecords`; balances survive mode changes, machine movement and restarts. The installer or a controller/manager can remove an empty skimmer and receive the item; retained funds must be collected first. A configured custom prop is required for the visible attachment—none is generated by these scripts.
+
+### Moving machines: dolly and rope
+
+While a player has a vending machine item they push it on a dolly (`Config.VendingCarry`): walking pace, no sprint, jump or weapons, until they get into a vehicle. A **stolen** machine can be tied to the back of a vehicle (ox_target on the vehicle, standing behind it) and dragged on a rope; the item leaves the inventory while it is dragged. **Untie vending machine** (ox_target on the machine or behind the towing vehicle) puts it back in the player's inventory. Dolly model, offsets, animation, pace and rope length are in the config.
+
+Towed machines are journaled in `data/vending_tow_recovery.json`. On resource stop, ropes are detached and machine props are frozen; inventory returns and ownership database writes run after the next start. Recovery waits for an offline owner to join or a full inventory to have space. Preserve this file when deploying updates. Deploy the updated `stream/metacomics_vending_machine.ydr` too: its collision filters allow the cabinet to collide with the world while being dragged. `node scripts/fix-vending-collision.mjs` validates and reapplies those filters without changing the model geometry or textures.
+
+`Config.VendingCarry.VehicleEntry` selects `'block'` (refuse vehicle entry while carrying a machine) or `'drop'` (attempting entry drops one machine in front of the player; try entering again once the inventory has updated). If carrying several machines, drop each before entering. Dropped cabinets use **Pick up vending machine** in ox_target and retain their serial, stock and cash. Removal and pickup run on the server.
+
+`Config.VendingCarry.Tow.Physics` controls `Mass` (default 250), `Gravity` (1), `LinearDamping` (0.1, movement resistance) and `AngularDamping` (0.5, spin resistance). Set `Enabled = false` to use the model defaults. Physics settings are applied by the entity's network owner and reapplied when ownership changes; mass is separate from inventory item weight.
+
+`Config.VendingCarry.Tow.Snap.Enabled` toggles automatic snapping. The server snaps the rope after an overload lasts `Duration` milliseconds (default 600), following `GracePeriod` after ground placement (3000). Overload means centre-to-centre separation exceeds `Tow.Length + Snap.ExtraDistance` (6 + 3 metres by default), or vehicle speed exceeds `MaxSpeedKmh` (100 by default; 0 disables the speed trigger). This is a distance/speed rule rather than a measurement of rope force. Snapping leaves the machine available for pickup, frees the vehicle for another tow, and preserves machine contents and restart recovery.
+
+`Config.Police` sends alerts at the start, failure or success of an attempt, each with its own chance. `System = 'auto'` uses the first dispatch resource running (ps-dispatch, cd_dispatch, qs-dispatch, tk_dispatch, core_dispatch, rcore_dispatch, lb-tablet), else a built-in notification and blip for `Jobs`. `MinPolice` counts on-duty players in those jobs. Other scripts can raise one with the server export `PoliceAlert(source, { action = 'breakin', stage = 'start', coords = vec3(...), serial = 'VM-...' })`.
+
+Existing MySQL tables get a `meta_json` column automatically (serial, cash and access). Deploy `fxmanifest.lua`, `config.lua` (the new blocks are `Shop.CashAccount / Payment / MaxCash`, `VendingMachines.Item / Ownership / Records / Crime`, `Config.Minigames` and `Config.Police`), the `client` and `server/modules` folders and a fresh NUI build (`npm run build:fivem`) together. Item definitions are in `examples/ox_inventory-items.lua` and `examples/qbcore-items.lua`.
+
+## Money
+
+`Config.Money` decides how each account is paid. `'framework'` uses QBCore / Qbox `player.Functions.AddMoney` / `RemoveMoney` (cash, bank or any other account) and the ox_core bank account; `'item'` uses an inventory item (`CashItem`, default the ox_inventory `money` item). `Cash = 'auto'` uses the item on ox_core and the framework cash everywhere else. `Custom = { add = ..., remove = ..., balance = ... }` plugs in any other money system.
+
+## Crafting
+
+`Config.Crafting` sets up workbenches (ox_target, optional prop) and recipes for any item: inventory items, booster packs and boxes, plushie and coin containers, shipping crates and vending machines. Each recipe can have a time, money cost, jobs, stations, managers-only and tools that aren't used up. Packs and boxes are made from `card_blank`, plushie boxes and cases from `generic_plushie`, coin bags and coin bag boxes from `coin_blank`; the blanks themselves are crafted from paper and plastic, fabric, and copper. Recipes saved in the admin UI replace the config ones, so press **Reset** in the Crafting tab to pick up new default recipes. Managers edit the recipes in the admin UI **Crafting** tab (Save / Revert, Reset goes back to the config) and can craft anywhere with `/collectiblescraft`. Other scripts: `exports['<resource>']:OpenCrafting(stationIndex)` (client) and `GetCraftingRecipes()` (server).
+
+## Shipping crates
+
+A `shipping_crate` item (crafted, or `/givecrate [crate id]` for managers, or the server export `GiveShippingCrate(source, crateId, count)`) holds a crate type from `Config.ShippingCrates.Crates`. Using it puts the crate prop on the ground, plays the prying animation with a crowbar (`Tool`), opens the lid in game and then shows a 3D reveal of the contents (`Animation3D`: lid, panels, pry, straps or random). The props are from the 2024 Bottom Dollar Bounties update, so add `set sv_enforceGameBuild 3258` (or newer) to `server.cfg`.
+
+## Opening the UI from other scripts
+
+`exports['<resource>']:OpenAdmin(tab)` opens the admin UI on a tab (`'vending'`, `'records'`, `'crafting'`, ...) after the server checks the management permission. `exports['<resource>']:GetEmbedUrl('admin', 'vending')` returns an address for an `<iframe>` in your own NUI page; it posts `metaComic:embedReady` and `metaComic:embedClose` to the parent window.

@@ -1,11 +1,23 @@
 Config = {}
 
 -- Runtime adapters -----------------------------------------------------------
--- Framework: auto | standalone | qbcore | qbox | custom
+-- Framework: auto | standalone | qbcore | qbox | ox_core | custom
 Config.Framework = 'qbcore'
 
 -- Inventory: auto | none | qbcore | ox_inventory
 Config.Inventory = 'ox_inventory'
+
+-- Money (crafting prices, vending machine sales, payouts). Per account: 'framework' = QBCore / Qbox
+-- player.Functions.AddMoney / RemoveMoney (ox_core: its bank account), 'item' = an inventory item (CashItem),
+-- 'auto' = 'item' for cash on ox_core (its cash is the ox_inventory money item), else 'framework'.
+-- Custom = { add = function(source, account, amount, reason) return true end, remove = ..., balance = ... } for any
+-- other money system (return nil to fall back to the setting above).
+Config.Money = {
+    Cash = 'auto',      -- 'auto' | 'framework' | 'item'
+    Bank = 'framework', -- 'framework' | 'item'
+    CashItem = 'money',
+    Custom = nil,
+}
 
 -- Persistence: none | json | mysql | custom
 Config.Persistence = 'mysql'
@@ -32,6 +44,10 @@ Config.Management = {
     -- Qbox groups/citizenids accepted by qbx_core:HasGroup. Examples:
     -- QboxGroups = { cardshop = 0, ['CID12345'] = 0 }
     QboxGroups = {},
+
+    -- ox_core groups (Config.Framework = 'ox_core'), group name = minimum grade. Example:
+    -- OxGroups = { admin = 0, cardshop = 2 }
+    OxGroups = {},
 
     -- Exact identifiers that may manage cards (license:, license2:, or citizen id).
     Identifiers = {},
@@ -225,6 +241,132 @@ Config.Props = {
 Config.Collectibles = Config.Collectibles or {}
 Config.Collectibles.ContainerImages = true
 
+-- Crafting. These recipes are the defaults: once a manager saves recipes in the admin UI ("Crafting" tab) the saved
+-- list is used instead (Reset there goes back to these). Ingredients are item names from your inventory.
+-- result.type:
+--   'item'      { item = 'card_sleeve', count = 10 }            any inventory item
+--   'sealed'    { kind = 'pack' | 'box', set = nil, count = 1 }  booster pack / box of a card set (nil = default set)
+--   'container' { collectible = 'plushie' | 'challenge_coin', outer = false }  plushie box / case, coin bag / bag box
+--   'crate'     { crate = 'mixed' }                             shipping crate (Config.ShippingCrates)
+--   'vending'   {}                                              vending machine item (Config.VendingMachines.Item)
+-- Per recipe: time (ms, per item), money + account ('cash' | 'bank'), jobs = { jobname = minGrade },
+-- managersOnly, stations = { 'station id', ... } (nil = all), ingredient keep = true (a tool that is not used up).
+Config.Crafting = {
+    Enabled = true,
+    Command = 'collectiblescraft', -- managers: craft anywhere ('' to disable)
+    MaxAmount = 25,                -- most items crafted in one go
+    Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 }, -- or { scenario = 'PROP_HUMAN_BUM_BIN' }
+    -- Crafting benches (ox_target). model: optional prop spawned at the spot. recipes: recipe ids (nil = all).
+    Stations = {
+        -- { id = 'shop_bench', label = 'Collectibles workbench', coords = vec3(0.0, 0.0, 0.0), heading = 0.0, radius = 1.5,
+        --   model = 'prop_tool_bench02', jobs = { cardshop = 0 }, recipes = nil },
+    },
+    Recipes = {
+        -- blanks: printed / stamped / stuffed into the right collectible when a pack, plushie box or coin bag is made
+        { id = 'card_blank', label = 'Card Blanks (10)', category = 'Materials', time = 3000,
+          result = { type = 'item', item = 'card_blank', count = 10 },
+          ingredients = { { item = 'paper', count = 2 }, { item = 'plastic', count = 1 } } },
+        { id = 'generic_plushie', label = 'Generic Plushie', category = 'Materials', time = 3000,
+          result = { type = 'item', item = 'generic_plushie', count = 1 },
+          ingredients = { { item = 'fabric', count = 3 } } },
+        { id = 'coin_blank', label = 'Coin Blank', category = 'Materials', time = 2000,
+          result = { type = 'item', item = 'coin_blank', count = 1 },
+          ingredients = { { item = 'copper', count = 1 } } },
+        { id = 'booster_pack', label = 'Booster Pack', category = 'Cards', time = 4000,
+          result = { type = 'sealed', kind = 'pack', count = 1 },
+          ingredients = { { item = 'card_blank', count = 10 }, { item = 'plastic', count = 1 } } },
+        { id = 'booster_box', label = 'Booster Box', category = 'Cards', time = 10000,
+          result = { type = 'sealed', kind = 'box', count = 1 },
+          ingredients = { { item = 'cardboard', count = 2 }, { item = 'card_blank', count = 60 }, { item = 'plastic', count = 6 } } },
+        { id = 'card_sleeve', label = 'Card Sleeves (10)', category = 'Supplies', time = 3000,
+          result = { type = 'item', item = 'card_sleeve', count = 10 },
+          ingredients = { { item = 'plastic', count = 1 } } },
+        { id = 'card_toploader', label = 'Toploaders (2)', category = 'Supplies', time = 3000,
+          result = { type = 'item', item = 'card_toploader', count = 2 },
+          ingredients = { { item = 'plastic', count = 2 } } },
+        { id = 'grading_slab', label = 'Grading Slab', category = 'Supplies', time = 5000,
+          result = { type = 'item', item = 'grading_slab', count = 1 },
+          ingredients = { { item = 'plastic', count = 3 }, { item = 'glass', count = 1 } } },
+        { id = 'card_binder', label = 'Card Binder', category = 'Supplies', time = 6000,
+          result = { type = 'item', item = 'trading_card_binder', count = 1 },
+          ingredients = { { item = 'plastic', count = 4 }, { item = 'rubber', count = 1 } } },
+        { id = 'card_case', label = 'Card Case', category = 'Supplies', time = 8000,
+          result = { type = 'item', item = 'card_case', count = 1 },
+          ingredients = { { item = 'plastic', count = 6 }, { item = 'aluminum', count = 2 } } },
+        { id = 'plushie_box', label = 'Plushie Box', category = 'Collectibles', time = 6000,
+          result = { type = 'container', collectible = 'plushie', outer = false },
+          ingredients = { { item = 'generic_plushie', count = 4 }, { item = 'cardboard', count = 1 } } },
+        { id = 'plushie_case', label = 'Plushie Case', category = 'Collectibles', time = 15000,
+          result = { type = 'container', collectible = 'plushie', outer = true },
+          ingredients = { { item = 'generic_plushie', count = 30 }, { item = 'cardboard', count = 6 } } },
+        { id = 'coin_bag', label = 'Coin Bag', category = 'Collectibles', time = 6000,
+          result = { type = 'container', collectible = 'challenge_coin', outer = false },
+          ingredients = { { item = 'coin_blank', count = 3 }, { item = 'fabric', count = 1 } } },
+        { id = 'coin_bag_box', label = 'Coin Bag Box', category = 'Collectibles', time = 15000,
+          result = { type = 'container', collectible = 'challenge_coin', outer = true },
+          ingredients = { { item = 'coin_blank', count = 30 }, { item = 'cardboard', count = 4 } } },
+        { id = 'shipping_crate', label = 'Shipping Crate', category = 'Shipping', time = 20000,
+          result = { type = 'crate', crate = 'mixed' },
+          ingredients = { { item = 'wood', count = 10 }, { item = 'steel', count = 4 }, { item = 'boosterbox', count = 2 } } },
+        { id = 'vending_machine', label = 'Vending Machine', category = 'Business', time = 30000, managersOnly = true,
+          result = { type = 'vending' },
+          ingredients = { { item = 'steel', count = 20 }, { item = 'glass', count = 6 }, { item = 'electronickit', count = 2 } } },
+    },
+}
+
+-- Shipping crates: one big crate item ('shipping_crate') that a player pries open to get the large collectible containers
+-- inside (booster boxes, plushie / coin boxes and cases). Using the item puts the crate prop on the ground in front of the
+-- player, plays the prying animation, opens the lid in game and then shows a 3D reveal of the contents.
+-- The props are from the 2024 "Bottom Dollar Bounties" update: add `set sv_enforceGameBuild 3258` (or newer) to server.cfg.
+-- Contents use the same result list as crafting (type 'sealed' / 'container' / 'item'); chance = % (default 100).
+-- ox_inventory item: ['shipping_crate'] = { label = 'Shipping Crate', weight = 25000, stack = false, close = true,
+--   client = { image = 'shipping_crate.png' } }
+Config.ShippingCrates = {
+    Enabled = true,
+    Item = 'shipping_crate',
+    Default = 'mixed',          -- crate id when the item has none
+    GiveCommand = 'givecrate',  -- managers: /givecrate [crate id] ('' to disable)
+    OpenTime = 6000,            -- ms prying it open (per crate: openTime)
+    Tool = { item = 'crowbar', label = 'crowbar' }, -- needed to open (not used up). false: no tool
+    Models = {
+        Closed = 'm24_2_prop_m42_upgradecrate_01a', -- hash 3839926505
+        Open = 'm24_2_prop_m42_crate_open',
+        Lid = 'm24_2_prop_m42_crate_lid',
+    },
+    Animation = { dict = 'missheistfbi3b_ig7', clip = 'lift_fibagent_loop', flag = 1,
+        prop = 'w_me_crowbar', bone = 57005, pos = vec3(0.10, 0.02, -0.02), rot = vec3(-90.0, 0.0, 0.0) },
+    Scene = {
+        Distance = 1.2,        -- metres in front of the player
+        Networked = true,      -- false: only the opener sees the crate
+        LidOffset = vec3(0.0, 0.0, 0.55),
+        LidLanding = vec3(0.9, 0.4, 0.05), -- where the lid ends up, relative to the crate
+        RevealDelay = 900,     -- ms between the lid coming off and the 3D reveal
+        KeepSeconds = 20,      -- the open crate stays this long
+    },
+    Reveal3D = true,           -- false: only a notification with the contents
+    Animation3D = 'random',    -- 3D reveal: 'lid' | 'panels' | 'pry' | 'straps' | 'random' (per crate: animation)
+    Crates = {
+        mixed = { label = 'Mixed Shipping Crate', contents = {
+            { type = 'sealed', kind = 'box', count = 2 },
+            { type = 'container', collectible = 'plushie', outer = false, count = 1 },
+            { type = 'container', collectible = 'challenge_coin', outer = false, count = 1 },
+            { type = 'container', collectible = 'plushie', outer = true, count = 1, chance = 15 },
+        } },
+        cards = { label = 'Card Shipping Crate', animation = 'straps', contents = {
+            { type = 'sealed', kind = 'box', count = 4 },
+            { type = 'item', item = 'card_sleeve', count = 50, chance = 50 },
+        } },
+        plushies = { label = 'Plushie Shipping Crate', animation = 'panels', contents = {
+            { type = 'container', collectible = 'plushie', outer = true, count = 1 },
+            { type = 'container', collectible = 'plushie', outer = false, count = 2 },
+        } },
+        coins = { label = 'Coin Shipping Crate', animation = 'pry', contents = {
+            { type = 'container', collectible = 'challenge_coin', outer = true, count = 1 },
+            { type = 'container', collectible = 'challenge_coin', outer = false, count = 2 },
+        } },
+    },
+}
+
 -- Placeable vending machines (stream/metacomics_vending_machine.ydr). Managers place them in game; they are saved with
 -- Config.Persistence (MySQL table below, otherwise the JSON file) and every player spawns them locally only when near.
 Config.VendingMachines = {
@@ -241,12 +383,15 @@ Config.VendingMachines = {
     File = 'data/vending_machines.json',             -- JSON persistence
     -- ox_target on every machine (menus need ox_lib): Buy for everyone, Restock for managers + Restock.Jobs, Manage for
     -- managers (pick which sets' packs / boxes this machine sells, prices and stock). Each machine saves its own products.
-    -- Account 'money': the ox_inventory money item (QBCore cash with ox_inventory), else the framework account
+    -- Accounts: 'cash' / 'bank' (or another framework account), paid the way Config.Money says.
     -- ('cash' / 'bank'). The server checks the price, stock, the player's distance and inventory space before charging.
     Shop = {
         Enabled = true,
         TargetDistance = 2.0,
         Account = 'bank',
+        CashAccount = 'cash',  -- cash payments (see Config.Money); kept in the machine
+        Payment = 'both',      -- 'both' (buyer picks), 'card' (Account, routed to the owner) or 'cash'
+        MaxCash = 0,           -- most cash a machine holds before it only takes cards (0 = no limit)
         -- what a newly placed machine sells (change it per machine with Manage). set = a card set id (nil: the default set)
         Items = {
             { kind = 'pack', set = nil, price = 250 },
@@ -265,6 +410,246 @@ Config.VendingMachines = {
     Map = {
         Image = 'img/map/gtav_map.jpg',
         CenterX = 117.3, CenterY = 172.8, ScaleX = 0.02072, ScaleY = 0.0205,
+    },
+    -- The machine as an item (crafting recipe result 'vending'). Using it places it; Manage > Pick up turns it back
+    -- into the item with its serial, stock and cash. ox_inventory item:
+    -- ['vending_machine'] = { label = 'Vending Machine', weight = 60000, stack = false, close = true, client = { export = '<resource>.UseVendingMachine' } }
+    Item = 'vending_machine',
+    -- Owners, serial numbers and where card payments go (admin UI "Machine records" tab).
+    Ownership = {
+        BusinessName = 'Collectibles Co.',
+        BusinessRouting = '000000001',  -- the business's routing number shown in records
+        SerialPrefix = 'VM',            -- serials look like VM-7F3K-2Q9D
+        DefaultTax = 10,                -- % of each sale a newly registered owner pays the business (set per owner in the UI)
+        PayoutAccount = 'bank',         -- where owners' card earnings (and offline earnings when they join) are paid
+        NotifyPayouts = true,
+        ItemPlacement = 'anyone',       -- 'anyone' holding the item can set it up, or 'managers'
+        AllowPickup = true,             -- owners may pick their machines up (managers always can)
+        RevealHacker = false,           -- true: records show the hacker's name instead of "Unknown account"
+        HistoryLength = 25,             -- events kept per serial
+        -- The business's share (tax) is paid to this society / job account. Banking: 'auto' (first one running of
+        -- Renewed-Banking, okokBanking, qb-banking, qb-management, ox_core group account), one of those names, or
+        -- 'custom' with Deposit = function(account, amount, reason) return true end. If nothing takes it, it is held in
+        -- the records and a manager can pay it out from the admin UI.
+        Business = { Account = 'cardshop', Banking = 'auto' },
+    },
+    -- Record items. ox_inventory items (both stack = false):
+    -- ['vending_registration'] = { label = 'Vending Registration', weight = 10, client = { export = '<resource>.UseVendingRecord' } }
+    -- ['vending_ledger'] = { label = 'Vending Ledger', weight = 300, client = { export = '<resource>.UseVendingLedger' } }
+    Records = {
+        CertificateItem = 'vending_registration', -- one machine's papers: shows its current owner, routing and status
+        LedgerItem = 'vending_ledger',             -- every registered owner and machine
+        LedgerShowsRemoved = false,
+    },
+    -- The criminal side. Items: every entry is needed; remove = used up on success, breakChance = % lost on a failed
+    -- attempt. Minigame: a preset name from Config.Minigames, a list (all must pass) or { random = { ... } } (lists can hold randoms).
+    -- Animation: { dict, clip, flag } or { scenario }, plus an optional prop held in the hand (bone, pos, rot).
+    -- Cooldown / FailCooldown are seconds per machine. MinPolice: police players (Config.Police.Jobs) needed online.
+    Crime = {
+        Enabled = true,
+        MinPolice = 0,
+        OwnersCanRob = false, -- owners (and hackers who took a machine over) can't rob their own machines
+        BreakIn = {
+            Enabled = true, Label = 'Break in', Icon = 'fas fa-screwdriver-wrench', ProgressLabel = 'Forcing the cash box',
+            Items = { { item = 'lockpick', label = 'lockpick', count = 1, breakChance = 30 } },
+            Minigame = { 'lockpick_hard', 'safe_hard' },
+            Duration = 45000,
+            Animation = { dict = 'missheistfbi3b_ig7', clip = 'lift_fibagent_loop', flag = 49, prop = 'prop_tool_screwdvr01', bone = 57005, pos = vec3(0.10, 0.02, -0.02), rot = vec3(-90.0, 0.0, 0.0) },
+            Cooldown = 900, FailCooldown = 30,
+            TakePercent = 100,       -- % of the cash stored in the machine
+            RewardAccount = 'cash',  -- or RewardItem = 'black_money' / 'markedbills' (count = the amount)
+            StockChance = 25, StockMax = 2, -- also grab up to StockMax sealed packs / boxes of a product (chance %)
+            MinCash = 0,
+            FailMessage = 'The lock held.',
+        },
+        Hack = {
+            Enabled = true, Label = 'Hack payment terminal', Icon = 'fas fa-laptop-code', ProgressLabel = 'Rerouting card payments',
+            Items = { { item = 'laptop', label = 'laptop', count = 1 }, { item = 'electronickit', label = 'electronic kit', count = 1, remove = true } },
+            Minigame = { 'keypad_hard', 'simon_hard', 'wires_hard' },
+            Duration = 90000,
+            Animation = { dict = 'anim@heists@prison_heiststation@cop_reactions', clip = 'cop_b_idle', flag = 49, prop = 'prop_laptop_01a', bone = 18905, pos = vec3(0.12, 0.05, 0.12), rot = vec3(-110.0, 0.0, 10.0) },
+            Hours = 0,               -- 0: until the owner (or the business) resets the routing, else hours
+            Cooldown = 1800, FailCooldown = 60,
+            FailMessage = 'The terminal locked you out.',
+        },
+        Steal = {
+            Enabled = true, Label = 'Unbolt machine', Icon = 'fas fa-dolly', ProgressLabel = 'Unbolting the machine',
+            Items = { { item = 'drill', label = 'drill', count = 1, breakChance = 25 } },
+            NeedsBreakIn = true, BreakInWindow = 600, -- finish the theft within 10 minutes of your successful break-in
+            NeedsGPSDisabled = true, -- when GPS is enabled, disable it before unbolting
+            Minigame = { 'sequence_hard', 'wires_hard', 'order_hard' },
+            Duration = 180000,
+            Animation = { dict = 'anim@heists@fleeca_bank@drilling', clip = 'drill_straight_idle', flag = 49, prop = 'hei_prop_heist_drill', bone = 57005, pos = vec3(0.14, 0.0, -0.01), rot = vec3(90.0, -90.0, 180.0) },
+            Cooldown = 300, FailCooldown = 120,
+            FailMessage = 'The bolts would not budge.',
+        },
+        DisableGPS = {
+            Enabled = true, Label = 'Disable machine GPS', ProgressLabel = 'Disabling GPS',
+            Items = { { item = 'electronickit', label = 'electronic kit', count = 1 } },
+            Minigame = 'wires_hard', Duration = 30000, Cooldown = 0, FailCooldown = 60,
+            Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
+        },
+        EnableGPS = {
+            Enabled = true, Label = 'Enable machine GPS', ProgressLabel = 'Rearming GPS at this location',
+            Duration = 3000, Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
+        },
+        InstallSkimmer = {
+            Enabled = true, Label = 'Install card skimmer', ProgressLabel = 'Installing skimmer',
+            Items = { { item = 'card_skimmer', label = 'card skimmer', count = 1 } },
+            Duration = 30000, Minigame = 'wires_medium', Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
+        },
+        CollectSkimmer = { Enabled = true, Label = 'Read card skimmer', ProgressLabel = 'Reading skimmer', Duration = 3000 },
+        RemoveSkimmer = { Enabled = true, Label = 'Remove card skimmer', ProgressLabel = 'Removing skimmer', Duration = 3000 },
+    },
+    GPS = {
+        Enabled = true, MovementThreshold = 2.0, CheckInterval = 5000, Cooldown = 60,
+        NotifyController = true, -- in-game notification; optional phone delivery uses Config.Police.Phone
+    },
+    Skimmer = {
+        Enabled = true, Item = 'card_skimmer',
+        Model = 'metacomics_card_skimmer', -- stream your new prop before installing; no placeholder model
+        Offset = vec3(0.35, -0.44, 0.15), Rotation = vec3(0.0, 0.0, 0.0), -- local coin/card slot position; tune with your prop
+        Mode = 'record', -- 'record': log sales only; 'cut': retain Percent; 'divert': retain the entire card payment
+        Percent = 15, MaxRecords = 50, -- retained money is collected by the installer; cash purchases are unaffected
+    },
+}
+
+-- Carrying a vending machine item: the player pushes it on a dolly (walk only: no sprint, jump or weapons) until they get
+-- into a vehicle. Stolen machines can also be tied to the back of a vehicle with a rope (ox_target on the vehicle, from
+-- behind it) and dragged; untie it (ox_target on the machine) to load it back on the dolly. Offsets: Dolly from the ped,
+-- Machine base from the dolly (model-origin height is compensated automatically). Tweak them in game if the model sits wrong.
+Config.VendingCarry = {
+    Enabled = true,
+    -- offset = vec3(left/right, forward/back, height), in metres; rotation is in degrees.
+    -- Dolly height raises the whole assembly. Machine height adjusts only the cabinet.
+    -- With Dolly.rotation.z = 180, decreasing Machine.offset.y moves it away from the player.
+    Dolly = { model = 'prop_sacktruck_02a', bone = 0, offset = vec3(0.0, 0.9, -0.93), rotation = vec3(-20.0, 0.0, 180.0) }, -- model = nil: no dolly
+    Machine = { offset = vec3(0.0, -0.4, 0.03), rotation = vec3(0.0, 0.0, 0.0) },
+    Animation = { dict = 'anim@heists@box_carry@', clip = 'idle', flag = 49 },
+    MoveRate = 0.85, -- walking pace (1.0 = normal walk)
+    VehicleEntry = 'block', -- 'block': refuse entry; 'drop': drop a machine when attempting entry (pick it up with ox_target)
+    Tow = {
+        Enabled = true, StolenOnly = true, -- false: any machine can be dragged
+        Length = 6.0, Distance = 3.0, Duration = 4000, UntieDuration = 3000,
+        Label = 'Tie vending machine', UntieLabel = 'Untie vending machine', Icon = 'fas fa-link',
+        Physics = {
+            Enabled = true, -- false: use the prop's default physics
+            Mass = 1000.0, Gravity = 1.0, -- physics mass, separate from inventory weight
+            LinearDamping = 0.1, AngularDamping = 0.5, -- resistance to sliding / spinning
+        },
+        Snap = {
+            Enabled = false, -- false: disable automatic rope snapping
+            ExtraDistance = 3.0, -- metres beyond Length, measured between entity centres (allows for the rear bumper)
+            MaxSpeedKmh = 100.0, -- 0: disable the speed limit
+            Duration = 600, GracePeriod = 3000, -- continuous overload / grace after ground placement, in milliseconds
+        },
+        PickupLabel = 'Pick up vending machine', -- a snapped rope leaves the cabinet on the ground
+    },
+}
+
+-- Skill checks / minigames used by vending machine crime (Config.VendingMachines.Crime.*.Minigame) and by other scripts
+-- through exports['<resource>']:Minigame('name'). type:
+--   'builtin'        this resource's own games, no other resource needed:
+--                      lockpick  { pins, speed, zone (0-1 sweet spot width), time (s), mistakes }
+--                      wires     { wires, time, mistakes }      keypad { length, show (s to memorise), time, rounds }
+--                      sequence  { keys, perKey (s), rounds }
+--                      simon     { start, length, show (s per flash), time (s per round) }   repeat a growing colour signal
+--                      grid      { size, cells, rounds, show (s), time, mistakes }        click the squares that flashed
+--                      safe      { numbers, tolerance, speed (numbers/s), time, mistakes } turn a dial to each number, alternating
+--                      reaction  { grid, targets, life (s per target), traps (0-1), misses } hit green nodes, avoid red
+--                      order     { count, time, shuffle (move after each click), mistakes } click 1..count in order
+--                      circle    { zones, zone (degrees), speed (turns/s), time, mistakes, reverse } stop a needle on each arc
+--   'ox_skillcheck'  { difficulty = { 'easy', 'medium', { areaSize = 50, speedMultiplier = 1 } }, inputs = { 'e' } }
+--   'ps-ui'          { game = 'circle' | 'maze' | 'varhack' | 'thermite' | 'scrambler', circles, seconds, blocks, grid, incorrect }
+--   'bl_ui'          { game = 'CircleProgress' | 'Progress' | 'KeySpam' | 'KeyCircle' | 'NumberSlide' | 'RapidLines' | 'CircleShake'
+--                      | 'PathFind' | 'LightsOut' | 'MineSweeper' | 'Untangle' | 'WaveMatch' | 'WordWiz' | 'DigitDazzle' | 'PrintLock',
+--                      iterations, difficulty (0-100) or config = { ... } }
+--   'memorygame'     { correct, incorrect, show, lose }       'qb-minigames' { game = 'Skillbar' | 'Lockpick' | 'Hacking' | 'KeyMinigame', ... }
+--   'utk_fingerprint' { levels, lives, minutes }               'glow_minigames' { game = 'path' | 'spot' | 'math', settings }
+--   'custom'         { run = function() return true end }    'none' always passes
+-- level = 'easy' | 'medium' | 'hard': when a preset's resource isn't running, the built-in lockpick of that level is used.
+Config.Minigames = {
+    lockpick_easy = { type = 'builtin', game = 'lockpick', level = 'easy', pins = 3, speed = 0.8, zone = 0.22, time = 30, mistakes = 4 },
+    lockpick_medium = { type = 'builtin', game = 'lockpick', level = 'medium', pins = 4, speed = 1.1, zone = 0.16, time = 25, mistakes = 3 },
+    lockpick_hard = { type = 'builtin', game = 'lockpick', level = 'hard', pins = 6, speed = 1.5, zone = 0.1, time = 25, mistakes = 2 },
+    wires_easy = { type = 'builtin', game = 'wires', level = 'easy', wires = 4, time = 25, mistakes = 2 },
+    wires_medium = { type = 'builtin', game = 'wires', level = 'medium', wires = 6, time = 20, mistakes = 1 },
+    wires_hard = { type = 'builtin', game = 'wires', level = 'hard', wires = 8, time = 18, mistakes = 0 },
+    keypad_easy = { type = 'builtin', game = 'keypad', level = 'easy', length = 4, show = 3, time = 15, rounds = 1 },
+    keypad_medium = { type = 'builtin', game = 'keypad', level = 'medium', length = 6, show = 3, time = 12, rounds = 2 },
+    keypad_hard = { type = 'builtin', game = 'keypad', level = 'hard', length = 8, show = 2.5, time = 10, rounds = 3 },
+    sequence_easy = { type = 'builtin', game = 'sequence', level = 'easy', keys = 6, perKey = 1.6, rounds = 1 },
+    sequence_medium = { type = 'builtin', game = 'sequence', level = 'medium', keys = 8, perKey = 1.2, rounds = 2 },
+    sequence_hard = { type = 'builtin', game = 'sequence', level = 'hard', keys = 10, perKey = 0.9, rounds = 2 },
+    skill_easy = { type = 'ox_skillcheck', level = 'easy', difficulty = { 'easy', 'easy' }, inputs = { 'e' } },
+    skill_medium = { type = 'ox_skillcheck', level = 'medium', difficulty = { 'easy', 'medium', 'medium' }, inputs = { 'w', 'a', 's', 'd' } },
+    skill_hard = { type = 'ox_skillcheck', level = 'hard', difficulty = { 'medium', 'hard', { areaSize = 30, speedMultiplier = 2 } }, inputs = { 'w', 'a', 's', 'd' } },
+    ps_circle = { type = 'ps-ui', level = 'medium', game = 'circle', circles = 4, seconds = 10 },
+    ps_thermite = { type = 'ps-ui', level = 'hard', game = 'thermite', seconds = 10, grid = 6, incorrect = 3 },
+    ps_varhack = { type = 'ps-ui', level = 'hard', game = 'varhack', blocks = 6, seconds = 5 },
+    bl_circle = { type = 'bl_ui', level = 'medium', game = 'CircleProgress', iterations = 3, difficulty = 50 },
+    bl_untangle = { type = 'bl_ui', level = 'medium', game = 'Untangle', iterations = 1, config = { numberOfNodes = 8, duration = 15000 } },
+    memory_thermite = { type = 'memorygame', level = 'hard', correct = 12, incorrect = 3, show = 3, lose = 12 },
+    qb_lockpick = { type = 'qb-minigames', level = 'medium', game = 'Lockpick', pins = 4 },
+    qb_hacking = { type = 'qb-minigames', level = 'hard', game = 'Hacking', length = 5, seconds = 30 },
+    utk_fingerprint = { type = 'utk_fingerprint', level = 'hard', levels = 2, lives = 3, minutes = 2 },
+    simon_easy = { type = 'builtin', game = 'simon', level = 'easy', start = 3, length = 5, show = 0.6, time = 10 },
+    simon_medium = { type = 'builtin', game = 'simon', level = 'medium', start = 3, length = 7, show = 0.5, time = 8 },
+    simon_hard = { type = 'builtin', game = 'simon', level = 'hard', start = 4, length = 10, show = 0.35, time = 6 },
+    grid_easy = { type = 'builtin', game = 'grid', level = 'easy', size = 4, cells = 4, rounds = 2, show = 1.8, time = 12, mistakes = 2 },
+    grid_medium = { type = 'builtin', game = 'grid', level = 'medium', size = 5, cells = 5, rounds = 3, show = 1.5, time = 10, mistakes = 1 },
+    grid_hard = { type = 'builtin', game = 'grid', level = 'hard', size = 6, cells = 7, rounds = 3, show = 1.1, time = 8, mistakes = 0 },
+    safe_easy = { type = 'builtin', game = 'safe', level = 'easy', numbers = 2, tolerance = 3, speed = 25, time = 45, mistakes = 3 },
+    safe_medium = { type = 'builtin', game = 'safe', level = 'medium', numbers = 3, tolerance = 2, speed = 30, time = 40, mistakes = 2 },
+    safe_hard = { type = 'builtin', game = 'safe', level = 'hard', numbers = 4, tolerance = 1, speed = 40, time = 40, mistakes = 1 },
+    reaction_easy = { type = 'builtin', game = 'reaction', level = 'easy', grid = 3, targets = 8, life = 1.2, traps = 0.15, misses = 3 },
+    reaction_medium = { type = 'builtin', game = 'reaction', level = 'medium', grid = 4, targets = 12, life = 0.9, traps = 0.25, misses = 2 },
+    reaction_hard = { type = 'builtin', game = 'reaction', level = 'hard', grid = 5, targets = 16, life = 0.65, traps = 0.35, misses = 1 },
+    order_easy = { type = 'builtin', game = 'order', level = 'easy', count = 8, time = 15, shuffle = false, mistakes = 1 },
+    order_medium = { type = 'builtin', game = 'order', level = 'medium', count = 12, time = 15, shuffle = false, mistakes = 0 },
+    order_hard = { type = 'builtin', game = 'order', level = 'hard', count = 10, time = 14, shuffle = true, mistakes = 0 },
+    circle_easy = { type = 'builtin', game = 'circle', level = 'easy', zones = 3, zone = 36, speed = 0.45, time = 20, mistakes = 2 },
+    circle_medium = { type = 'builtin', game = 'circle', level = 'medium', zones = 4, zone = 28, speed = 0.6, time = 20, mistakes = 1 },
+    circle_hard = { type = 'builtin', game = 'circle', level = 'hard', zones = 6, zone = 20, speed = 0.8, time = 20, mistakes = 0 },
+}
+Config.MinigameFallback = nil -- preset used when a preset's resource isn't running (nil: built-in lockpick of its level)
+
+-- Police alerts for vending machine crime (break-ins, hacks, thefts). System: 'auto' | 'ps-dispatch' | 'cd_dispatch'
+-- | 'rush-dispatch' | 'qs-dispatch' | 'tk_dispatch' | 'core_dispatch' | 'rcore_dispatch' | 'lb-tablet' | 'builtin' | 'custom' | 'none'.
+-- 'auto' uses the first of those that is running, else 'builtin' (notification + blip for Jobs).
+Config.Police = {
+    Enabled = true,
+    System = 'auto',
+    CrimeAlertStage = 'start', -- one police-alert chance per attempt: 'start', 'fail' or 'success'; phone/GPS alerts are independent
+    Jobs = { 'police', 'sheriff' },  -- who counts as police (alerts, MinPolice)
+    DispatchJobs = { 'leo' },        -- ps-dispatch job groups
+    RushDispatchJobs = { 'lspd', 'bcso', 'sasp' }, -- actual job names used by rush-dispatch
+    OnDutyOnly = true,
+    Code = '10-90',
+    Blip = { sprite = 52, color = 1, scale = 1.0, time = 90, radius = 40.0 },
+    -- chance (%) at CrimeAlertStage; other crime stages never send police dispatch
+    Alerts = {
+        gps = { title = 'Vending machine GPS movement', message = 'Machine {serial} moved from its registered spot. {location}', chance = { movement = 0 } },
+        disablegps = { title = 'Vending machine GPS tampering', message = 'GPS tampering detected on machine {serial}', chance = { start = 25, fail = 60, success = 10 } },
+        installskimmer = { title = 'Vending machine reader tampering', message = 'Card reader tampering detected on machine {serial}', chance = { start = 25, fail = 50, success = 10 } },
+        breakin = { title = 'Vending machine break-in', message = 'Someone is breaking into vending machine {serial}', code = '10-90', priority = 2,
+            chance = { start = 50, fail = 100, success = 50 } },
+        hack = { title = 'Vending machine tampering', message = 'Payment terminal of vending machine {serial} reported tampering', code = '10-90', priority = 3,
+            chance = { start = 35, fail = 80, success = 25 } },
+        steal = { title = 'Vending machine theft', message = 'Vending machine {serial} is being stolen', code = '10-90', priority = 1,
+            chance = { start = 100, fail = 100, success = 100 }, blip = { sprite = 67 } },
+    },
+    -- System = 'custom': Custom = function(source, alert) ... end  (alert.coords, alert.title, alert.message, alert.code, alert.serial)
+    Custom = nil,
+    Phone = {
+        Enabled = false, Resource = 'lb-phone', -- optional future phone delivery
+        Recipient = 'controller', -- current network-chip controller (active hacker, otherwise owner); or 'owner' / 'actor'
+        Mode = 'notification', -- 'notification' or 'sms'
+        App = 'information-app', Title = 'Vending machine security',
+        FromNumber = nil, -- SMS only: set a valid sender phone number for SendMessage
+        Message = '{title}: {message} (stage: {stage})', -- {serial}, {action}, {stage}, {title}, {message}
+        Stages = { start = true, fail = false, success = true, movement = true },
+        Cooldown = 60, -- seconds per recipient / machine / action / stage; independent of police alert chances
     },
 }
 

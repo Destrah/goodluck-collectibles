@@ -8,6 +8,12 @@ import { listCollectibleTypes } from './collectibles/registry'
 import PackOptions from './components/PackOptions'
 import ManagementPanel from './components/ManagementPanel'
 import VendingMapPanel from './components/VendingMapPanel'
+import CraftingPanel from './components/CraftingPanel'
+import ShippingCrateReveal from './collectibles/ShippingCrateReveal'
+import VendingRecordsPanel from './components/VendingRecordsPanel'
+import VendingRecordView from './components/VendingRecordView'
+import Minigame from './minigames/Minigame'
+import MinigameTestPanel from './minigames/MinigameTestPanel'
 import LazyMount from './components/LazyMount'
 import useConfirm from './components/useConfirm'
 import CardViewer from './components/CardViewer'
@@ -24,6 +30,7 @@ import { copyCard, loadCopies } from './grading/standaloneCopies.js'
 import { resolveAsset } from './runtime/assets'
 import { HOLOS, defaultCards, newCard, normalizeCard, normalizeCards, resolveCardVariant } from './cardData'
 import { bridge, isFiveM, storage } from './runtime'
+import { embedTab, embedView, isEmbedded, notifyEmbedHost } from './runtime/env'
 import { loadPackPrefs } from './runtime/packPrefs'
 import { normalizeCatalogForRuntime } from './runtime/catalog'
 
@@ -65,6 +72,9 @@ export default function App() {
   const [gradeRecordView, setGradeRecordView] = useState(null) // FiveM: /gradecheck cert lookup
   // FiveM binder item "View Binder" / standalone binder preview
   const [binderView, setBinderView] = useState(null)
+  const [crateView, setCrateView] = useState(null) // FiveM shipping crate item: the 3D unpacking of what came out
+  const [recordView, setRecordView] = useState(null) // FiveM vending registration certificate / ledger item
+  const [minigameView, setMinigameView] = useState(null) // FiveM built-in skill check (client/minigames.lua)
   const oddsFetchedAt = useRef(0)
   // FiveM /cardoptions: compact player preference overlay
   const [packOptionsView, setPackOptionsView] = useState(false)
@@ -72,11 +82,27 @@ export default function App() {
   const [saveState, setSaveState] = useState({ saving: false, error: '' })
   const [unsavedPrompt, setUnsavedPrompt] = useState(false)
   const pendingActionRef = useRef(null)
-  const performCloseNui = () => bridge.close().catch(() => {}).finally(() => { setNuiVisible(false); setOverlayRun(0); setObjectOpenRequest(null); setCardView(null); setBinderView(null); setPackOptionsView(false) })
+  const performCloseNui = () => (isEmbedded ? Promise.resolve(notifyEmbedHost('metaComic:embedClose')) : bridge.close()).catch(() => {}).finally(() => { setNuiVisible(false); setOverlayRun(0); setObjectOpenRequest(null); setCardView(null); setBinderView(null); setPackOptionsView(false) })
   const [previewViewer, setPreviewViewer] = useState(null)
   const importRef = useRef(null)
   const previewRef = useRef(null)
   const catalogRevision = useRef(0)
+
+  // Embedded in another resource's NUI (exports GetEmbedUrl): open the requested view as soon as every listener is up.
+  // The server still checks management permission on each request.
+  useEffect(() => {
+    if (!isEmbedded || !isFiveM) return undefined
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      const runtimeInfo = embedView === 'admin' ? await bridge.getInfo().catch(() => null) : null
+      if (cancelled) return
+      window.postMessage(embedView === 'admin'
+        ? { type: 'metaComic:open', view: runtimeInfo?.capabilities?.editor ? 'editor' : 'gallery', overlay: false, mode: 'admin', tab: embedTab || undefined, runtimeInfo: runtimeInfo || undefined }
+        : { type: 'metaComic:open', view: embedView, overlay: false }, '*')
+      notifyEmbedHost('metaComic:embedReady', { view: embedView })
+    }, 0)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [])
 
   // FiveM: get coin bag / plushie box openings ready while idle, so using one shows it straight away.
   useEffect(() => {
@@ -160,6 +186,9 @@ export default function App() {
         setNuiVisible(true)
         setGradingView(message.overlay && message.mode === 'grading' && message.grading ? message.grading : null)
         setGradeRecordView(message.overlay && message.mode === 'gradeRecord' ? { key: Date.now(), cert: message.cert || '', found: message.found || null } : null)
+        setCrateView(message.overlay && message.mode === 'crate' && message.crate ? { ...message.crate, key: Date.now() } : null)
+        setRecordView(message.overlay && message.mode === 'vendingRecord' && message.record ? { ...message.record, key: Date.now() } : null)
+        setMinigameView(message.overlay && message.mode === 'minigame' && message.minigame ? message.minigame : null)
         if (message.mode === 'admin') {
           setCollectibleReset(current => current + 1)
           setPackOptionsView(false)
@@ -169,6 +198,7 @@ export default function App() {
           if (message.runtimeInfo) setRuntimeInfo(current => ({ ...current, ...message.runtimeInfo }))
           const canEdit = message.runtimeInfo?.capabilities?.editor === true
           setTab(canEdit ? 'editor' : 'management')
+          if (typeof message.tab === 'string' && message.tab) setTab(message.tab) // exports OpenAdmin(tab) / embed ?tab=
 
           // /cardadmin is expected to reflect the server's current catalog, sets and
           // permissions every time it opens, not only what existed when the hidden
@@ -213,7 +243,7 @@ export default function App() {
           setOverlayRun(0)
           setCardView(null)
           setBinderView(message.binder)
-        } else if (message.overlay && (message.mode === 'grading' || message.mode === 'gradeRecord')) {
+        } else if (message.overlay && (message.mode === 'grading' || message.mode === 'gradeRecord' || message.mode === 'crate' || message.mode === 'vendingRecord' || message.mode === 'minigame')) {
           setPackOptionsView(false)
           setOverlayRun(0)
           setCardView(null)
@@ -236,7 +266,7 @@ export default function App() {
           if (message.view) setTab(message.view)
         }
       }
-      if (message?.type === 'metaComic:close') { setNuiVisible(false); setOverlayRun(0); setObjectOpenRequest(null); setCardView(null); setBinderView(null); setPackOptionsView(false); setGradingView(null); setGradeRecordView(null) }
+      if (message?.type === 'metaComic:close') { setNuiVisible(false); setOverlayRun(0); setObjectOpenRequest(null); setCardView(null); setBinderView(null); setPackOptionsView(false); setGradingView(null); setGradeRecordView(null); setCrateView(null); setRecordView(null); setMinigameView(null) }
     })
     bridge.uiReady?.().catch?.(() => {}) // FiveM only: listening now, so the server can send icon work
     return () => {
@@ -411,7 +441,7 @@ export default function App() {
         saveSelected()
         return
       }
-      if (isFiveM && event.key === 'Escape') {
+      if (isFiveM && event.key === 'Escape' && !event.defaultPrevented) { // a page can keep Escape (minigame test)
         event.preventDefault()
         requestCloseNui()
       }
@@ -473,6 +503,10 @@ export default function App() {
   if (isFiveM && !nuiVisible) return null
 
   if (objectOpenRequest) return <CollectibleOpeningOverlay key={objectOpenRequest.id} request={objectOpenRequest} onClose={performCloseNui} />
+  if (crateView) return <ShippingCrateReveal key={crateView.key} crate={crateView} onClose={performCloseNui} />
+  // skill check: hidden straight away on a result (the game script then closes the page, or opens the next game)
+  if (minigameView) return <Minigame key={minigameView.id} config={minigameView} onResult={success => { bridge.minigameResult?.({ id: minigameView.id, success }).catch?.(() => {}); setMinigameView(null); if (isFiveM) setNuiVisible(false) }} />
+  if (recordView) return <VendingRecordView key={recordView.key} record={recordView} onClose={performCloseNui} />
 
   // /cardoptions: only the compact preference panel, with the game visible around it
   if (isFiveM && packOptionsView) return <PackOptions onClose={performCloseNui} />
@@ -546,6 +580,9 @@ export default function App() {
         {editorAllowed && <button className={tab === 'editor' ? 'active' : ''} onClick={() => changeTab('editor')}>Editor</button>}
         {managementAllowed && <button className={tab === 'management' ? 'active' : ''} onClick={() => changeTab('management')}>Sets & containers</button>}
         {managementAllowed && system === 'trading_card' && <button className={tab === 'vending' ? 'active' : ''} onClick={() => changeTab('vending')}>Vending machines</button>}
+        {managementAllowed && system === 'trading_card' && <button className={tab === 'records' ? 'active' : ''} onClick={() => changeTab('records')}>Machine records</button>}
+        {managementAllowed && <button className={tab === 'crafting' ? 'active' : ''} onClick={() => changeTab('crafting')}>Crafting</button>}
+        {managementAllowed && <button className={tab === 'minigames' ? 'active' : ''} onClick={() => changeTab('minigames')}>Minigames</button>}
         <button className={tab === 'gallery' ? 'active' : ''} onClick={() => changeTab('gallery')}>Collection</button>
         <button className={tab === 'effects' ? 'active' : ''} onClick={() => changeTab('effects')}>Effect sampler</button>
         {!isFiveM && system === 'trading_card' && <button className={tab === 'grading' ? 'active' : ''} onClick={() => changeTab('grading')}>Grading</button>}
@@ -612,6 +649,9 @@ export default function App() {
 
       {tab === 'management' && managementAllowed && <ManagementPanel cards={cards} sets={sets} onSetsChange={setSets} />}
       {tab === 'vending' && managementAllowed && <VendingMapPanel />}
+      {tab === 'records' && managementAllowed && <VendingRecordsPanel />}
+      {tab === 'crafting' && managementAllowed && <CraftingPanel sets={sets} />}
+      {tab === 'minigames' && managementAllowed && <MinigameTestPanel />}
 
       {tab === 'gallery' && (
         <div className="binder-preview-bar">

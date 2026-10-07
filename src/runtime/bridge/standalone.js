@@ -1,5 +1,27 @@
+import { DEMO_PRESETS } from '../../minigames/presets.js'
 import { makePack } from '../packLogic'
 import { recordPulls } from '../../grading/standaloneCopies.js'
+
+// demo data so the Crafting tab can be tried outside FiveM (nothing is saved)
+const demoCrafting = () => {
+    return { ok: true, custom: false, resultTypes: ['container', 'crate', 'item', 'sealed', 'vending'], collectibles: ['challenge_coin', 'plushie'],
+      stations: [{ id: 'shop_bench', label: 'Collectibles workbench' }], crates: [{ id: 'mixed', label: 'Mixed shipment' }],
+      recipes: [
+        { id: 'booster_pack', label: 'Booster Pack', category: 'Cards', time: 4000, money: 0, account: 'cash', enabled: true, jobs: {}, result: { type: 'sealed', kind: 'pack', count: 1 }, ingredients: [{ item: 'paper', count: 2 }, { item: 'plastic', count: 1 }] },
+        { id: 'card_sleeve', label: 'Card Sleeves (10)', category: 'Supplies', time: 3000, money: 0, account: 'cash', enabled: true, jobs: {}, result: { type: 'item', item: 'card_sleeve', count: 10 }, ingredients: [{ item: 'plastic', count: 1 }] },
+        { id: 'shipping_crate', label: 'Shipping Crate', category: 'Shipping', time: 20000, money: 500, account: 'bank', enabled: true, jobs: { cardshop: 1 }, result: { type: 'crate', crate: 'mixed', count: 1 }, ingredients: [{ item: 'wood', count: 10 }, { item: 'boosterbox', count: 2 }] },
+      ] }
+  }
+
+// demo machine records for the Machine records tab outside FiveM (kept in memory only)
+const demoRecords = {
+  ok: true, business: 'Collectibles Co.', businessRouting: '000000001', businessPending: 1250, defaultTax: 10, online: [{ serverId: 3, id: 'ABC12345', name: 'Sam Rivera' }],
+  people: [{ id: 'XYZ98765', name: 'Jordan Lee', routing: '483920175', tax: 15, machines: 1, pending: 400, registeredAt: 1790000000 }],
+  machines: [
+    { serial: 'VM-7F3K-2Q9D', owner: 'business', ownerName: 'Collectibles Co.', routing: '000000001', routingName: 'Collectibles Co.', ownerRouting: '000000001', tax: 0, tampered: false, status: 'placed', coords: { x: 195, y: -933, z: 30 }, cash: 750, history: [{ at: 1790000000, event: 'Placed by the business', by: 'Alex' }] },
+    { serial: 'VM-M4XP-8RTA', owner: 'XYZ98765', ownerName: 'Jordan Lee', routing: '771204983', routingName: 'Unknown account', ownerRouting: '483920175', tax: 15, tampered: true, status: 'stolen', holder: { name: 'Unknown' }, history: [{ at: 1790003600, event: 'Stolen' }, { at: 1790003000, event: 'Payment routing changed' }, { at: 1790000000, event: 'Assigned to Jordan Lee', by: 'Alex' }] },
+  ],
+}
 
 const listeners = new Set()
 const SETS_KEY = 'meta-comic-card-sets-v1'
@@ -48,6 +70,18 @@ export const standaloneBridge = {
   async getSets() { return { ok: true, sets: readSets() } },
   async saveSets(sets) { localStorage.setItem(SETS_KEY,JSON.stringify(sets));return {ok:true,sets} },
   // vending machines only exist in FiveM; a few demo machines let the map page be checked in the browser
+  async getCrafting() { return demoCrafting() },
+  async saveCrafting(payload) { const current = demoCrafting(); return payload?.reset ? current : { ...current, custom: true, recipes: payload.recipes } },
+  async getVendingRecords() { return structuredClone(demoRecords) },
+  async getMinigames() { return { ok: true, presets: DEMO_PRESETS } }, // built-in games play in the page
+  async testMinigame() { return { ok: false, error: 'Only in game.' } },
+  async saveVendingRecords(payload) {
+    if (payload?.action === 'tax') for (const person of demoRecords.people) if (payload.taxes?.[person.id] != null) person.tax = payload.taxes[person.id]
+    if (payload?.action === 'assign') { const machine = demoRecords.machines.find(m => m.serial === payload.serial); const person = demoRecords.people.find(p => p.id === payload.owner); if (machine) Object.assign(machine, { owner: payload.owner, ownerName: person?.name || demoRecords.business, tampered: false }) }
+    if (payload?.action === 'resetRouting') { const machine = demoRecords.machines.find(m => m.serial === payload.serial); if (machine) machine.tampered = false }
+    return structuredClone(demoRecords)
+  },
+  async minigameResult() { return { ok: true } },
   async getVendingMachines() {
     const sets = readSets()
     const logos = Object.fromEntries(sets.filter(set => set.logo).map(set => [set.id, set.logo]))

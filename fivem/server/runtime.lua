@@ -8,6 +8,7 @@ local function detectFramework()
     if Config.Framework ~= 'auto' then return Config.Framework end
     if running('qbx_core') then return 'qbox' end
     if running('qb-core') then return 'qbcore' end
+    if running('ox_core') then return 'ox_core' end
     return 'standalone'
 end
 

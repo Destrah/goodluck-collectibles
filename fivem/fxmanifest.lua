@@ -17,12 +17,19 @@ shared_scripts {
 client_scripts {
     'client/main.lua',
     'client/vending_machines.lua',
+    'client/crafting.lua',
+    'client/shipping_crates.lua',
+    'client/minigames.lua',
+    'client/police.lua',
+    'client/vending_crime.lua',
+    'client/vending_carry.lua',
 }
 
 server_scripts {
     'server/adapters/framework_standalone.lua',
     'server/adapters/framework_qbcore.lua',
     'server/adapters/framework_qbox.lua',
+    'server/adapters/framework_ox_core.lua',
     'server/adapters/framework_custom.lua',
     'server/adapters/inventory_none.lua',
     'server/adapters/inventory_qbcore.lua',
@@ -39,8 +46,19 @@ server_scripts {
     'server/modules/grading.lua',
     'server/modules/sample_cards.lua',
     'server/modules/set_logos.lua',
+    'server/modules/money.lua',
+    'server/modules/settings.lua',
     'server/main.lua',
+    'server/modules/rewards.lua',
+    'server/modules/crafting.lua',
+    'server/modules/shipping_crates.lua',
+    'server/modules/police.lua',
+    'server/modules/vending_registry.lua',
     'server/modules/vending_machines.lua',
+    'server/modules/vending_records.lua',
+    'server/modules/vending_security.lua',
+    'server/modules/vending_crime.lua',
+    'server/modules/vending_carry.lua',
 }
 
 files {

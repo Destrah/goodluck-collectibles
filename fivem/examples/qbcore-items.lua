@@ -48,3 +48,43 @@
     type = 'item', image = 'plushie_case.png', unique = true, useable = true,
     shouldClose = true, description = 'A shipping case of sealed plushie boxes.'
 },
+['shipping_crate'] = {
+    name = 'shipping_crate', label = 'Shipping Crate', weight = 25000,
+    type = 'item', image = 'shipping_crate.png', unique = true, useable = true,
+    shouldClose = true, description = 'A sealed crate of collectibles. Needs a crowbar to open.'
+},
+['vending_machine'] = {
+    name = 'vending_machine', label = 'Vending Machine', weight = 60000,
+    type = 'item', image = 'vending_machine.png', unique = true, useable = true,
+    shouldClose = true, description = 'A collectibles vending machine. Use it to set it up.'
+},
+['vending_registration'] = {
+    name = 'vending_registration', label = 'Vending Registration', weight = 10,
+    type = 'item', image = 'vending_registration.png', unique = true, useable = true,
+    shouldClose = true, description = 'Registration papers for one vending machine.'
+},
+['vending_ledger'] = {
+    name = 'vending_ledger', label = 'Vending Ledger', weight = 300,
+    type = 'item', image = 'vending_ledger.png', unique = true, useable = true,
+    shouldClose = true, description = 'The business ledger of vending machine owners.'
+},
+['card_blank'] = {
+    name = 'card_blank', label = 'Card Blank', weight = 2,
+    type = 'item', image = 'card_blank.png', unique = false, useable = false,
+    shouldClose = true, description = 'An unprinted trading card. Crafted into booster packs and boxes.'
+},
+['generic_plushie'] = {
+    name = 'generic_plushie', label = 'Generic Plushie', weight = 150,
+    type = 'item', image = 'generic_plushie.png', unique = false, useable = false,
+    shouldClose = true, description = 'A plain stuffed plushie. Crafted into plushie boxes and cases.'
+},
+['coin_blank'] = {
+    name = 'coin_blank', label = 'Coin Blank', weight = 20,
+    type = 'item', image = 'coin_blank.png', unique = false, useable = false,
+    shouldClose = true, description = 'An unstamped metal coin. Crafted into coin bags and coin bag boxes.'
+},
+['card_skimmer'] = {
+    name = 'card_skimmer', label = 'Card Skimmer', weight = 100,
+    type = 'item', image = 'card_skimmer.png', unique = false, useable = false,
+    shouldClose = true, description = 'A device installed over a vending machine card reader.',
+},

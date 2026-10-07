@@ -10,7 +10,7 @@ local SPEED = tonumber(cfg.CheckSpeed) or 80.0 -- m/s the player is assumed to t
 local MIN_SLEEP, MAX_SLEEP = 250, tonumber(cfg.MaxSleep) or 5000
 
 local machines, count = {}, 0
-local access = { manage = false, restock = false } -- which ox_target options this player sees (the server re-checks)
+local access = { manage = false, restock = false, controls = {} } -- which ox_target options this player sees (the server re-checks)
 local missingModels = {}
 local byEntity = {} -- spawned prop -> machine, for ox_target lookups
 local ghost
@@ -26,11 +26,39 @@ local function loadModel(hash)
 end
 
 local function despawn(machine)
+    if machine.skimmerProp and DoesEntityExist(machine.skimmerProp) then DeleteEntity(machine.skimmerProp) end
+    machine.skimmerProp = nil
     if machine.entity then
         if DoesEntityExist(machine.entity) then DeleteEntity(machine.entity) end
         byEntity[machine.entity] = nil
         machine.entity = nil
     end
+end
+
+local function syncSkimmer(machine)
+    if machine.skimmerProp and DoesEntityExist(machine.skimmerProp) then DeleteEntity(machine.skimmerProp) end
+    machine.skimmerProp = nil
+    local settings = cfg.Skimmer or {}
+    if not machine.skimmer or settings.Enabled == false or not settings.Model or not machine.entity then return end
+    local parent = machine.entity
+    local hash = loadModel(joaat(settings.Model))
+    if not hash then
+        if not missingModels[joaat(settings.Model)] then
+            missingModels[joaat(settings.Model)] = true
+            print('[meta-comic] Skimmer model is not streamed: ' .. settings.Model)
+        end
+        return
+    end
+    if machines[machine.id] ~= machine or machine.entity ~= parent or not DoesEntityExist(parent) or not machine.skimmer then
+        return SetModelAsNoLongerNeeded(hash)
+    end
+    local coords = GetEntityCoords(parent)
+    local prop = CreateObjectNoOffset(hash, coords.x, coords.y, coords.z, false, false, false)
+    SetEntityCollision(prop, false, false)
+    local offset, rotation = settings.Offset or vector3(0.35, -0.44, 0.15), settings.Rotation or vector3(0.0, 0.0, 0.0)
+    AttachEntityToEntity(prop, parent, -1, offset.x, offset.y, offset.z, rotation.x, rotation.y, rotation.z, false, false, false, false, 2, true)
+    machine.skimmerProp = prop
+    SetModelAsNoLongerNeeded(hash)
 end
 
 local function spawn(machine)
@@ -51,6 +79,7 @@ local function spawn(machine)
     SetModelAsNoLongerNeeded(hash)
     machine.entity = entity
     byEntity[entity] = machine
+    syncSkimmer(machine)
 end
 
 local function add(entry)
@@ -60,6 +89,11 @@ local function add(entry)
     local existing = machines[id]
     if existing and existing.model == entry.model and existing.coords == coords and existing.heading == heading then
         existing.products = entry.products or {} -- stock / price update: keep the spawned prop
+        existing.gpsDisabled = entry.gpsDisabled == true
+        if existing.skimmer ~= (entry.skimmer == true) then
+            existing.skimmer = entry.skimmer == true
+            syncSkimmer(existing)
+        end
         return existing
     end
     if existing then despawn(existing) else count = count + 1 end
@@ -70,6 +104,8 @@ local function add(entry)
         coords = coords,
         heading = heading,
         products = entry.products or {},
+        gpsDisabled = entry.gpsDisabled == true,
+        skimmer = entry.skimmer == true,
     }
     return machines[id]
 end
@@ -82,20 +118,29 @@ local function remove(id)
     count = count - 1
 end
 
+-- controls: ids of the machines this player owns (or took over), as a set
+local function setAccess(playerAccess)
+    if type(playerAccess) ~= 'table' then return end
+    local controls = {}
+    for _, id in ipairs(playerAccess.controls or {}) do controls[tonumber(id)] = true end
+    access = { manage = playerAccess.manage == true, restock = playerAccess.restock == true, controls = controls }
+end
+
 RegisterNetEvent('meta_comic:client:vendingMachines', function(list, playerAccess)
     local keep = {}
     for _, entry in ipairs(list or {}) do keep[tonumber(entry.id) or 0] = true end
     for id in pairs(machines) do if not keep[id] then remove(id) end end
     for _, entry in ipairs(list or {}) do add(entry) end
-    if type(playerAccess) == 'table' then access = playerAccess end
+    setAccess(playerAccess)
 end)
 
-RegisterNetEvent('meta_comic:client:vendingAccess', function(playerAccess)
-    if type(playerAccess) == 'table' then access = playerAccess end
-end)
+RegisterNetEvent('meta_comic:client:vendingAccess', setAccess)
 -- a new job can add or take away the Restock option
 RegisterNetEvent('QBCore:Client:OnJobUpdate', function() TriggerServerEvent('meta_comic:server:vendingAccess') end)
 RegisterNetEvent('QBCore:Client:OnPlayerLoaded', function() TriggerServerEvent('meta_comic:server:vendingAccess') end)
+RegisterNetEvent('ox:playerLoaded', function() TriggerServerEvent('meta_comic:server:vendingAccess') end) -- ox_core
+RegisterNetEvent('ox:setGroup', function() TriggerServerEvent('meta_comic:server:vendingAccess') end)
+RegisterNetEvent('ox:setActiveGroup', function() TriggerServerEvent('meta_comic:server:vendingAccess') end)
 
 RegisterNetEvent('meta_comic:client:vendingMachineAdded', function(entry)
     local machine = add(entry)
@@ -292,6 +337,11 @@ local MAX_STOCK = math.max(1, math.floor(tonumber((cfg.Restock or {}).MaxStock) 
 local function machineOf(entity)
     return entity and byEntity[entity] or nil
 end
+local function controls(machine) return machine ~= nil and access.controls[machine.id] == true end
+-- for client/vending_crime.lua
+MetaComic.VendingMachineOf = machineOf
+MetaComic.VendingMachineById = function(id) return machines[tonumber(id)] end
+MetaComic.VendingControls = function(id) return access.controls[tonumber(id)] == true end
 local function kindLabel(kind) return kind == 'box' and 'Booster Box' or 'Booster Pack' end
 local function productTitle(product) return ('%s %s'):format(product.setName or product.set, kindLabel(product.kind)) end
 local function money(n) return ('$%d'):format(math.floor(tonumber(n) or 0)) end
@@ -315,18 +365,28 @@ local function needsOxLib()
     return false
 end
 
-local function openBuy(machine)
+-- methods = { cash = true, card = true }: with both, picking a product asks how to pay
+local function openBuy(machine, methods)
     if not needsOxLib() then return end
+    methods = type(methods) == 'table' and methods or { card = true }
     local options = {}
     for _, product in ipairs(machine.products) do
         local soldOut = (product.stock or 0) < 1
+        local function buy(method) TriggerServerEvent('meta_comic:server:vendingBuy', machine.id, product.set, product.kind, method) end
         options[#options + 1] = {
             title = productTitle(product),
             description = soldOut and 'Sold out' or ('%s · %d left'):format(money(product.price), product.stock),
             icon = productIcon(product, product.kind == 'box' and 'boxes-stacked' or 'box-open'),
             image = productImage(product),
             disabled = soldOut,
-            onSelect = function() TriggerServerEvent('meta_comic:server:vendingBuy', machine.id, product.set, product.kind) end,
+            arrow = methods.cash and methods.card,
+            onSelect = function()
+                if not (methods.cash and methods.card) then return buy(methods.cash and 'cash' or 'card') end
+                menu('meta_comic_vending_pay', ('Pay %s'):format(money(product.price)), {
+                    { title = 'Pay with card', description = 'Charged to your bank account', icon = 'credit-card', onSelect = function() buy('card') end },
+                    { title = 'Pay with cash', description = 'Cash goes into the machine', icon = 'money-bill-wave', onSelect = function() buy('cash') end },
+                }, 'meta_comic_vending_buy')
+            end,
         }
     end
     if #options == 0 then options[1] = { title = 'Nothing for sale', disabled = true } end
@@ -360,19 +420,72 @@ local function openRestock(machine, maxStock)
 end
 
 -- the server answers Buy / Restock with this machine's current products, so the menus never show a stale copy
-RegisterNetEvent('meta_comic:client:vendingOpen', function(id, mode, products, maxStock)
+RegisterNetEvent('meta_comic:client:vendingOpen', function(id, mode, products, maxStock, methods)
     local machine = { id = id, products = products or {} }
     if machines[id] then machines[id].products = machine.products end
-    if mode == 'restock' then openRestock(machine, tonumber(maxStock)) else openBuy(machine) end
+    if mode == 'restock' then openRestock(machine, tonumber(maxStock)) else openBuy(machine, methods) end
 end)
 
 local function sendProduct(id, action, data) TriggerServerEvent('meta_comic:server:vendingProduct', id, action, data) end
 
 -- the server sends this after "Manage" and after every change, so the menu always shows saved values
-RegisterNetEvent('meta_comic:client:vendingManage', function(id, products, sets, maxStock)
+local function ownerAction(id, action, data) TriggerServerEvent('meta_comic:server:vendingOwner', id, action, data) end
+local function confirm(header, content)
+    return exports.ox_lib:alertDialog({ header = header, content = content, cancel = true }) == 'confirm'
+end
+-- ownership part of Manage: serial, owner, where card payments go, the cash box
+local function ownerOptions(id, info)
+    local options = {}
+    if type(info) ~= 'table' or not info.serial then return options end
+    options[#options + 1] = {
+        title = ('Serial %s'):format(info.serial),
+        description = ('Owner: %s%s'):format(info.ownerName or '?', info.owner ~= 'business' and (' · tax %s%%'):format(info.tax or 0) or ''),
+        icon = 'id-card', readOnly = true,
+    }
+    options[#options + 1] = {
+        title = info.tampered and 'Card payments: REROUTED' or ('Card payments: %s'):format(info.routingName or '?'),
+        description = info.tampered and ('Going to account %s, not the owner\'s (%s)'):format(info.routing or '?', info.ownerRouting or '?') or ('Routing number %s'):format(info.routing or '?'),
+        icon = info.tampered and 'triangle-exclamation' or 'building-columns', iconColor = info.tampered and '#e5484d' or nil,
+        disabled = not (info.tampered and (info.manager or info.isOwner)),
+        onSelect = function()
+            if confirm('Reset routing', 'Send this machine\'s card payments to its owner again?') then ownerAction(id, 'resetRouting') end
+        end,
+    }
+    options[#options + 1] = {
+        title = ('Collect cash (%s)'):format(money(info.cash)), description = 'Cash payments are kept in the machine until collected',
+        icon = 'sack-dollar', disabled = (info.cash or 0) <= 0, onSelect = function() ownerAction(id, 'collect') end,
+    }
+    if info.manager then
+        local people = { { value = 'business', label = info.business or 'The business' } }
+        for _, person in ipairs(info.people or {}) do people[#people + 1] = { value = person.id, label = ('%s (tax %s%%)'):format(person.name, person.tax or 0) } end
+        options[#options + 1] = {
+            title = 'Assign owner', description = 'Registered owners only (admin UI: Machine records)', icon = 'user-tag',
+            onSelect = function()
+                local result = input('Assign owner', {
+                    { type = 'select', label = 'Owner', options = people, default = info.owner, required = true },
+                    { type = 'checkbox', label = 'Print a registration certificate', checked = true },
+                })
+                if result and result[1] then ownerAction(id, 'assign', { owner = result[1], certificate = result[2] == true }) end
+            end,
+        }
+    end
+    options[#options + 1] = {
+        title = 'Print registration certificate', description = 'A record item showing who owns this machine', icon = 'file-signature',
+        onSelect = function() ownerAction(id, 'certificate') end,
+    }
+    options[#options + 1] = {
+        title = 'Pick up machine', description = 'Becomes an item again (keeps its serial, stock and cash)', icon = 'dolly',
+        onSelect = function()
+            if confirm('Pick up', ('Pick up vending machine %s?'):format(info.serial)) then ownerAction(id, 'pickup') end
+        end,
+    }
+    return options
+end
+
+RegisterNetEvent('meta_comic:client:vendingManage', function(id, products, sets, maxStock, info)
     if not needsOxLib() then return end
     maxStock = tonumber(maxStock) or MAX_STOCK
-    local options = {}
+    local options = ownerOptions(id, info)
     for _, product in ipairs(products or {}) do
         local key = { set = product.set, kind = product.kind }
         local subId = ('meta_comic_vending_product_%s_%s'):format(product.set, product.kind)
@@ -450,7 +563,7 @@ CreateThread(function()
         },
         {
             name = 'meta_comic_vending_restock', label = 'Restock', icon = 'fas fa-truck-ramp-box', distance = distance,
-            canInteract = function(entity) return access.restock == true and machineOf(entity) ~= nil end,
+            canInteract = function(entity) local machine = machineOf(entity); return machine ~= nil and (access.restock == true or controls(machine)) end,
             onSelect = function(data)
                 local machine = machineOf(data.entity)
                 if machine then TriggerServerEvent('meta_comic:server:vendingOpen', machine.id, 'restock') end
@@ -458,13 +571,43 @@ CreateThread(function()
         },
         {
             name = 'meta_comic_vending_manage', label = 'Manage', icon = 'fas fa-gear', distance = distance,
-            canInteract = function(entity) return access.manage == true and machineOf(entity) ~= nil end,
+            canInteract = function(entity) local machine = machineOf(entity); return machine ~= nil and (access.manage == true or controls(machine)) end,
             onSelect = function(data)
                 local machine = machineOf(data.entity)
                 if machine then TriggerServerEvent('meta_comic:server:vendingManage', machine.id) end
             end,
         },
     })
+end)
+
+-- the vending machine item: place it like /placevending, then the server checks the item is still there
+RegisterNetEvent('meta_comic:client:placeVendingItem', function()
+    if ghost then return notify('You are already placing a vending machine.', 'error') end
+    local placed = placeGhost(cfg.Model or 'metacomics_vending_machine')
+    if placed then
+        TriggerServerEvent('meta_comic:server:placeVendingItem', placed.x, placed.y, placed.z, placed.w)
+    else
+        TriggerServerEvent('meta_comic:server:cancelVendingItem')
+        notify('Vending machine placement cancelled.', 'info')
+    end
+end)
+
+-- ox_inventory items: client = { export = '<resource>.UseVendingMachine' } (also UseVendingRecord / UseVendingLedger)
+local function slotOf(...)
+    for i = 1, select('#', ...) do
+        local value = select(i, ...)
+        if type(value) == 'table' and tonumber(value.slot) then return tonumber(value.slot) end
+        if tonumber(value) then return tonumber(value) end
+    end
+end
+exports('UseVendingMachine', function(...) local slot = slotOf(...); if slot then TriggerServerEvent('meta_comic:server:useVendingItem', slot) end end)
+exports('UseVendingRecord', function(...) local slot = slotOf(...); if slot then TriggerServerEvent('meta_comic:server:useVendingRecord', 'certificate', slot) end end)
+exports('UseVendingLedger', function(...) local slot = slotOf(...); if slot then TriggerServerEvent('meta_comic:server:useVendingRecord', 'ledger', slot) end end)
+
+-- registration certificate / ledger: shown in the NUI
+RegisterNetEvent('meta_comic:client:vendingRecord', function(record)
+    SetNuiFocus(true, true)
+    SendNUIMessage({ type = 'metaComic:open', view = 'pack', overlay = true, mode = 'vendingRecord', record = record })
 end)
 
 -- admin UI map: "Set waypoint" on a machine

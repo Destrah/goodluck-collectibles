@@ -1,0 +1,16 @@
+.crate-reveal { position: fixed; inset: 0; z-index: 50; background: radial-gradient(ellipse at 50% 60%, rgba(40, 26, 14, 0.55), rgba(5, 4, 8, 0.82)); color: #fff; font-family: inherit; }
+.crate-reveal-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: pointer; }
+.crate-reveal-head { position: absolute; top: 24px; left: 50%; transform: translateX(-50%); text-align: center; pointer-events: none; }
+.crate-reveal-head h2 { margin: 0; font-size: 28px; letter-spacing: 0.04em; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7); }
+.crate-reveal-serial { display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.45); font: 12px/1.6 "Courier New", monospace; }
+.crate-reveal-list { position: absolute; right: 24px; top: 50%; transform: translateY(-50%); width: 240px; max-width: calc(100vw - 48px); padding: 14px 16px; border-radius: 10px; background: rgba(12, 10, 16, 0.72); border: 1px solid rgba(255, 210, 60, 0.25); }
+.crate-reveal-list h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.12em; color: #ffd23c; }
+.crate-reveal-list ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.crate-reveal-list li { padding: 6px 8px; border-radius: 6px; background: rgba(255, 255, 255, 0.05); color: rgba(255, 255, 255, 0.35); transition: background 0.3s, color 0.3s, transform 0.3s; }
+.crate-reveal-list li.is-in { background: rgba(255, 210, 60, 0.14); color: #fff; transform: translateX(-4px); }
+.crate-reveal-foot { position: absolute; bottom: 28px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; }
+.crate-reveal-foot button { min-width: 96px; padding: 9px 16px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.25); background: rgba(20, 16, 24, 0.8); color: #fff; font: inherit; cursor: pointer; }
+.crate-reveal-foot button.primary { background: #ffd23c; border-color: #ffd23c; color: #1a1206; font-weight: 700; }
+@media (max-width: 700px) {
+  .crate-reveal-list { top: auto; bottom: 84px; right: 16px; left: 16px; width: auto; transform: none; }
+}

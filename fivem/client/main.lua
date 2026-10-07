@@ -65,7 +65,7 @@ local function openPackOptions()
     openNui('pack', nil, true, 'options')
 end
 
-local function openManagement()
+local function openManagement(tab)
     -- Authorize before taking NUI focus. This keeps the permission boundary on
     -- the server and avoids trapping an unauthorized player in an empty overlay.
     local runtimeInfo = serverRpc('getRuntimeInfo', {}, 12000)
@@ -88,6 +88,7 @@ local function openManagement()
         view = runtimeInfo.capabilities.editor == true and 'editor' or 'gallery',
         overlay = false,
         mode = 'admin',
+        tab = type(tab) == 'string' and tab or nil,
         runtimeInfo = runtimeInfo,
     })
 end
@@ -435,7 +436,7 @@ end)
 
 for _,action in ipairs({'getCollectibles','saveCollectible','openCollectibleContainer','createCollectibleContainer','claimCollectibles','printCollectible',
     'gradingMark','gradingSubmit','gradingCancel','roughHandling','gradingRecord','getPrintOdds','binderStoreCard','binderTakeCard',
-    'getVendingMachines'}) do
+    'getVendingMachines','getCrafting','saveCrafting','getVendingRecords','saveVendingRecords'}) do
     RegisterNUICallback(action,function(data,cb) cb(serverRpc(action,data or {},120000)) end)
 end
 
@@ -663,7 +664,11 @@ RegisterNetEvent('meta_comic:client:viewCard', function(card, shownBy)
     end
 end)
 
+local OX_NOTIFY_TYPES = { success = 'success', error = 'error', warning = 'warning', inform = 'inform', info = 'inform', primary = 'inform' }
 RegisterNetEvent('meta_comic:client:notify', function(message, notifyType)
+    if GetResourceState('ox_lib') == 'started' then
+        return exports.ox_lib:notify({ description = message or '', type = OX_NOTIFY_TYPES[notifyType] or 'inform' })
+    end
     BeginTextCommandThefeedPost('STRING')
     AddTextComponentSubstringPlayerName(('[%s] %s'):format(notifyType or 'info', message or ''))
     EndTextCommandThefeedPostTicker(false, false)
@@ -696,7 +701,7 @@ local aliases={
     {key='Pack',name='collectiblespack',legacy='cardpack',action=openPackOverlay},
     {key='Box',name='collectiblesbox',legacy='cardbox',action=function() openNui('pack','openBox') end},
     {key='Options',name='collectiblesoptions',legacy='cardoptions',action=openPackOptions},
-    {key='Management',name='collectiblesadmin',legacy='cardadmin',action=openManagement},
+    {key='Management',name='collectiblesadmin',legacy='cardadmin',action=function() openManagement() end},
 }
 for _,entry in ipairs(aliases) do
     local configured=Config.Commands[entry.key]
@@ -718,6 +723,23 @@ exports('OpenBox', function(...)
     openNui('pack', 'openBox')
 end)
 exports('CloseCards', closeNui)
+
+-- For other scripts ------------------------------------------------------------------------------------------------
+-- exports['<resource>']:OpenAdmin(tab)   full admin UI (the server checks management permission first).
+--   tab: 'editor' | 'management' (Sets & containers) | 'vending' | 'crafting' ... or nil for the default
+exports('OpenAdmin', function(tab) CreateThread(function() openManagement(tab) end) end)
+RegisterNetEvent('meta_comic:client:openAdmin', function(tab) openManagement(tab) end) -- server export OpenAdmin(source, tab)
+exports('OpenPackOptions', openPackOptions)
+exports('IsOpen', function() return nuiOpen end)
+-- exports['<resource>']:GetEmbedUrl('admin', 'vending') -> an address for an <iframe> in your own NUI page.
+-- The embedded page talks to this resource directly, so permission checks still apply. It posts
+-- { type = 'metaComic:embedClose' } to the parent window when the user closes it, and 'metaComic:embedReady' once open.
+exports('GetEmbedUrl', function(view, tab)
+    local resource = GetCurrentResourceName()
+    local url = ('nui://%s/web/index.html?embed=1&resource=%s&view=%s'):format(resource, resource, tostring(view or 'admin'))
+    if tab and tab ~= '' then url = url .. '&tab=' .. tostring(tab) end
+    return url
+end)
 exports('UseCollectible',function(...) local slot=slotOf(...);if slot then TriggerServerEvent('meta_comic:server:useCollectible',slot) end end)
 
 AddEventHandler('onResourceStop', function(resource)

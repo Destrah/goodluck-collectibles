@@ -123,3 +123,48 @@
 -- ['card_sleeve'] = { label = 'Card Sleeve', weight = 1, stack = true, close = true, description = 'A soft penny sleeve. Keeps a card from scuffing.', client = { image = 'card_sleeve.png' } },
 -- ['card_toploader'] = { label = 'Toploader', weight = 15, stack = true, close = true, description = 'A rigid clear holder. Stops cards bending and creasing.', client = { image = 'card_toploader.png' } },
 -- ['grading_slab'] = { label = 'Grading Slab', weight = 60, stack = true, close = true, description = 'An empty grading case. Grade a card to seal it inside.', client = { image = 'grading_slab.png' } },
+
+-------------------------------------------------------------------------------------------------
+-- Shipping crates, vending machines and machine records (add with either block above).
+-- The client exports work with every framework; with QBCore / Qbox you can leave `client` out, the
+-- items are also registered as usable there. Change 'meta-comic' to your resource folder name.
+-------------------------------------------------------------------------------------------------
+['shipping_crate'] = {
+    label = 'Shipping Crate', weight = 25000, stack = false, close = true, consume = 0,
+    description = 'A sealed crate of collectibles. Needs a crowbar to open.',
+    client = { image = 'shipping_crate.png', export = 'meta-comic.UseShippingCrate' },
+},
+['vending_machine'] = {
+    label = 'Vending Machine', weight = 60000, stack = false, close = true, consume = 0,
+    description = 'A collectibles vending machine. Use it to set it up.',
+    client = { export = 'meta-comic.UseVendingMachine' },
+},
+['vending_registration'] = {
+    label = 'Vending Registration', weight = 10, stack = false, close = true, consume = 0,
+    description = 'Registration papers for one vending machine.',
+    client = { export = 'meta-comic.UseVendingRecord' },
+},
+['vending_ledger'] = {
+    label = 'Vending Ledger', weight = 300, stack = false, close = true, consume = 0,
+    description = 'The business ledger of vending machine owners.',
+    client = { export = 'meta-comic.UseVendingLedger' },
+},
+-- Tools used by the default recipes and crime settings, if your server doesn't have them yet:
+['card_skimmer'] = {
+    label = 'Card Skimmer', weight = 100, stack = true, close = true,
+    description = 'A device that can be installed over a vending machine card reader.',
+},
+-- crowbar, lockpick, laptop, electronickit, drill, and crafting materials paper, plastic, cardboard, glass,
+-- rubber, aluminum, fabric, copper, wood, steel.
+['card_blank'] = {
+    label = 'Card Blank', weight = 2, stack = true, close = true,
+    description = 'An unprinted trading card. Crafted into booster packs and boxes.',
+},
+['generic_plushie'] = {
+    label = 'Generic Plushie', weight = 150, stack = true, close = true,
+    description = 'A plain stuffed plushie. Crafted into plushie boxes and cases.',
+},
+['coin_blank'] = {
+    label = 'Coin Blank', weight = 20, stack = true, close = true,
+    description = 'An unstamped metal coin. Crafted into coin bags and coin bag boxes.',
+},

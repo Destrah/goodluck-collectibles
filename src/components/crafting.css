@@ -1,0 +1,12 @@
+.crafting-filter { width:100%; margin:0 0 8px; }
+.crafting-off { opacity:.55; }
+.crafting-actions { display:flex; gap:6px; }
+.crafting-check { flex-direction:row !important; align-items:center; gap:8px; }
+.crafting-check input { width:auto; }
+.crafting-stations { display:flex; flex-wrap:wrap; gap:10px 16px; margin-top:12px; font-size:12px; }
+.crafting-stations > span { width:100%; color:#8e99ac; }
+.crafting-stations label { display:flex; align-items:center; gap:6px; }
+.crafting-ingredients { display:flex; flex-direction:column; gap:8px; }
+.crafting-ingredient { display:grid; grid-template-columns:minmax(0,1fr) 90px auto auto; gap:8px; align-items:center; }
+.crafting-ingredient label { display:flex; align-items:center; gap:4px; font-size:12px; white-space:nowrap; }
+@media (max-width: 720px) { .crafting-ingredient { grid-template-columns:1fr 70px; } }

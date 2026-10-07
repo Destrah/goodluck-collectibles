@@ -226,6 +226,12 @@ local function canManage(source)
         if next(groups) and MetaComic.Framework.hasGroup(source, groups) then return true end
     end
 
+    if MetaComic.Framework.name == 'ox_core' and MetaComic.Framework.hasGroup then
+        local groups = management.OxGroups
+        if groups == nil and Config.Management == nil then groups = { admin = 0 } end
+        if next(groups or {}) and MetaComic.Framework.hasGroup(source, groups) then return true end
+    end
+
     local job = MetaComic.Framework.getJob and MetaComic.Framework.getJob(source)
     local jobs = management.Jobs or {}
     if job and job.name and jobs[job.name] ~= nil then
@@ -2554,6 +2560,18 @@ end)
 exports('OpenPackForPlayer', function(source)
     return handlers.openPack(source, {})
 end)
+
+-- Admin UI for other scripts: exports['<resource>']:OpenAdmin(source, tab). The client asks the server again before
+-- showing it, so a player without management permission only gets the usual "no permission" message.
+exports('CanManage', function(source) return canManage(tonumber(source)) == true end)
+exports('OpenAdmin', function(source, tab)
+    source = tonumber(source)
+    if not source or not canManage(source) then return false end
+    TriggerClientEvent('meta_comic:client:openAdmin', source, type(tab) == 'string' and tab or nil)
+    return true
+end)
+-- Sealed booster packs / boxes of a set: exports['<resource>']:GiveSealed(source, 'pack' | 'box', setId, count)
+exports('GiveSealed', function(source, kind, setId, count) return MetaComic.GiveSealed(tonumber(source), kind == 'box' and 'box' or 'pack', setId, count) end)
 
 -- Let another resource open a pack on a player's screen (no item needed, e.g. rewards / shops).
 exports('GivePackOpening', function(source, setId)
