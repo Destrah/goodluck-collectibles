@@ -245,11 +245,91 @@ local function canManage(source)
     return false
 end
 
-MetaComic.CanManage = canManage -- used by server/modules/vending_machines.lua
+MetaComic.CanManageReal = canManage
+-- used by server/modules/vending_machines.lua and the other modules; a vending test role (/vendingtestrole) stands in for it
+MetaComic.CanManage = function(source)
+    local test = MetaComic.VendingTestRole and MetaComic.VendingTestRole(source)
+    if test then return test.manage == true end
+    return canManage(source)
+end
 
 local function requireManage(source)
     if canManage(source) then return true end
     return false, 'You do not have permission to manage trading cards, sets, packs, or boxes.'
+end
+
+-- Portal (Config.Portal): which admin UI tabs someone may open, e.g. embedded in a business tablet (GetEmbedUrl) or
+-- with /cardportal. Managers get every tab; registered vending machine owners get OwnerTabs, scoped to their own
+-- machines by the vending modules; people listed under Editor also get the card editor. Every RPC still checks.
+local PORTAL_TABS = { 'editor', 'management', 'vending', 'records', 'crafting', 'minigames' }
+local function portalJob(source, jobs)
+    local job = MetaComic.Framework.getJob and MetaComic.Framework.getJob(source)
+    local configured = job and job.name and type(jobs) == 'table' and jobs[job.name]
+    if configured == nil or configured == false then return false end
+    local minGrade = type(configured) == 'table' and tonumber(configured.minGrade or configured.grade) or tonumber(configured) or 0
+    if type(configured) == 'table' and configured.onDuty == true and job.onDuty ~= true then return false end
+    return (tonumber(job.grade) or 0) >= minGrade
+end
+local function portalEditor(source)
+    local portal = Config.Portal or {}
+    if portal.Enabled == false or source == 0 then return source == 0 end
+    local editor = portal.Editor or {}
+    if editor.Ace and editor.Ace ~= '' and IsPlayerAceAllowed(source, editor.Ace) then return true end
+    if type(editor.Identifiers) == 'table' and next(editor.Identifiers) then
+        local ids = {}
+        local frameworkId = MetaComic.Framework.getIdentifier and MetaComic.Framework.getIdentifier(source)
+        if frameworkId then ids[tostring(frameworkId)] = true end
+        for _, identifier in ipairs(GetPlayerIdentifiers(source) or {}) do ids[tostring(identifier)] = true end
+        for _, configured in ipairs(editor.Identifiers) do if ids[tostring(configured)] then return true end end
+    end
+    return portalJob(source, editor.Jobs)
+end
+-- the registered owner id when this player owns (leases) vending machines, else nil
+local function portalOwnerId(source)
+    local Registry = MetaComic.VendingRegistry
+    local id = Registry and Registry.identifierOf and Registry.identifierOf(source)
+    if not id then return nil end
+    if Registry.person and Registry.person(id) then return id end
+    for _, record in ipairs(Registry.all and Registry.all() or {}) do
+        if record.owner == id and record.status ~= 'removed' then return id end
+    end
+end
+MetaComic.Portal = {
+    editor = portalEditor,
+    -- { manage, owner, editor, tabs = { ... } }; manage follows /vendingtestrole so owners can be tested
+    access = function(source)
+        local portal = Config.Portal or {}
+        local result = { tabs = {} }
+        if portal.Enabled == false then return result end
+        local allowed = {}
+        local function add(tab)
+            if tab == 'editor' and Config.Nui.AllowEditor ~= true then return end
+            if not allowed[tab] then allowed[tab] = true; result.tabs[#result.tabs + 1] = tab end
+        end
+        result.manage = MetaComic.CanManage(source) == true
+        result.editor = canManage(source) or portalEditor(source)
+        if result.manage then
+            for _, tab in ipairs(PORTAL_TABS) do add(tab) end
+            return result
+        end
+        result.owner = portalOwnerId(source) ~= nil
+        if portalEditor(source) then add('editor') end
+        if result.owner then for _, tab in ipairs(portal.OwnerTabs or { 'vending', 'records' }) do add(tostring(tab)) end end
+        return result
+    end,
+}
+-- the owner id a non-manager sees `tab` scoped to (nil = not allowed); managers get false (= everything)
+function MetaComic.Portal.ownerScope(source, tab)
+    local access = MetaComic.Portal.access(source)
+    if access.manage then return false end
+    for _, allowed in ipairs(access.tabs) do
+        if allowed == tab then return portalOwnerId(source) end
+    end
+    return nil
+end
+local function requireEdit(source)
+    if canManage(source) or portalEditor(source) then return true end
+    return false, 'You do not have permission to edit the card catalog.'
 end
 
 local function setById(setId)
@@ -1771,8 +1851,10 @@ handlers.getRuntimeInfo = function(source)
     local management = canManage(source)
     local capabilities = MetaComic.CopyTable(MetaComic.RuntimeInfo.capabilities or {})
     capabilities.management = management
-    capabilities.editor = management and Config.Nui.AllowEditor == true
-    capabilities.catalogWrite = management and Config.Catalog.AllowWrite == true
+    local editor = management or portalEditor(source)
+    capabilities.editor = editor and Config.Nui.AllowEditor == true
+    capabilities.catalogWrite = editor and Config.Catalog.AllowWrite == true
+    capabilities.portal = MetaComic.Portal.access(source)
     capabilities.setManagement = management
     capabilities.manualPrint = management and MetaComic.Inventory.name ~= 'none'
     capabilities.createSealed = management and MetaComic.Inventory.name ~= 'none'
@@ -2005,7 +2087,7 @@ RegisterCommand('collectiblessample',function(source,args)
 end,false)
 
 handlers.saveCatalog = function(source, payload)
-    local allowed, permissionError = requireManage(source)
+    local allowed, permissionError = requireEdit(source)
     if not allowed then return fail(permissionError) end
     if not Config.Catalog.AllowWrite then return fail('FiveM catalog write is disabled in config.lua') end
     freezeOnlineItems()
@@ -2017,7 +2099,7 @@ handlers.saveCatalog = function(source, payload)
 end
 
 handlers.saveCard = function(source, payload)
-    local allowed, permissionError = requireManage(source)
+    local allowed, permissionError = requireEdit(source)
     if not allowed then return fail(permissionError) end
     if not Config.Catalog.AllowWrite then return fail('FiveM catalog write is disabled in config.lua') end
     freezeOnlineItems()
@@ -2029,7 +2111,7 @@ handlers.saveCard = function(source, payload)
 end
 
 handlers.deleteCard = function(source, payload)
-    local allowed, permissionError = requireManage(source)
+    local allowed, permissionError = requireEdit(source)
     if not allowed then return fail(permissionError) end
     if not Config.Catalog.AllowWrite then return fail('FiveM catalog write is disabled in config.lua') end
     freezeOnlineItems()
@@ -2048,6 +2130,10 @@ local function setsWithLogos()
 end
 
 handlers.getSets = function()
+    -- NUI requests sets alongside the catalog at boot. Do not return an empty
+    -- startup cache before persisted definitions/memberships have been loaded.
+    local ok, err = loadDefinitions()
+    if not ok then return fail(tostring(err)) end
     return { ok = true, sets = setsWithLogos(), defaultSet = MetaComic.Sets.defaultId() }
 end
 

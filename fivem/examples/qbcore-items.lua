@@ -68,6 +68,18 @@
     type = 'item', image = 'vending_ledger.png', unique = true, useable = true,
     shouldClose = true, description = 'The business ledger of vending machine owners.'
 },
+['vending_key'] = {
+    name = 'vending_key', label = 'Vending Key', weight = 20, type = 'item', image = 'vending_key.png',
+    unique = true, useable = true, shouldClose = true, description = 'Numbered cabinet key; serial, cylinder and key ID remain readable after retirement.',
+},
+['vending_key_record'] = {
+    name = 'vending_key_record', label = 'Vending Key Records', weight = 10, type = 'item', image = 'vending_key_record.png',
+    unique = true, useable = true, shouldClose = true, description = 'Permanent printed cylinder and key archive, including retired keys.',
+},
+['vending_lock_cylinder'] = {
+    name = 'vending_lock_cylinder', label = 'Vending Lock Cylinder', weight = 200, type = 'item', image = 'vending_lock_cylinder.png',
+    unique = false, useable = false, shouldClose = true, description = 'Replacement cylinder for damaged locks or compromised keys.',
+},
 ['card_blank'] = {
     name = 'card_blank', label = 'Card Blank', weight = 2,
     type = 'item', image = 'card_blank.png', unique = false, useable = false,
@@ -85,6 +97,16 @@
 },
 ['card_skimmer'] = {
     name = 'card_skimmer', label = 'Card Skimmer', weight = 100,
-    type = 'item', image = 'card_skimmer.png', unique = false, useable = false,
+    type = 'item', image = 'card_skimmer.png', unique = true, useable = true, -- unique: a removed skimmer keeps its card data
     shouldClose = true, description = 'A device installed over a vending machine card reader.',
+},
+['skimmer_card_data'] = {
+    name = 'skimmer_card_data', label = 'Card Data', weight = 10,
+    type = 'item', image = 'skimmer_card_data.png', unique = true, useable = true,
+    shouldClose = true, description = 'Card details copied by a card skimmer. A buyer will pay for these.',
+},
+['vending_control_board'] = {
+    name = 'vending_control_board', label = 'Vending Control Board', weight = 500,
+    type = 'item', image = 'vending_control_board.png', unique = false, useable = false,
+    shouldClose = true, description = 'Replacement control board for recovering a compromised vending machine.',
 },

@@ -49,3 +49,4 @@
 .set-logo-preview{width:56px;height:56px;border-radius:12px;object-fit:contain;background:#ffffff08;border:1px solid #ffffff12;flex:none}
 .set-logo-field .set-logo-inputs{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
 @media (max-width:1100px){.vending-layout{grid-template-columns:1fr}.vending-side{position:static}}
+.vending-pill.tracked{border-color:#5aa9ff55;color:#8cc4ff}.vending-marker.tracked svg rect:first-child{fill:#4d9dff}.vending-marker.tracked{animation:vending-gps-pulse 1.6s ease-in-out infinite}.vending-dot.tracked{background:#4d9dff}@keyframes vending-gps-pulse{50%{filter:drop-shadow(0 0 6px #4d9dff)}}

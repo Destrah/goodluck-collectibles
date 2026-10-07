@@ -30,7 +30,7 @@ import { copyCard, loadCopies } from './grading/standaloneCopies.js'
 import { resolveAsset } from './runtime/assets'
 import { HOLOS, defaultCards, newCard, normalizeCard, normalizeCards, resolveCardVariant } from './cardData'
 import { bridge, isFiveM, storage } from './runtime'
-import { embedTab, embedView, isEmbedded, notifyEmbedHost } from './runtime/env'
+import { embedTab, embedTabs, embedView, isEmbedded, notifyEmbedHost } from './runtime/env'
 import { loadPackPrefs } from './runtime/packPrefs'
 import { normalizeCatalogForRuntime } from './runtime/catalog'
 
@@ -78,11 +78,12 @@ export default function App() {
   const oddsFetchedAt = useRef(0)
   // FiveM /cardoptions: compact player preference overlay
   const [packOptionsView, setPackOptionsView] = useState(false)
+  const [embedTest, setEmbedTest] = useState(null) // FiveM /cardportal: this UI embedded in a frame, as another resource shows it
   const [binderPreview, setBinderPreview] = useState(null)
   const [saveState, setSaveState] = useState({ saving: false, error: '' })
   const [unsavedPrompt, setUnsavedPrompt] = useState(false)
   const pendingActionRef = useRef(null)
-  const performCloseNui = () => (isEmbedded ? Promise.resolve(notifyEmbedHost('metaComic:embedClose')) : bridge.close()).catch(() => {}).finally(() => { setNuiVisible(false); setOverlayRun(0); setObjectOpenRequest(null); setCardView(null); setBinderView(null); setPackOptionsView(false) })
+  const performCloseNui = () => (isEmbedded ? Promise.resolve(notifyEmbedHost('metaComic:embedClose')) : bridge.close()).catch(() => {}).finally(() => { setNuiVisible(false); setEmbedTest(null); setOverlayRun(0); setObjectOpenRequest(null); setCardView(null); setBinderView(null); setPackOptionsView(false) })
   const [previewViewer, setPreviewViewer] = useState(null)
   const importRef = useRef(null)
   const previewRef = useRef(null)
@@ -97,7 +98,7 @@ export default function App() {
       const runtimeInfo = embedView === 'admin' ? await bridge.getInfo().catch(() => null) : null
       if (cancelled) return
       window.postMessage(embedView === 'admin'
-        ? { type: 'metaComic:open', view: runtimeInfo?.capabilities?.editor ? 'editor' : 'gallery', overlay: false, mode: 'admin', tab: embedTab || undefined, runtimeInfo: runtimeInfo || undefined }
+        ? { type: 'metaComic:open', view: runtimeInfo?.capabilities?.editor ? 'editor' : 'gallery', overlay: false, mode: 'admin', tab: embedTabs[0] || embedTab || undefined, runtimeInfo: runtimeInfo || undefined }
         : { type: 'metaComic:open', view: embedView, overlay: false }, '*')
       notifyEmbedHost('metaComic:embedReady', { view: embedView })
     }, 0)
@@ -118,7 +119,7 @@ export default function App() {
     Promise.all([
       storage.loadCatalog(defaultCards),
       bridge.getInfo().then(info => {if (!cancelled && info) setRuntimeInfo(current => ({...current,...info}));return info}).catch(() => null),
-      bridge.getSets?.().then(result => {if (!cancelled && isFiveM && Array.isArray(result?.sets)) setSets(result.sets);return result}).catch(() => null),
+      bridge.getSets?.().then(result => {if (!cancelled && revision === catalogRevision.current && isFiveM && Array.isArray(result?.sets)) setSets(result.sets);return result}).catch(() => null),
     ]).then(([loaded, info, setResult]) => {
       if (cancelled || revision !== catalogRevision.current) return
       const normalized = normalizeCatalogForRuntime(loaded)
@@ -147,6 +148,8 @@ export default function App() {
         oddsFetchedAt.current = Date.now()
         bridge.getPrintOdds?.().then(result => setServerOdds(result?.odds)).catch(() => {})
       }
+      if (message.type === 'metaComic:embedTest' && !isEmbedded) { setNuiVisible(true); setEmbedTest({ query: String(message.query || ''), key: Date.now() }); return }
+      if (message.type === 'metaComic:embedClose' && !isEmbedded) { setEmbedTest(null); setNuiVisible(false); bridge.close().catch(() => {}); return }
       if (message.type === 'metaComic:collectibleContainer') {setNuiVisible(true);setOverlayRun(0);setCardView(null);setBinderView(null);setPackOptionsView(false);setObjectOpenRequest({...message,id:crypto.randomUUID()});return}
 
       // FiveM: the server asks for inventory icons of card prints it has no uploaded icon for yet.
@@ -182,6 +185,16 @@ export default function App() {
         return
       }
       if (message?.type === 'metaComic:open') {
+        // Hidden NUI may have booted before sets loaded, or another admin may
+        // have edited memberships since then. Refresh collector numbers for
+        // ordinary card/pack/binder displays as well as the admin screen.
+        if (isFiveM && message.mode !== 'admin'
+          && (!message.mode || ['card', 'binder', 'grading', 'gradeRecord', 'management'].includes(message.mode))) {
+          const revision = catalogRevision.current
+          bridge.getSets?.().then(result => {
+            if (!cancelled && revision === catalogRevision.current && Array.isArray(result?.sets)) setSets(result.sets)
+          }).catch(() => {})
+        }
         setObjectOpenRequest(null)
         setNuiVisible(true)
         setGradingView(message.overlay && message.mode === 'grading' && message.grading ? message.grading : null)
@@ -290,6 +303,13 @@ export default function App() {
 
   const editorAllowed = !isFiveM || runtimeInfo.capabilities?.editor === true
   const managementAllowed = !isFiveM || runtimeInfo.capabilities?.management === true
+  // portal (Config.Portal): vending machine owners get these tabs for their own machines
+  const portalTabs = runtimeInfo.capabilities?.portal?.tabs || []
+  const vendingAllowed = managementAllowed || portalTabs.includes('vending')
+  const recordsAllowed = managementAllowed || portalTabs.includes('records')
+  // embedded with a list of tabs (GetEmbedUrl): only those
+  const onlyTabs = isEmbedded && embedTabs.length ? embedTabs : null
+  const shown = id => !onlyTabs || onlyTabs.includes(id)
   const selected = cards.find(card => card.id === selectedId) || cards[0]
   const savedSelected = selected ? savedCards.find(card => card.id === selected.id) : null
   const selectedDirty = Boolean(selected) && (!savedSelected || JSON.stringify(normalizeCard(selected)) !== JSON.stringify(normalizeCard(savedSelected)))
@@ -502,6 +522,15 @@ export default function App() {
 
   if (isFiveM && !nuiVisible) return null
 
+  if (embedTest) return (
+    <div className="embed-test" style={{ position: 'fixed', inset: '4vh 4vw', display: 'flex', flexDirection: 'column', background: '#111', borderRadius: 12, overflow: 'hidden', boxShadow: '0 20px 60px #000a' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px', color: '#ddd', fontSize: 13 }}>
+        <span>Embed test: {new URLSearchParams(embedTest.query).get('tabs') || 'admin'}</span>
+        <button className="ghost" style={{ marginLeft: 'auto' }} onClick={() => { setEmbedTest(null); setNuiVisible(false); bridge.close().catch(() => {}) }}>Close</button>
+      </div>
+      <iframe key={embedTest.key} title="Embedded view" src={`${window.location.pathname}?${embedTest.query}`} style={{ flex: 1, border: 0, width: '100%', background: 'transparent' }} />
+    </div>
+  )
   if (objectOpenRequest) return <CollectibleOpeningOverlay key={objectOpenRequest.id} request={objectOpenRequest} onClose={performCloseNui} />
   if (crateView) return <ShippingCrateReveal key={crateView.key} crate={crateView} onClose={performCloseNui} />
   // skill check: hidden straight away on a result (the game script then closes the page, or opens the next game)
@@ -565,8 +594,8 @@ export default function App() {
         </div>
       </nav>
 
-      <label className="collectible-system-selector">Collectible system<select aria-label="Collectible system" disabled={collectibleBusy} value={system} onChange={event => chooseSystem(event.target.value)}>{listCollectibleTypes().map(module => <option key={module.id} value={module.id} disabled={isFiveM && module.id !== 'trading_card' && !runtimeInfo.capabilities?.collectibles}>{module.label}</option>)}</select></label>
-      <section className="hero-copy">
+      {shown('editor') && <label className="collectible-system-selector">Collectible system<select aria-label="Collectible system" disabled={collectibleBusy} value={system} onChange={event => chooseSystem(event.target.value)}>{listCollectibleTypes().map(module => <option key={module.id} value={module.id} disabled={isFiveM && module.id !== 'trading_card' && !runtimeInfo.capabilities?.collectibles}>{module.label}</option>)}</select></label>}
+      {!onlyTabs && <section className="hero-copy">
         <div>
           {isFiveM && !catalogReady && !catalogError && <p role="status">Loading saved card catalog…</p>}
           <span className="eyebrow">{isFiveM ? 'FiveM NUI runtime' : 'Standalone runtime'}</span>
@@ -574,19 +603,19 @@ export default function App() {
           <p>{system !== 'trading_card' ? 'Design challenge coins and plushies, choose what goes into each container, and discover your next collectible.' : 'Each character can now have multiple pullable prints, each with its own rarity, layout, artwork override, full-card foil strength, and any number of transparent subject-mask layers for outline or subject-only foil effects.'}</p>
         </div>
         {system !== 'trading_card' ? <div className="hero-badges"><span>{activeModule?.label}</span><span>{activeModule?.container?.label}</span><span>Saved collections</span></div> : <div className="hero-badges"><span>{cards.length} base cards</span><span>{allPrints.length} print variants</span><span>{runtimeInfo.framework || 'none'} / {runtimeInfo.persistence || 'none'}</span></div>}
-      </section>
+      </section>}
 
       <div className="mode-tabs">
-        {editorAllowed && <button className={tab === 'editor' ? 'active' : ''} onClick={() => changeTab('editor')}>Editor</button>}
-        {managementAllowed && <button className={tab === 'management' ? 'active' : ''} onClick={() => changeTab('management')}>Sets & containers</button>}
-        {managementAllowed && system === 'trading_card' && <button className={tab === 'vending' ? 'active' : ''} onClick={() => changeTab('vending')}>Vending machines</button>}
-        {managementAllowed && system === 'trading_card' && <button className={tab === 'records' ? 'active' : ''} onClick={() => changeTab('records')}>Machine records</button>}
-        {managementAllowed && <button className={tab === 'crafting' ? 'active' : ''} onClick={() => changeTab('crafting')}>Crafting</button>}
-        {managementAllowed && <button className={tab === 'minigames' ? 'active' : ''} onClick={() => changeTab('minigames')}>Minigames</button>}
-        <button className={tab === 'gallery' ? 'active' : ''} onClick={() => changeTab('gallery')}>Collection</button>
-        <button className={tab === 'effects' ? 'active' : ''} onClick={() => changeTab('effects')}>Effect sampler</button>
+        {editorAllowed && shown('editor') && <button className={tab === 'editor' ? 'active' : ''} onClick={() => changeTab('editor')}>Editor</button>}
+        {managementAllowed && shown('management') && <button className={tab === 'management' ? 'active' : ''} onClick={() => changeTab('management')}>Sets & containers</button>}
+        {vendingAllowed && shown('vending') && system === 'trading_card' && <button className={tab === 'vending' ? 'active' : ''} onClick={() => changeTab('vending')}>Vending machines</button>}
+        {recordsAllowed && shown('records') && system === 'trading_card' && <button className={tab === 'records' ? 'active' : ''} onClick={() => changeTab('records')}>Machine records</button>}
+        {managementAllowed && shown('crafting') && <button className={tab === 'crafting' ? 'active' : ''} onClick={() => changeTab('crafting')}>Crafting</button>}
+        {managementAllowed && shown('minigames') && <button className={tab === 'minigames' ? 'active' : ''} onClick={() => changeTab('minigames')}>Minigames</button>}
+        {shown('gallery') && <button className={tab === 'gallery' ? 'active' : ''} onClick={() => changeTab('gallery')}>Collection</button>}
+        {shown('effects') && <button className={tab === 'effects' ? 'active' : ''} onClick={() => changeTab('effects')}>Effect sampler</button>}
         {!isFiveM && system === 'trading_card' && <button className={tab === 'grading' ? 'active' : ''} onClick={() => changeTab('grading')}>Grading</button>}
-        <button className={tab === 'pack' ? 'active' : ''} onClick={() => changeTab('pack')}>{system === 'trading_card' ? 'Pack / box lab' : system === 'plushie' ? 'Box / case lab' : 'Bag / box lab'}</button>
+        {shown('pack') && <button className={tab === 'pack' ? 'active' : ''} onClick={() => changeTab('pack')}>{system === 'trading_card' ? 'Pack / box lab' : system === 'plushie' ? 'Box / case lab' : 'Bag / box lab'}</button>}
       </div>
 
       {system === 'trading_card' && <>
@@ -648,8 +677,8 @@ export default function App() {
       )}
 
       {tab === 'management' && managementAllowed && <ManagementPanel cards={cards} sets={sets} onSetsChange={setSets} />}
-      {tab === 'vending' && managementAllowed && <VendingMapPanel />}
-      {tab === 'records' && managementAllowed && <VendingRecordsPanel />}
+      {tab === 'vending' && vendingAllowed && <VendingMapPanel />}
+      {tab === 'records' && recordsAllowed && <VendingRecordsPanel />}
       {tab === 'crafting' && managementAllowed && <CraftingPanel sets={sets} />}
       {tab === 'minigames' && managementAllowed && <MinigameTestPanel />}
 

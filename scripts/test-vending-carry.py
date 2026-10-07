@@ -54,7 +54,7 @@ class VendingCarryTests(unittest.TestCase):
           function LoadResourceFile() return nil end
           function SaveResourceFile() writes=writes+1;return true end
           json={decode=function() return nil end,encode=function() return '{}' end}
-          function joaat() return 123 end
+          function joaat(name) lastHashedModel=name;return 123 end
           function NetworkGetEntityFromNetworkId(id) return coords[id] and id or 0 end
           function NetworkGetNetworkIdFromEntity(id) return id end
           function DoesEntityExist(id) return coords[id]~=nil end
@@ -85,6 +85,9 @@ class VendingCarryTests(unittest.TestCase):
 
     def tow(self):
         self.lua.execute("handlers['meta_comic:server:vendingTow'](200);states[100].metaComicTowNeedsGround=false;step(0);step(0)")
+
+    def test_loose_world_physics_uses_stock_collision_parent(self):
+        self.assertEqual(self.lua.eval('lastHashedModel'), 'prop_vend_soda_01')
 
     def test_snap_requires_grace_and_continuous_overload(self):
         self.tow()
@@ -189,10 +192,97 @@ class VendingCarryTests(unittest.TestCase):
         self.assertEqual(self.lua.eval('updates'), before)
         self.assertTrue(self.lua.eval('DoesEntityExist(100)'))
 
+    def test_vanished_cabinet_never_returns_inventory(self):
+        self.tow()
+        self.lua.execute('coords[100]=nil;assert(coroutine.resume(threads[2]));assert(coroutine.resume(threads[2]))')
+        self.assertEqual(self.lua.eval('adds'), 0)
+
+    def test_restart_adopts_cabinet_without_inventory_return(self):
+        self.lua.execute("coords[100]=vector3(5,6,0);Entity(100).state:set('metaComicTowId','old',true)")
+        self.lua.execute("json.decode=function() return {{serial='VM-TEST',objectNet=100,towId='old',products=metadata.products,cash=42,coords={x=5,y=6,z=0}}} end;threads={}")
+        self.lua.execute((ROOT/'fivem/server/modules/vending_carry.lua').read_text(encoding='utf-8'))
+        self.lua.execute('assert(coroutine.resume(threads[3]));assert(coroutine.resume(threads[3]))')
+        self.assertEqual(self.lua.eval('adds'), 0)
+        self.assertTrue(self.lua.eval('DoesEntityExist(100)'))
+        self.assertEqual(self.lua.eval("countEvent('meta_comic:client:vendingRopeSnapped')"), 1)
+        self.lua.execute("coords[1]=vector3(5,6,0);handlers['meta_comic:server:vendingUntow'](100)")
+        self.assertEqual(self.lua.eval('adds'), 1)  # deliberate pickup still returns an item
+
     def test_client_and_config_compile(self):
         for name in ['fivem/client/vending_carry.lua', 'fivem/config.lua']:
             result = self.lua.eval('load')((ROOT / name).read_text(encoding='utf-8'))
             self.assertFalse(isinstance(result, tuple), str(result))
+
+    def test_grounding_waits_for_both_model_and_world_collision(self):
+        self.lua.execute('''
+          frozen=false;gravity=true;modelReady=false;worldReady=true;foundGround=true;ground=12
+          function SetEntityHasGravity(_,value) gravity=value end
+          function FreezeEntityPosition(_,value) frozen=value end
+          function SetEntityCollision() end
+          function SetEntityLoadCollisionFlag() end
+          function GetEntityModel() return 123 end
+          function RequestCollisionForModel() end
+          function RequestCollisionAtCoord() end
+          function HasCollisionForModelLoaded() return modelReady end
+          function HasCollisionLoadedAroundEntity() return worldReady end
+          function GetGroundZFor_3dCoord() return foundGround,ground end
+          function GetModelDimensions() return vector3(-1,-1,-0.95),vector3(1,1,1) end
+          function SetEntityRotation() end
+          function SetEntityCoordsNoOffset(id,x,y,z) coords[id]=vector3(x,y,z) end
+          function PlaceObjectOnGroundProperly() return placementOK~=false end
+          function SetEntityVelocity() velocityReset=true end
+          coords[100]=vector3(0,0,1);Entity(100).state:set('metaComicTowNeedsGround',true,true)
+        ''')
+        client = (ROOT / 'fivem/client/vending_carry.lua').read_text(encoding='utf-8')
+        section = client.split('local function groundMachine', 1)[1].split('local function makeRope', 1)[0]
+        self.lua.execute('local function groundMachine' + section + '\nGround=groundMachine')
+        self.assertFalse(self.lua.eval('Ground(100)'))
+        self.assertTrue(self.lua.eval('frozen and not gravity and states[100].metaComicTowNeedsGround'))
+        self.lua.execute('modelReady=true;worldReady=false')
+        self.assertFalse(self.lua.eval('Ground(100)'))
+        self.lua.execute('worldReady=true;foundGround=false')
+        self.assertFalse(self.lua.eval('Ground(100)'))
+        self.lua.execute('foundGround=true;placementOK=false')
+        self.assertFalse(self.lua.eval('Ground(100)'))
+        self.assertTrue(self.lua.eval('states[100].metaComicTowNeedsGround'))
+        self.lua.execute('placementOK=true')
+        self.assertTrue(self.lua.eval('Ground(100)'))
+        self.assertAlmostEqual(self.lua.eval('coords[100].z'), 13.10)
+        self.assertTrue(self.lua.eval('velocityReset and not states[100].metaComicTowNeedsGround'))
+
+    def test_only_network_owner_attaches_physical_rope(self):
+        self.lua.execute('''
+          stopping=false;ropes={[100]={}};tow={Length=6};owned=false
+          function entityOf(id) return id end
+          function rearOf() return vector3(0,0,1) end
+          function SetEntityCollision() end
+          function SetEntityLoadCollisionFlag() end
+          function NetworkHasControlOfEntity() return owned end
+          function RopeLoadTextures() end
+          function RopeAreTexturesLoaded() return true end
+          function GetOffsetFromEntityInWorldCoords() return vector3(0,-5,1) end
+          function AddRope() return 9 end
+          function DoesRopeExist() return ropeFailed~=true end
+          function AttachEntitiesToRope() physical=(physical or 0)+1 end
+          function applyTowPhysics() physics=(physics or 0)+1 end
+          function PinRopeVertex() pins=(pins or 0)+1 end
+          function GetRopeVertexCount() return 32 end
+          coords[100]=vector3(0,-5,1);Entity(100).state:set('metaComicTowNeedsGround',false,true)
+        ''')
+        client = (ROOT / 'fivem/client/vending_carry.lua').read_text(encoding='utf-8')
+        section = client.split('local function makeRope', 1)[1].split("RegisterNetEvent('meta_comic:client:vendingTow'", 1)[0]
+        self.lua.execute('local function makeRope' + section + '\nMake=makeRope')
+        self.assertTrue(self.lua.eval('Make(100,200)'))
+        self.assertIsNone(self.lua.eval('physical'))
+        self.assertIsNone(self.lua.eval('physics'))
+        self.assertEqual(self.lua.eval('pins'), 2)
+        self.lua.execute('owned=true;ropes[100]={}')
+        self.assertTrue(self.lua.eval('Make(100,200)'))
+        self.assertEqual(self.lua.eval('physical'), 1)
+        self.assertEqual(self.lua.eval('physics'), 1)
+        self.lua.execute('ropeFailed=true;ropes[100]={}')
+        self.assertFalse(self.lua.eval('Make(100,200)'))
+        self.assertEqual(self.lua.eval('physics'), 1)
 
 
 if __name__ == '__main__':

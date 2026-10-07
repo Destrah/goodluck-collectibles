@@ -184,6 +184,18 @@ Config.Nui = {
     AllowEditor = true,
 }
 
+-- Portal: admin UI tabs for people who aren't managers, e.g. on a business tablet that embeds them with
+-- exports['<resource>']:GetEmbedUrl('admin', { 'vending', 'records' }). Managers get every tab. Registered vending
+-- machine owners (people leasing machines) get OwnerTabs, which only show their own machines. Editor says who else
+-- gets the card editor (e.g. the business owner). Test it with /cardportal [tabs], e.g. /cardportal vending,records
+-- (as an owner: register yourself in Machine records, assign yourself a machine, then /vendingtestrole player).
+Config.Portal = {
+    Enabled = true,
+    Command = 'cardportal',
+    OwnerTabs = { 'vending', 'records' },
+    Editor = { Ace = 'metacomic.editor', Jobs = {}, Identifiers = {} }, -- Jobs = { cardshop = 4 } (minimum grade)
+}
+
 Config.Commands = {
     Open = 'collectibles',
     Pack = 'collectiblespack',
@@ -310,7 +322,10 @@ Config.Crafting = {
           ingredients = { { item = 'wood', count = 10 }, { item = 'steel', count = 4 }, { item = 'boosterbox', count = 2 } } },
         { id = 'vending_machine', label = 'Vending Machine', category = 'Business', time = 30000, managersOnly = true,
           result = { type = 'vending' },
-          ingredients = { { item = 'steel', count = 20 }, { item = 'glass', count = 6 }, { item = 'electronickit', count = 2 } } },
+          ingredients = { { item = 'steel', count = 20 }, { item = 'glass', count = 6 }, { item = 'hackingdevice', count = 2 } } },
+        { id = 'vending_lock_cylinder', label = 'Vending Lock Cylinder', category = 'Business', time = 15000, managersOnly = true,
+          result = { type = 'item', item = 'vending_lock_cylinder', count = 1 },
+          ingredients = { { item = 'steel', count = 2 }, { item = 'aluminum', count = 1 } } },
     },
 }
 
@@ -377,6 +392,21 @@ Config.VendingMachines = {
     PlaceDistance = 15.0,            -- metres from the player a machine can be placed
     RemoveDistance = 5.0,
     GhostAlpha = 150,                -- see-through preview while placing (0-255)
+    Placement = {
+        Enabled = true, BlockRoads = true, RoadMargin = 0.25,
+        RoadCheckMode = 'lanes', -- 'lanes': allow verified raised pavement by a broad wall; 'native': strict GTA road region
+        RoadLaneWidth = 3.5, RoadHeightTolerance = 2.5, -- estimated lane width / road height difference in metres
+        RoadSidewalkMinRise = 0.08, SurfaceHeightTolerance = 0.08, -- sidewalk must be raised above road / level under footprint
+        FrontClearance = 1.5, SideClearance = 0.15, -- metres of open passage beyond the cabinet
+        RequireRearWall = true, RearWallDistance = 0.8, -- avoid cabinets in the middle of paths
+        RearWallProbeHeights = { 0.3, 0.6, 1.0 }, -- accept low barriers as rear support (metres above the base)
+        FrontIsNegativeY = true, CheckInterval = 250, MinSurfaceNormalZ = 0.85,
+        ZoneMargin = 1.0, BypassAce = 'rush-tradingcards.placement.bypass',
+        ForbiddenZones = {
+            -- { Center = vec3(100.0, 200.0, 30.0), Radius = 8.0, MinZ = 28.0, MaxZ = 35.0 },
+            -- { Center = vec3(100.0, 200.0, 30.0), Size = vec3(4.0, 20.0, 6.0), Heading = 45.0 },
+        },
+    },
     SpawnDistance = 100.0,           -- prop appears when a player is this close
     DespawnDistance = 120.0,         -- and is deleted again beyond this
     Table = 'goodluck_collectibles_vending_machines', -- MySQL (created automatically with Config.Database.AutoCreateSchema)
@@ -391,7 +421,7 @@ Config.VendingMachines = {
         Account = 'bank',
         CashAccount = 'cash',  -- cash payments (see Config.Money); kept in the machine
         Payment = 'both',      -- 'both' (buyer picks), 'card' (Account, routed to the owner) or 'cash'
-        MaxCash = 0,           -- most cash a machine holds before it only takes cards (0 = no limit)
+        MaxCash = 6000,        -- most cash a machine holds before it only takes cards until emptied (0 = no limit)
         -- what a newly placed machine sells (change it per machine with Manage). set = a card set id (nil: the default set)
         Items = {
             { kind = 'pack', set = nil, price = 250 },
@@ -402,8 +432,25 @@ Config.VendingMachines = {
         -- Managers and these jobs may restock (job name = minimum grade), e.g. { cardshop = 0 }. Restocking always
         -- takes that many sealed packs / boxes of the product's set from the restocker's inventory.
         Jobs = {},
-        MaxStock = 100, -- per product
+        MaxStock = 100,   -- per pack product
+
+        MaxBoxStock = 20, -- per booster box product
     },
+    -- restocking and taking the cash take time: BaseMs + PerUnitMs for each pack / box loaded, or for each Unit dollars
+    -- taken, capped at MaxMs. CycleMs = one load / grab motion.
+    Work = {
+        Enabled = true,
+        Restock = { BaseMs = 2000, PerUnitMs = 1500, MaxMs = 45000, CycleMs = 2000 },
+        Cash = { BaseMs = 2000, PerUnitMs = 1000, Unit = 100, MaxMs = 45000, CycleMs = 2500 },
+    },
+    -- pack props standing in the window's 15 slots to show stock (client/vending_machines.lua has the slot positions)
+    SlotPacks = { Enabled = true, Model = 'metacomics_slot_pack', DropMs = 1500, Rotation = vec3(0.0, 0.0, 0.0), -- one prop per filled slot; each slot stands for a share of the stock
+        -- Booster box products: the box stands on its side in the slot, its back reaching through into the machine.
+        -- BoxRotation (pitch, roll, yaw in degrees) and BoxOffset (x left/right, y towards the back, z up, added to
+        -- the pack's spot in the slot) can be tuned freely. When bought, the box slides forward to BoxDropFront while
+        -- turning to BoxDropRotation (thin side towards the glass), then drops straight down to the tray.
+        BoxModel = 'prop_boosterbox_01', BoxRotation = vec3(0.0, 90.0, 0.0), BoxOffset = vec3(0.0, 0.05, 0.1),
+        BoxDropRotation = vec3(0.0, 90.0, 90.0), BoxDropFront = -0.38 },
     -- Admin UI "Vending machines" tab (/collectiblesadmin): every machine on a map with its stock. Put a square GTA V
     -- map picture at Image (a path in this resource or an https URL; without one a grid is shown). The numbers line
     -- world coordinates up with the common 8192px GTA V map tiles; adjust them if your picture is cropped differently.
@@ -417,6 +464,7 @@ Config.VendingMachines = {
     Item = 'vending_machine',
     -- Owners, serial numbers and where card payments go (admin UI "Machine records" tab).
     Ownership = {
+        SalesLog = 50, -- sales kept per machine for its owner (Manage > Sales records)
         BusinessName = 'Collectibles Co.',
         BusinessRouting = '000000001',  -- the business's routing number shown in records
         SerialPrefix = 'VM',            -- serials look like VM-7F3K-2Q9D
@@ -441,16 +489,56 @@ Config.VendingMachines = {
         LedgerItem = 'vending_ledger',             -- every registered owner and machine
         LedgerShowsRemoved = false,
     },
+    -- Front door: while someone restocks, unlocks / rekeys the cabinet with a key, loots it or breaks in, the door swings
+    -- open for everyone nearby. Needs metacomics_vending_body + metacomics_vending_door streamed (the machine model split
+    -- in two); without them machines simply stay shut. Hinge = door pivot in the body model (metres), Direction -1 / 1
+    -- flips the swing if it opens into the machine. Seconds: how long it stays open after a restock / key unlock;
+    -- crime, looting and rekeying hold it open until they finish (MaxSeconds at most).
+    Door = {
+        Enabled = true, BodyModel = 'metacomics_vending_body', DoorModel = 'metacomics_vending_door',
+        Hinge = vec3(-0.5825, -0.435, 0.0), Angle = 105.0, Speed = 90.0, Direction = -1,
+        RestockSeconds = 20, UnlockSeconds = 300, MaxSeconds = 120, CloseDelay = 2, Crime = true, -- UnlockSeconds: key unlock lasts as long as Keys.SessionSeconds
+        -- Cash box in the lower right behind the door (lid model metacomics_vending_cashlid). A key unlock opens it with
+        -- the door; after a break-in it stays padlocked (Lock) until someone breaks the padlock, and looting cash waits
+        -- for that. Cash props stack up inside by the machine's cash (the box is full at OverflowAt) and heap over / spill onto the ground above it.
+        CashBox = {
+            Enabled = true, Lock = true, OpenWithKey = true, Label = 'Break cash box padlock', Duration = 8000,
+            Items = { { item = 'lockpick', label = 'lockpick', count = 1, breakChance = 25 } },
+            Minigame = 'lockpick_medium',
+            LidModel = 'metacomics_vending_cashlid', LidHinge = vec3(0.402, 0.405, -0.6395), LidAngle = 80.0, LidDirection = -1,
+            CashProps = { 'prop_cash_pile_01', 'prop_anim_cash_note' }, OverflowAt = 3000, BreakInDelay = 2500, PadlockAfterBreakIn = true,
+        },
+    },
     -- The criminal side. Items: every entry is needed; remove = used up on success, breakChance = % lost on a failed
     -- attempt. Minigame: a preset name from Config.Minigames, a list (all must pass) or { random = { ... } } (lists can hold randoms).
     -- Animation: { dict, clip, flag } or { scenario }, plus an optional prop held in the hand (bone, pos, rot).
     -- Cooldown / FailCooldown are seconds per machine. MinPolice: police players (Config.Police.Jobs) needed online.
+    -- Physical cabinet access. Old cylinders and issued keys are permanently archived by serial.
+    Keys = {
+        Enabled = true,
+        Item = 'vending_key', ReportItem = 'vending_key_record', CylinderItem = 'vending_lock_cylinder',
+        SessionSeconds = 300, ReplaceDuration = 60000,
+        PoliceCommand = 'vendingkeys', -- /vendingkeys SERIAL [print], police/business only
+        SecureAccess = 'police_or_controllers', -- physical owners/business may secure too
+        -- securing a broken-in machine chains it shut: no key access until the cylinder is repaired or replaced.
+        -- Model: long base game chain round each face in Faces (its padlocks hidden inside); Lock: short chain lock on the front in Faces; padlock out on the front, hidden inside elsewhere.
+        -- Padlock on the wrong side? flip LockSide (1 / -1). Height = chain height on the machine. FallbackModel if the chain isn't in the game build.
+        Seal = { Label = 'Chain and padlock', BreakDuration = 20000, Minigame = 'lockpick_medium',
+            Model = 'm23_2_prop_m32_chainlock_01a', Debug = true, Faces = { 'front', 'left', 'right', 'back' }, LockSide = -1, Height = 0.02,
+            Out = 0.08, Tile = true, Overlap = 0.85, CornerReach = 0.03, -- Out: off the faces; Tile: repeat along wide faces; CornerReach: past the corners
+            FrontLock = true, -- the middle front chain turns its padlock outwards
+            Lock = { Enabled = false, Model = 'h4_prop_h4_chain_lock_01a', LockSide = -1 }, -- optional extra short padlock chain on the front
+            -- Adjust = { front = { along, out, up, yaw }, ... } per-face nudges; with Debug on, /vendingsealtune prints this line
+            FallbackModel = 'prop_cs_padlock', FallbackOffset = vec3(0.0, -0.46, 0.0) },
+        -- fixing a damaged cylinder instead of replacing it: keeps the existing keys, uses up these items
+        Repair = { Enabled = true, Duration = 30000, Items = { { item = 'metalscrap', label = 'metal scrap', count = 10 } } },
+    },
     Crime = {
         Enabled = true,
         MinPolice = 0,
         OwnersCanRob = false, -- owners (and hackers who took a machine over) can't rob their own machines
         BreakIn = {
-            Enabled = true, Label = 'Break in', Icon = 'fas fa-screwdriver-wrench', ProgressLabel = 'Forcing the cash box',
+            Enabled = true, Label = 'Break in', Icon = 'fas fa-screwdriver-wrench', ProgressLabel = 'Lockpicking and opening the machine',
             Items = { { item = 'lockpick', label = 'lockpick', count = 1, breakChance = 30 } },
             Minigame = { 'lockpick_hard', 'safe_hard' },
             Duration = 45000,
@@ -460,11 +548,27 @@ Config.VendingMachines = {
             RewardAccount = 'cash',  -- or RewardItem = 'black_money' / 'markedbills' (count = the amount)
             StockChance = 25, StockMax = 2, -- also grab up to StockMax sealed packs / boxes of a product (chance %)
             MinCash = 0,
+            Loot = {
+                Enabled = true, UnlockSeconds = 600, -- cabinet remains open after canceling; securing closes it early
+                CashBatch = 100, CashBatchMs = 4000, StockBatch = 1, StockBatchMs = 5000,
+                CashLevels = { 500, 2000 }, StockLevels = { 10, 40 }, -- empty / low / medium / high estimates
+                Visuals = {
+                    Enabled = true, -- visual only; disabling restores the break-in pose during looting
+                    Reach = { dict = 'mp_common', clip = 'givetake1_a', flag = 49 },
+                    Stash = { dict = 'anim@heists@ornate_bank@grab_cash', clip = 'grab', flag = 49 },
+                    HandFraction = 0.25, StashFraction = 0.55, HideFraction = 0.88, -- timing within each batch
+                    Pocket = { bone = 11816, pos = vec3(0.18, 0.02, -0.03), rot = vec3(0.0, 90.0, 0.0) },
+                    Cash = { model = 'prop_anim_cash_note', bone = 57005, offset = vec3(0.05, 0.02, -0.02), rotation = vec3(0.0, 0.0, 0.0) },
+                    -- Pack/Box reuse Config.Props.Pack / Box models and hand offsets. Optional overrides:
+                    -- Pack = { model = 'prop_boosterpack_01', bone = 57005, offset = vec3(0.10, 0.10, 0.0), rotation = vec3(70.0, 10.0, 90.0) },
+                    -- Box = { model = 'prop_boosterbox_01' },
+                },
+            },
             FailMessage = 'The lock held.',
         },
         Hack = {
             Enabled = true, Label = 'Hack payment terminal', Icon = 'fas fa-laptop-code', ProgressLabel = 'Rerouting card payments',
-            Items = { { item = 'laptop', label = 'laptop', count = 1 }, { item = 'electronickit', label = 'electronic kit', count = 1, remove = true } },
+            Items = { { item = 'laptop', label = 'laptop', count = 1 }, { item = 'hackingdevice', label = 'electronic kit', count = 1, remove = true } },
             Minigame = { 'keypad_hard', 'simon_hard', 'wires_hard' },
             Duration = 90000,
             Animation = { dict = 'anim@heists@prison_heiststation@cop_reactions', clip = 'cop_b_idle', flag = 49, prop = 'prop_laptop_01a', bone = 18905, pos = vec3(0.12, 0.05, 0.12), rot = vec3(-110.0, 0.0, 10.0) },
@@ -472,11 +576,20 @@ Config.VendingMachines = {
             Cooldown = 1800, FailCooldown = 60,
             FailMessage = 'The terminal locked you out.',
         },
+        FullHack = {
+            Enabled = true, Label = 'Take over machine operating system', Icon = 'fas fa-user-secret',
+            ProgressLabel = 'Taking over the machine operating system',
+            Items = { { item = 'laptop', count = 1 }, { item = 'hackingdevice', count = 1, remove = true } },
+            Minigame = { 'keypad_hard', 'simon_hard', 'grid_hard', 'wires_hard', 'safe_hard', 'order_hard' },
+            Duration = 300000, Cooldown = 3600, FailCooldown = 300, -- persists until the board is physically replaced
+            Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
+            FailMessage = 'The operating system rejected your takeover.',
+        },
         Steal = {
             Enabled = true, Label = 'Unbolt machine', Icon = 'fas fa-dolly', ProgressLabel = 'Unbolting the machine',
             Items = { { item = 'drill', label = 'drill', count = 1, breakChance = 25 } },
-            NeedsBreakIn = true, BreakInWindow = 600, -- finish the theft within 10 minutes of your successful break-in
-            NeedsGPSDisabled = true, -- when GPS is enabled, disable it before unbolting
+            NeedsBreakIn = true, -- the machine must be open (broken into or unlocked with a key) to reach the bolts
+            NeedsGPSDisabled = false, -- true: with GPS enabled, the machine's GPS must be disabled before unbolting
             Minigame = { 'sequence_hard', 'wires_hard', 'order_hard' },
             Duration = 180000,
             Animation = { dict = 'anim@heists@fleeca_bank@drilling', clip = 'drill_straight_idle', flag = 49, prop = 'hei_prop_heist_drill', bone = 57005, pos = vec3(0.14, 0.0, -0.01), rot = vec3(90.0, -90.0, 180.0) },
@@ -485,7 +598,7 @@ Config.VendingMachines = {
         },
         DisableGPS = {
             Enabled = true, Label = 'Disable machine GPS', ProgressLabel = 'Disabling GPS',
-            Items = { { item = 'electronickit', label = 'electronic kit', count = 1 } },
+            Items = { { item = 'hackingdevice', label = 'electronic kit', count = 1 } },
             Minigame = 'wires_hard', Duration = 30000, Cooldown = 0, FailCooldown = 60,
             Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
         },
@@ -498,8 +611,30 @@ Config.VendingMachines = {
             Items = { { item = 'card_skimmer', label = 'card skimmer', count = 1 } },
             Duration = 30000, Minigame = 'wires_medium', Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
         },
+        Secure = {
+            Enabled = true, Label = 'Secure vending machine', ProgressLabel = 'Securing the vending machine',
+            Duration = 5000, Cooldown = 0, FailCooldown = 0,
+            Access = 'anyone', -- 'anyone', 'police', 'controllers', or 'police_or_controllers'; server checks permissions
+            Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
+        },
+        ReplaceBoard = {
+            Enabled = true, Label = 'Replace machine control board', ProgressLabel = 'Replacing the control board',
+            Items = { { item = 'vending_control_board', label = 'replacement control board', count = 1 } },
+            Duration = 60000, Cooldown = 0, FailCooldown = 0,
+            Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
+        },
         CollectSkimmer = { Enabled = true, Label = 'Read card skimmer', ProgressLabel = 'Reading skimmer', Duration = 3000 },
         RemoveSkimmer = { Enabled = true, Label = 'Remove card skimmer', ProgressLabel = 'Removing skimmer', Duration = 3000 },
+        -- installer only: change the skimmer's cut while it stays on the machine
+        AdjustSkimmer = {
+            Enabled = true, Label = 'Adjust card skimmer', ProgressLabel = 'Adjusting the skimmer', Duration = 15000,
+            Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
+        },
+        -- owners, whoever controls the machine, managers and police: finds and removes a hidden skimmer (the only way they can)
+        InspectPanel = {
+            Enabled = true, Label = 'Check coin panel for tampering', ProgressLabel = 'Checking the coin panel', Duration = 10000, Cooldown = 0, FailCooldown = 0,
+            Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
+        },
     },
     GPS = {
         Enabled = true, MovementThreshold = 2.0, CheckInterval = 5000, Cooldown = 60,
@@ -508,18 +643,68 @@ Config.VendingMachines = {
     Skimmer = {
         Enabled = true, Item = 'card_skimmer',
         Model = 'metacomics_card_skimmer', -- stream your new prop before installing; no placeholder model
-        Offset = vec3(0.35, -0.44, 0.15), Rotation = vec3(0.0, 0.0, 0.0), -- local coin/card slot position; tune with your prop
-        Mode = 'record', -- 'record': log sales only; 'cut': retain Percent; 'divert': retain the entire card payment
-        Percent = 15, MaxRecords = 50, -- retained money is collected by the installer; cash purchases are unaffected
+        Offset = vec3(0.359, -0.4270, 0.352), Rotation = vec3(0.0, 0.0, 0.0), -- exactly over the coin panel (metacomics_card_skimmer)
+        -- the skimmer copies the card of every card purchase (cash purchases are unaffected). The installer reads it
+        -- (or removes it and uses the item) for a card data item, and sells that to a buyer below.
+        -- whoever fits it picks the cut (0 - MaxPercent, default Percent): that share of each card payment never reaches the
+        -- owner and sits on the skimmer's records until a buyer recovers it. Owners can spot it in Manage > Sales records.
+        Percent = 15, MaxPercent = 50,
+        Capacity = 200, -- card purchases it holds; when full it copies nothing more until it is read
+        DataItem = 'skimmer_card_data', -- printed card data (examples/ox_inventory-items.lua)
+        Buyers = {
+            Enabled = true,
+            Percent = 50, -- the seller's share of the skimmed money the buyer recovers: $37 skimmed = $18 paid
+            Account = 'cash', -- where the buyer's money goes ('cash' or 'bank')
+            Label = 'Sell card data', Icon = 'fas fa-user-secret', ProgressLabel = 'Handing over the card data', Duration = 4000,
+            Distance = 2.0, SpawnDistance = 60.0, -- target range; the ped appears when a player is this close
+            -- one buyer: Ped = { ... }, or several: Peds = { { ... }, { ... } }. Each can have its own Percent and label.
+            -- PLACEHOLDER spot (Grove Street): set your own coords (x, y, z, heading) for your server
+            Peds = {
+                { model = 'g_m_y_mexgoon_02', coords = vec4(105.0, -1940.0, 20.8, 45.0), scenario = 'WORLD_HUMAN_SMOKING' },
+            },
+        },
     },
+    -- /vendingtestrole (managers only): be yourself without admin, a stranger, police, an employee or another manager
+    -- to test the vending machines (server/modules/vending_testing.lua has the details)
+    Testing = { Enabled = true, Command = 'vendingtestrole' },
 }
 
 -- Carrying a vending machine item: the player pushes it on a dolly (walk only: no sprint, jump or weapons) until they get
 -- into a vehicle. Stolen machines can also be tied to the back of a vehicle with a rope (ox_target on the vehicle, from
 -- behind it) and dragged; untie it (ox_target on the machine) to load it back on the dolly. Offsets: Dolly from the ped,
 -- Machine base from the dolly (model-origin height is compensated automatically). Tweak them in game if the model sits wrong.
+-- Evidence adapters receive one payload table. Configure server exports or a custom function to map your resource's API.
+Config.CrimeEvidence = {
+    Enabled = true,
+    Fingerprints = { Enabled = true, Chance = 75,
+        Actions = { breakin = true, loot = true, hack = true, fullhack = true, steal = true, disablegps = true, installskimmer = true },
+        Placement = { Face = 'nearest', HalfWidth = 0.575, HalfDepth = 0.425, -- cabinet local footprint; 'front' forces the front face
+            SurfaceOffset = 0.08, HeightOffset = 0.0, ScatterRadius = 0.18, VerticalScatter = 0.12 }, -- metres, relative to model origin
+        -- Optional server function(source, payload): return true to suppress prints (e.g. validated glove state).
+        IsWearingGloves = nil,
+    },
+    Injury = { Enabled = true, Actions = { breakin = { Chance = 15, Damage = 5 }, steal = { Chance = 25, Damage = 10 } } },
+    Blood = { Enabled = true, Chance = 100, ScatterRadius = 0.25, HeightOffset = -0.9 }, -- near injured player; rush-evidence adapter raycasts ground
+    Adapters = {
+        { Enabled = true, Type = 'rush-evidence', Resource = 'rush-evidence', Kinds = { fingerprint = true, blood = true } },
+        -- { Enabled = true, Resource = 'your-evidence', Export = 'CreateEvidence', Kinds = { fingerprint = true, blood = true } },
+        -- { Enabled = true, Create = function(payload) exports['your-evidence']:AddFingerprint(payload.source, payload.coords) end,
+        --   Kinds = { fingerprint = true } },
+    },
+}
+
 Config.VendingCarry = {
     Enabled = true,
+    TrunkRestrictions = {
+        Enabled = true,
+        BlockedModels = {}, -- model names or hashes: { 'adder', `zentorno` }
+        BlockedClasses = {}, -- names or IDs: { 'sedans', 'sports', 7 }; see README
+        BlockedTypes = {}, -- server vehicle types: { 'bike', 'boat', 'heli', 'plane' }
+        -- Trusted model -> class data. GTA's class lookup is client-only.
+        ModelClasses = {}, -- { sultan = 'sports', adder = 7, speedo = 'vans' }
+        BlockUnknownClass = true, -- when class rules exist, deny models missing from ModelClasses
+        Message = 'This vehicle cannot store a vending machine in its trunk.',
+    },
     -- offset = vec3(left/right, forward/back, height), in metres; rotation is in degrees.
     -- Dolly height raises the whole assembly. Machine height adjusts only the cabinet.
     -- With Dolly.rotation.z = 180, decreasing Machine.offset.y moves it away from the player.
@@ -629,6 +814,7 @@ Config.Police = {
     Blip = { sprite = 52, color = 1, scale = 1.0, time = 90, radius = 40.0 },
     -- chance (%) at CrimeAlertStage; other crime stages never send police dispatch
     Alerts = {
+        fullhack = { title = 'Vending machine system intrusion', message = 'Operating system intrusion detected on machine {serial}', code = '10-90', priority = 1, chance = { start = 100, fail = 100, success = 100 } },
         gps = { title = 'Vending machine GPS movement', message = 'Machine {serial} moved from its registered spot. {location}', chance = { movement = 0 } },
         disablegps = { title = 'Vending machine GPS tampering', message = 'GPS tampering detected on machine {serial}', chance = { start = 25, fail = 60, success = 10 } },
         installskimmer = { title = 'Vending machine reader tampering', message = 'Card reader tampering detected on machine {serial}', chance = { start = 25, fail = 50, success = 10 } },

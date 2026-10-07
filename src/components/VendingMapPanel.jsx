@@ -29,14 +29,24 @@ function toMap(machine, map) {
   }
 }
 
+// GPS fixes of machines that aren't standing anywhere (server: tracked = how it was last seen)
+const TRACKED_LABEL = { carried: 'Carried as an item', ground: 'Dropped on the ground', towed: 'Being towed' }
+const ago = seconds => {
+  if (!seconds) return ''
+  const minutes = Math.max(0, Math.round((Date.now() / 1000 - seconds) / 60))
+  return minutes < 1 ? 'just now' : `${minutes} min ago`
+}
+
 function machineStatus(machine, maxStock) {
+  if (machine.tracked) return 'tracked'
   const products = machine.products || []
   if (!products.length) return 'empty'
   if (products.some(product => (product.stock || 0) < 1)) return 'soldout'
   if (products.some(product => (product.stock || 0) < maxStock * LOW_STOCK)) return 'low'
   return 'ok'
 }
-const STATUS_LABEL = { ok: 'Stocked', low: 'Running low', soldout: 'Something sold out', empty: 'Sells nothing' }
+const STATUS_LABEL = { ok: 'Stocked', low: 'Running low', soldout: 'Something sold out', empty: 'Sells nothing', tracked: 'GPS: not placed' }
+const machineName = machine => machine.tracked ? (machine.serial || 'Machine') : `Vending machine #${machine.id}`
 
 function VendingIcon() {
   return <svg viewBox="0 0 24 32" aria-hidden="true"><rect x="2" y="1" width="20" height="28" rx="3" /><rect className="glass" x="5" y="4" width="10" height="16" rx="1.5" /><rect className="slot" x="17" y="6" width="3" height="6" rx="1" /><rect className="slot" x="5" y="23" width="14" height="3" rx="1" /></svg>
@@ -162,7 +172,7 @@ export default function VendingMapPanel() {
   const visible = useMemo(() => machines.filter(machine => filter === 'all' || (filter === 'attention' && ['low', 'soldout', 'empty'].includes(machineStatus(machine, maxStock)))), [machines, filter, maxStock])
   const selected = machines.find(machine => machine.id === selectedId) || null
   const counts = useMemo(() => {
-    const result = { ok: 0, low: 0, soldout: 0, empty: 0 }
+    const result = { ok: 0, low: 0, soldout: 0, empty: 0, tracked: 0 }
     machines.forEach(machine => { result[machineStatus(machine, maxStock)] += 1 })
     return result
   }, [machines, maxStock])
@@ -171,7 +181,7 @@ export default function VendingMapPanel() {
     setMessage('')
     try {
       await bridge.vendingWaypoint(machine.x, machine.y)
-      setMessage(`Waypoint set to vending machine #${machine.id}.`)
+      setMessage(`Waypoint set to ${machine.tracked ? machine.serial : `vending machine #${machine.id}`}.`)
     } catch (err) { setMessage(err?.message || String(err)) }
   }
 
@@ -191,6 +201,7 @@ export default function VendingMapPanel() {
             <span className="vending-pill low">{counts.low} low</span>
             <span className="vending-pill soldout">{counts.soldout} sold out</span>
             {counts.empty > 0 && <span className="vending-pill empty">{counts.empty} empty</span>}
+            {counts.tracked > 0 && <span className="vending-pill tracked">{counts.tracked} on GPS</span>}
             <span className="vending-toolbar-gap" />
             <button className="ghost small-button" onClick={() => zoomCenter(1.4)}>+</button>
             <button className="ghost small-button" onClick={() => zoomCenter(1 / 1.4)}>−</button>
@@ -207,7 +218,7 @@ export default function VendingMapPanel() {
                 const status = machineStatus(machine, maxStock)
                 const left = baseX + view.x + point.x * side * view.zoom
                 const top = baseY + view.y + point.y * side * view.zoom
-                return <button key={machine.id} type="button" data-id={machine.id} title={`Vending machine #${machine.id} · ${STATUS_LABEL[status]}`}
+                return <button key={machine.id} type="button" data-id={machine.id} title={`${machineName(machine)} · ${machine.tracked ? TRACKED_LABEL[machine.tracked] || STATUS_LABEL.tracked : STATUS_LABEL[status]}`}
                   className={`vending-marker ${status} ${machine.id === selectedId ? 'selected' : ''}`}
                   style={{ left, top }} onClick={event => { if (event.detail === 0) setSelectedId(machine.id) }}><VendingIcon /></button>
               })}
@@ -219,10 +230,11 @@ export default function VendingMapPanel() {
         <aside className="vending-side">
           {selected ? <div className="management-card vending-detail">
             <div className="management-panel-title">
-              <div><strong>Vending machine #{selected.id}</strong><span>{STATUS_LABEL[machineStatus(selected, maxStock)]} · {Math.round(selected.x)}, {Math.round(selected.y)}</span></div>
+              <div><strong>{machineName(selected)}</strong><span>{selected.tracked ? TRACKED_LABEL[selected.tracked] || STATUS_LABEL.tracked : STATUS_LABEL[machineStatus(selected, maxStock)]} · {Math.round(selected.x)}, {Math.round(selected.y)}</span></div>
               <button className="ghost small-button" onClick={() => setSelectedId(null)}>Close</button>
             </div>
-            {(selected.products || []).length === 0 && <p className="vending-empty">This machine sells nothing yet. Add products with the Manage option on the machine.</p>}
+            {selected.tracked && <p className="vending-empty">GPS fix {ago(selected.seenAt)}{selected.holderName ? ` · held by ${selected.holderName}` : ''}{selected.ownerName ? ` · owned by ${selected.ownerName}` : ''}. It shows here until it is placed again or its GPS is disabled.</p>}
+            {!selected.tracked && (selected.products || []).length === 0 && <p className="vending-empty">This machine sells nothing yet. Add products with the Manage option on the machine.</p>}
             <div className="vending-products">
               {(selected.products || []).map(product => {
                 const stock = product.stock || 0
@@ -244,7 +256,7 @@ export default function VendingMapPanel() {
 
           <div className="management-card vending-list-card">
             <div className="management-panel-title">
-              <div><strong>All machines</strong><span>{machines.length} placed</span></div>
+              <div><strong>All machines</strong><span>{machines.filter(machine => !machine.tracked).length} placed{counts.tracked ? ` · ${counts.tracked} on GPS` : ''}</span></div>
               <select value={filter} onChange={event => setFilter(event.target.value)} aria-label="Show machines">
                 <option value="all">All</option>
                 <option value="attention">Needs restocking</option>
@@ -257,7 +269,7 @@ export default function VendingMapPanel() {
                 const total = (machine.products || []).reduce((sum, product) => sum + (product.stock || 0), 0)
                 return <button key={machine.id} className={machine.id === selectedId ? 'active' : ''} onClick={() => focusMachine(machine)}>
                   <i className={`vending-dot ${status}`} />
-                  <span><strong>#{machine.id}</strong><small>{(machine.products || []).length} products · {total} in stock</small></span>
+                  <span><strong>{machine.tracked ? machine.serial : `#${machine.id}`}</strong><small>{machine.tracked ? `${TRACKED_LABEL[machine.tracked] || 'GPS'} · ${ago(machine.seenAt)}` : `${(machine.products || []).length} products · ${total} in stock`}</small></span>
                   <span className="vending-logos">{[...new Set((machine.products || []).map(product => product.set))].slice(0, 3).map(setId => {
                     const product = machine.products.find(entry => entry.set === setId)
                     return <SetLogo key={setId} logo={logos[setId]} name={product?.setName} />

@@ -18,8 +18,18 @@ local BUSINESS = 'business'
 local function notify(source, message, notifyType)
     if MetaComic.Framework.notify then MetaComic.Framework.notify(source, message, notifyType) end
 end
-local function identifierOf(source) return MetaComic.Framework.getIdentifier and MetaComic.Framework.getIdentifier(source) or MetaComic.GetLicense(source) end
-local function nameOf(source) return MetaComic.Framework.getName and MetaComic.Framework.getName(source) or GetPlayerName(source) or ('Player %s'):format(source) end
+-- a vending test role (/vendingtestrole, server/modules/vending_testing.lua) can make a player someone else here
+local function testRole(source) return MetaComic.VendingTestRole and MetaComic.VendingTestRole(source) end
+local function identifierOf(source)
+    local test = testRole(source)
+    if test and test.identifier then return test.identifier end
+    return MetaComic.Framework.getIdentifier and MetaComic.Framework.getIdentifier(source) or MetaComic.GetLicense(source)
+end
+local function nameOf(source)
+    local test = testRole(source)
+    if test and test.name then return test.name end
+    return MetaComic.Framework.getName and MetaComic.Framework.getName(source) or GetPlayerName(source) or ('Player %s'):format(source)
+end
 service.identifierOf, service.nameOf = identifierOf, nameOf
 local function clampTax(rate) rate = tonumber(rate); if not rate or rate ~= rate then return nil end; return math.max(0, math.min(100, math.floor(rate * 100 + 0.5) / 100)) end
 local function defaultTax() return clampTax(own.DefaultTax) or 10 end
@@ -173,8 +183,13 @@ function service.routing(record)
     return { id = BUSINESS, name = service.businessName, number = service.businessRouting() }
 end
 -- the identifier that runs the machine: a hacker who rerouted it, otherwise its owner (nil = the business)
+function service.systemController(record)
+    if record and record.systemController then return record.systemController end
+end
 function service.controller(record)
-    if record and record.tampered and rerouted(record) and record.routing.id ~= BUSINESS then return record.routing.id end
+    local system = service.systemController(record)
+    if system then return system end
+    if record and record.tampered and rerouted(record) and not record.routing.manual and record.routing.id ~= BUSINESS then return record.routing.id end
     return record and record.owner or nil
 end
 function service.assign(serial, ownerId, by)
@@ -183,10 +198,13 @@ function service.assign(serial, ownerId, by)
     if ownerId and ownerId ~= BUSINESS and not load().people[ownerId] then return nil, 'That person is not registered.' end
     local owner = ownerId ~= BUSINESS and ownerId or false
     local name = owner and load().people[owner].name or service.businessName
-    return service.update(serial, { owner = owner, ownerName = owner and name or false, routing = false, tampered = false, routingUntil = false },
+    local fields = { owner = owner, ownerName = owner and name or false }
+    if not service.systemController(record) then fields.routing = false; fields.tampered = false; fields.routingUntil = false end
+    return service.update(serial, fields,
         ('Assigned to %s'):format(name), by)
 end
 function service.resetRouting(serial, by)
+    if service.systemController(service.get(serial)) then return nil, 'Physically replace the control board to recover this machine.' end
     return service.update(serial, { routing = false, tampered = false, routingUntil = false }, 'Routing reset to the owner', by)
 end
 -- a view for the records UI / record items (no history unless asked)
@@ -201,7 +219,11 @@ function service.view(record, withHistory)
         tax = service.taxRate(record.owner), routing = routing.number, tampered = tampered,
         routingName = tampered and not own.RevealHacker and 'Unknown account' or routing.name,
         status = record.status, machineId = record.machineId, coords = record.coords, holder = record.holder,
+        systemTakenOver = service.systemController(record) ~= nil, worldState = record.worldState,
         createdAt = record.createdAt, updatedAt = record.updatedAt, history = withHistory and record.history or nil,
+        lockId = record.lockId, lockCondition = record.lockCondition, securitySeal = record.securitySeal,
+        keyArchive = withHistory and MetaComic.CopyTable(record.keyArchive) or nil,
+        sales = withHistory and MetaComic.CopyTable(record.sales or {}) or nil, -- Ownership.SalesLog, newest first
     }
 end
 function service.all()
@@ -270,6 +292,17 @@ function service.pay(id, amount, reason)
     return save()
 end
 -- a card sale: the owner's tax rate goes to the business, the rest to whoever the machine routes to
+-- the machine's recent sales (Ownership.SalesLog), shown to its owner in Manage
+function service.logSale(serial, sale)
+    local record = serial and load().serials[serial]
+    if not record then return end
+    record.sales = type(record.sales) == 'table' and record.sales or {}
+    sale.when = sale.when or os.date('%Y-%m-%d %H:%M', sale.at or os.time())
+    table.insert(record.sales, 1, sale)
+    local limit = math.max(1, tonumber(own.SalesLog) or 50)
+    while #record.sales > limit do table.remove(record.sales) end
+    save()
+end
 function service.paySale(record, amount)
     local routing = service.routing(record)
     local tax = record.owner and math.floor(amount * service.taxRate(record.owner) / 100 + 0.5) or 0

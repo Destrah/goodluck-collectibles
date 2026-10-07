@@ -10,6 +10,7 @@ ui_page 'web/index.html'
 shared_scripts {
     'config.lua',
     'shared/utils.lua',
+    'shared/vending_placement.lua',
     'shared/legacy.lua',
     'shared/collectibles.lua',
 }
@@ -17,12 +18,15 @@ shared_scripts {
 client_scripts {
     'client/main.lua',
     'client/vending_machines.lua',
+    'client/vending_keys.lua',
     'client/crafting.lua',
     'client/shipping_crates.lua',
     'client/minigames.lua',
     'client/police.lua',
     'client/vending_crime.lua',
     'client/vending_carry.lua',
+    'client/vending_door.lua',
+    'client/vending_skimmer.lua',
 }
 
 server_scripts {
@@ -55,10 +59,16 @@ server_scripts {
     'server/modules/police.lua',
     'server/modules/vending_registry.lua',
     'server/modules/vending_machines.lua',
+    'server/modules/vending_keys.lua',
     'server/modules/vending_records.lua',
     'server/modules/vending_security.lua',
+    'server/modules/crime_evidence.lua',
+    'server/modules/vending_loot.lua',
     'server/modules/vending_crime.lua',
     'server/modules/vending_carry.lua',
+    'server/modules/vending_trunks.lua',
+    'server/modules/vending_door.lua',
+    'server/modules/vending_testing.lua',
 }
 
 files {

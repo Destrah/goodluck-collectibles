@@ -15,6 +15,8 @@ local phoneSent = {}
 
 local function jobs() return type(cfg.Jobs) == 'table' and cfg.Jobs or { 'police' } end
 function service.isPolice(source)
+    local test = MetaComic.VendingTestRole and MetaComic.VendingTestRole(source)
+    if test then return test.police == true end
     local job = MetaComic.Framework.getJob and MetaComic.Framework.getJob(source)
     if not job or not job.name then return false end
     for _, name in ipairs(jobs()) do

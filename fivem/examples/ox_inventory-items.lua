@@ -149,10 +149,35 @@
     description = 'The business ledger of vending machine owners.',
     client = { export = 'meta-comic.UseVendingLedger' },
 },
+['vending_key'] = {
+    label = 'Vending Key', weight = 20, stack = false, close = true, consume = 0,
+    description = 'Numbered cabinet key. Serial, cylinder and key ID remain readable after retirement.',
+    client = { export = 'meta-comic.UseVendingKey' },
+},
+['vending_key_record'] = {
+    label = 'Vending Key Records', weight = 10, stack = false, close = true, consume = 0,
+    description = 'Printed permanent cylinder and key archive, including retired keys.',
+    client = { export = 'meta-comic.UseVendingKeyRecord' },
+},
+['vending_lock_cylinder'] = {
+    label = 'Vending Lock Cylinder', weight = 200, stack = true, close = true,
+    description = 'Replacement cylinder for damaged locks or compromised keys.',
+},
 -- Tools used by the default recipes and crime settings, if your server doesn't have them yet:
 ['card_skimmer'] = {
-    label = 'Card Skimmer', weight = 100, stack = true, close = true,
+    label = 'Card Skimmer', weight = 100, stack = true, close = true, consume = 0,
     description = 'A device that can be installed over a vending machine card reader.',
+    client = { export = 'meta-comic.UseCardSkimmer' }, -- a removed skimmer with card data prints it out
+    buttons = { { label = 'Read skimmer', action = function(slot) exports['meta-comic']:UseCardSkimmer(slot) end } },
+},
+['skimmer_card_data'] = {
+    label = 'Card Data', weight = 10, stack = false, close = true, consume = 0,
+    description = 'Card details copied by a card skimmer. A buyer will pay for these.',
+    client = { export = 'meta-comic.UseSkimmerData' },
+},
+['vending_control_board'] = {
+    label = 'Vending Control Board', weight = 500, stack = true, close = true,
+    description = 'Replacement control board for recovering a compromised vending machine.',
 },
 -- crowbar, lockpick, laptop, electronickit, drill, and crafting materials paper, plastic, cardboard, glass,
 -- rubber, aluminum, fabric, copper, wood, steel.

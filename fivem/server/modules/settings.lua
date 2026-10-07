@@ -10,9 +10,13 @@ local values, loaded = {}, false
 
 local function db() return exports[Config.Database.Resource or 'oxmysql'] end
 
+local loading = false
 local function load()
     if loaded then return end
-    loaded = true
+    -- another caller is mid-query: wait for it, or this caller would see empty values (and a save would wipe the table)
+    if loading then while not loaded do Wait(0) end return end
+    loading = true
+    local done, err = pcall(function()
     if useMysql then
         if Config.Database.AutoCreateSchema then
             db():query_async(([[CREATE TABLE IF NOT EXISTS `%s` (
@@ -29,6 +33,9 @@ local function load()
         local ok, decoded = pcall(json.decode, LoadResourceFile(resource, fileName) or '')
         values = ok and type(decoded) == 'table' and decoded or {}
     end
+    end)
+    if not done then print('[meta-comic] settings load failed: ' .. tostring(err)) end
+    loaded = true
 end
 
 function service.get(key, default)

@@ -1,0 +1,35 @@
+Version 165 32
+{
+	Shaders
+	{
+		normal.sps
+		{
+			DiffuseSampler metacomics_vending_body\vending_basecolor_2048.otx
+			BumpSampler metacomics_vending_body\vending_normal_directx_2048.otx
+			HardAlphaBlend 1.00000000
+			UseTessellation 0.00000000
+			Bumpiness 1.00000000
+			SpecularIntensityMult 0.12500000
+			SpecularFalloffMult 100.00000000
+			SpecularFresnel 0.75000000
+		}
+	}
+	Skeleton null
+	LodGroup
+	{
+		Center 0.00000000 0.00205000 -0.00324997
+		Radius 1.19702000
+		AABBMin -0.58250000 -0.43450000 -0.95350000 0.00000000
+		AABBMax 0.58250000 0.43860000 0.94700000 0.00000000
+		High 9998.00000000
+		{
+			metacomics_vending_body\metacomics_vending_body_high.mesh 0
+		}
+		Med 9998.00000000
+		Low 9998.00000000
+		Vlow 9998.00000000
+	}
+	Joints null
+	Light null
+	Bound null
+}

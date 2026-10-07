@@ -15,12 +15,24 @@ const demoCrafting = () => {
 
 // demo machine records for the Machine records tab outside FiveM (kept in memory only)
 const demoRecords = {
-  ok: true, business: 'Collectibles Co.', businessRouting: '000000001', businessPending: 1250, defaultTax: 10, online: [{ serverId: 3, id: 'ABC12345', name: 'Sam Rivera' }],
+  ok: true, keysEnabled: true, business: 'Collectibles Co.', businessRouting: '000000001', businessPending: 1250, defaultTax: 10, online: [{ serverId: 3, id: 'ABC12345', name: 'Sam Rivera' }],
   people: [{ id: 'XYZ98765', name: 'Jordan Lee', routing: '483920175', tax: 15, machines: 1, pending: 400, registeredAt: 1790000000 }],
   machines: [
     { serial: 'VM-7F3K-2Q9D', owner: 'business', ownerName: 'Collectibles Co.', routing: '000000001', routingName: 'Collectibles Co.', ownerRouting: '000000001', tax: 0, tampered: false, status: 'placed', coords: { x: 195, y: -933, z: 30 }, cash: 750, history: [{ at: 1790000000, event: 'Placed by the business', by: 'Alex' }] },
     { serial: 'VM-M4XP-8RTA', owner: 'XYZ98765', ownerName: 'Jordan Lee', routing: '771204983', routingName: 'Unknown account', ownerRouting: '483920175', tax: 15, tampered: true, status: 'stolen', holder: { name: 'Unknown' }, history: [{ at: 1790003600, event: 'Stolen' }, { at: 1790003000, event: 'Payment routing changed' }, { at: 1790000000, event: 'Assigned to Jordan Lee', by: 'Alex' }] },
   ],
+}
+// Include a retired cylinder/key so evidence records can be inspected in standalone mode.
+for (const machine of demoRecords.machines) {
+  machine.lockId = `${machine.serial}-C0002`
+  machine.lockCondition = 'intact'
+  machine.keyArchive = {
+    cylinders: [
+      { id: `${machine.serial}-C0001`, generation: 1, installedAt: 1790000000, installedBy: 'Alex', retiredAt: 1790003600, retiredBy: 'Alex' },
+      { id: machine.lockId, generation: 2, installedAt: 1790003600, installedBy: 'Alex' },
+    ],
+    keys: [{ id: `${machine.serial}-K000001`, lockId: `${machine.serial}-C0001`, access: 'full', issuedAt: 1790000000, issuedTo: 'XYZ98765', issuedToName: 'Jordan Lee', issuedBy: 'DEMO-STAFF', issuedByName: 'Alex' }],
+  }
 }
 
 const listeners = new Set()
@@ -76,6 +88,21 @@ export const standaloneBridge = {
   async getMinigames() { return { ok: true, presets: DEMO_PRESETS } }, // built-in games play in the page
   async testMinigame() { return { ok: false, error: 'Only in game.' } },
   async saveVendingRecords(payload) {
+    if (payload?.action === 'issueKey') {
+      const machine = demoRecords.machines.find(m => m.serial === payload.serial)
+      const recipient = demoRecords.online.find(player => player.serverId === Number(payload.serverId))
+      if (!machine || !recipient || !['full', 'service'].includes(payload.access)) throw new Error('Choose a machine, online recipient and key access.')
+      const archive = machine.keyArchive
+      archive.keys.push({ id: `${machine.serial}-K${String(archive.keys.length + 1).padStart(6, '0')}`, lockId: machine.lockId, access: payload.access,
+        issuedAt: Math.floor(Date.now() / 1000), issuedTo: recipient.id, issuedToName: recipient.name, issuedBy: 'DEMO-STAFF', issuedByName: 'Alex' })
+    }
+    if (payload?.action === 'keyReport') {
+      const machine = demoRecords.machines.find(m => m.serial === payload.serial)
+      if (!machine) throw new Error('Unknown machine serial.')
+      return { ...structuredClone(demoRecords), keyReportPreview: { kind: 'keyreport', business: demoRecords.business, printed: {
+        serial: machine.serial, ownerName: machine.ownerName, lockId: machine.lockId, archive: structuredClone(machine.keyArchive), printedAt: Math.floor(Date.now() / 1000),
+      } } }
+    }
     if (payload?.action === 'tax') for (const person of demoRecords.people) if (payload.taxes?.[person.id] != null) person.tax = payload.taxes[person.id]
     if (payload?.action === 'assign') { const machine = demoRecords.machines.find(m => m.serial === payload.serial); const person = demoRecords.people.find(p => p.id === payload.owner); if (machine) Object.assign(machine, { owner: payload.owner, ownerName: person?.name || demoRecords.business, tampered: false }) }
     if (payload?.action === 'resetRouting') { const machine = demoRecords.machines.find(m => m.serial === payload.serial); if (machine) machine.tampered = false }

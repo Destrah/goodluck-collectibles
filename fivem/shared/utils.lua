@@ -29,3 +29,29 @@ function MetaComic.GetLicense(source)
     end
     return ('source:%s'):format(source)
 end
+
+-- Identical zone checks in preview and server placement; geometry/road natives are client-only.
+function MetaComic.VendingPlacementZone(x, y, z)
+    local cfg = (Config.VendingMachines or {}).Placement or {}
+    if cfg.Enabled == false then return true end
+    local margin = math.max(0, tonumber(cfg.ZoneMargin) or 1.0)
+    for _, zone in ipairs(cfg.ForbiddenZones or {}) do
+        local center = zone.Center
+        if center then
+            local inHeight = (not zone.MinZ or z >= zone.MinZ) and (not zone.MaxZ or z <= zone.MaxZ)
+            local dx, dy = x - center.x, y - center.y
+            if zone.Radius and inHeight and dx * dx + dy * dy <= (zone.Radius + margin) ^ 2 then
+                return false, 'This path or road is a no-placement zone.'
+            end
+            if zone.Size then
+                local angle = math.rad(tonumber(zone.Heading) or 0)
+                local lx, ly = dx * math.cos(angle) + dy * math.sin(angle), -dx * math.sin(angle) + dy * math.cos(angle)
+                if math.abs(lx) <= zone.Size.x * 0.5 + margin and math.abs(ly) <= zone.Size.y * 0.5 + margin
+                    and math.abs(z - center.z) <= zone.Size.z * 0.5 + margin then
+                    return false, 'This path or alley is a no-placement zone.'
+                end
+            end
+        end
+    end
+    return true
+end

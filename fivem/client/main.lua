@@ -734,12 +734,41 @@ exports('IsOpen', function() return nuiOpen end)
 -- exports['<resource>']:GetEmbedUrl('admin', 'vending') -> an address for an <iframe> in your own NUI page.
 -- The embedded page talks to this resource directly, so permission checks still apply. It posts
 -- { type = 'metaComic:embedClose' } to the parent window when the user closes it, and 'metaComic:embedReady' once open.
-exports('GetEmbedUrl', function(view, tab)
+-- tab: one tab ('vending') or several ({ 'vending', 'records' } or 'vending,records'): only those tabs are shown, and only
+-- the ones the player may open (Config.Portal: owners see their own machines, Editor people get the editor).
+local function embedQuery(view, tab)
     local resource = GetCurrentResourceName()
-    local url = ('nui://%s/web/index.html?embed=1&resource=%s&view=%s'):format(resource, resource, tostring(view or 'admin'))
-    if tab and tab ~= '' then url = url .. '&tab=' .. tostring(tab) end
-    return url
+    local query = ('embed=1&resource=%s&view=%s'):format(resource, tostring(view or 'admin'))
+    local tabs = type(tab) == 'table' and table.concat(tab, ',') or tostring(tab or '')
+    if tabs ~= '' then query = query .. '&tab=' .. (tabs:match('^[^,]+') or tabs) .. '&tabs=' .. tabs end
+    return query
+end
+exports('GetEmbedUrl', function(view, tab)
+    return ('nui://%s/web/index.html?%s'):format(GetCurrentResourceName(), embedQuery(view, tab))
 end)
+-- /cardportal [tabs]: opens the embedded view (as another resource would show it) to test it
+local portalConfig = Config.Portal or {}
+if portalConfig.Enabled ~= false and (portalConfig.Command or 'cardportal') ~= '' then
+    RegisterCommand(portalConfig.Command or 'cardportal', function(_, args)
+        CreateThread(function()
+            local info = serverRpc('getRuntimeInfo', {}, 12000)
+            local allowed = info and info.capabilities and info.capabilities.portal and info.capabilities.portal.tabs or {}
+            local requested = args[1] and args[1] ~= '' and args[1] or table.concat(allowed, ',')
+            local wanted = {}
+            for tab in tostring(requested):gmatch('[^,%s]+') do
+                for _, ok in ipairs(allowed) do if ok == tab then wanted[#wanted + 1] = tab end end
+            end
+            if #wanted == 0 then
+                return TriggerEvent('meta_comic:client:notify', #allowed > 0 and ('You can open: %s'):format(table.concat(allowed, ', '))
+                    or 'You have no portal access (managers, vending machine owners and card editors only).', 'error')
+            end
+            nuiOpen = true
+            SetNuiFocus(true, true)
+            SetNuiFocusKeepInput(false)
+            SendNUIMessage({ type = 'metaComic:embedTest', query = embedQuery('admin', wanted) })
+        end)
+    end, false)
+end
 exports('UseCollectible',function(...) local slot=slotOf(...);if slot then TriggerServerEvent('meta_comic:server:useCollectible',slot) end end)
 
 AddEventHandler('onResourceStop', function(resource)

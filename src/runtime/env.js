@@ -6,6 +6,8 @@ const nuiHost = typeof window !== 'undefined' && (window.location.protocol === '
 export const isEmbedded = params.get('embed') === '1'
 export const embedView = params.get('view') || 'admin'
 export const embedTab = params.get('tab') || ''
+// GetEmbedUrl with several tabs: only these are shown (the server still decides which the player may open)
+export const embedTabs = (params.get('tabs') || '').split(',').map(tab => tab.trim()).filter(Boolean)
 export const isFiveM = typeof window !== 'undefined' && (typeof window.GetParentResourceName === 'function' || (isEmbedded && !!nuiHost))
 
 export function getResourceName() {

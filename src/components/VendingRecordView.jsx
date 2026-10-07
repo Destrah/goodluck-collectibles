@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import './vendingRecords.css'
+import VendingKeyArchive from './VendingKeyArchive'
 
 // FiveM record items: a machine's registration certificate (what was printed vs. the record today) or the business's
 // ledger of every registered owner and machine. record = { kind: 'certificate' | 'ledger', ... } from the server.
@@ -62,6 +63,26 @@ function Ledger({ record }) {
   )
 }
 
+function KeyRecord({ record }) {
+  const printed = record.printed || {}
+  const report = record.kind === 'keyreport'
+  return <div className={`record-paper${report ? ' record-key-report' : ''}`}>
+    <div className="record-paper-head"><span>{record.business}</span><h2>{report ? 'Permanent Vending Key Records' : 'Vending Key Identification'}</h2></div>
+    <dl>
+      <dt>Machine serial</dt><dd className="mono">{printed.serial || '-'}</dd>
+      {report && printed.reportId && <><dt>Report reference</dt><dd className="mono">{printed.reportId}</dd></>}
+      <dt>{report ? 'Cylinder at printing' : 'Key cylinder'}</dt><dd className="mono">{printed.lockId || '-'}</dd>
+      {report ? <><dt>Registered owner</dt><dd>{printed.ownerName || '-'}</dd><dt>Printed</dt><dd>{printed.printedAt ? new Date(printed.printedAt * 1000).toLocaleString() : '-'}</dd></> : <>
+        <dt>Numbered key ID</dt><dd className="mono">{printed.keyId || '-'}</dd>
+        <dt>Access</dt><dd>{printed.access || '-'}</dd>
+        <dt>Cylinder match today</dt><dd>{record.currentLockId === printed.lockId ? 'Current cylinder' : 'Retired / no matching cylinder'}</dd>
+      </>}
+    </dl>
+    {report && <VendingKeyArchive archive={printed.archive} currentLockId={printed.lockId} />}
+    {!report && <p>Rekeying does not erase this key’s identification. A cylinder match alone does not bypass damage or a temporary security seal.</p>}
+  </div>
+}
+
 export default function VendingRecordView({ record, onClose }) {
   useEffect(() => {
     const onKey = event => { if (event.key === 'Escape') onClose?.() }
@@ -70,7 +91,7 @@ export default function VendingRecordView({ record, onClose }) {
   }, [onClose])
   return (
     <div className="record-overlay" role="dialog">
-      {record?.kind === 'ledger' ? <Ledger record={record} /> : <Certificate record={record || {}} />}
+      {record?.kind === 'keyreport' || record?.kind === 'key' ? <KeyRecord record={record} /> : record?.kind === 'ledger' ? <Ledger record={record} /> : <Certificate record={record || {}} />}
       <button className="record-close primary" onClick={onClose}>Close</button>
     </div>
   )

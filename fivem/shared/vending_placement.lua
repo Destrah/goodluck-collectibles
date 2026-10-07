@@ -1,0 +1,2 @@
+-- Compatibility entry for manifests that already list this file.
+-- Placement zone checks now live in shared/utils.lua so older manifests load them too.

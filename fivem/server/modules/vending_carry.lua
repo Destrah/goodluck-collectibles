@@ -8,7 +8,9 @@ local tow = cfg.Tow or {}
 local Registry = MetaComic.VendingRegistry
 local Vending = MetaComic.Vending
 local ITEM = vending.Item or 'vending_machine'
-local MODEL = joaat(vending.Model or 'metacomics_vending_machine')
+-- Use a native dynamic cabinet bound for loose-world physics. Custom body/door
+-- drawables may have no usable dynamic collision; clients supply their visuals.
+local MODEL = joaat((vending.Door or {}).Enabled ~= false and 'prop_vend_soda_01' or (vending.Model or 'metacomics_vending_machine'))
 local tows = {} -- object net id -> { entity, serial, products, cash, vehicle (net id), by (source), byName }
 local resource = GetCurrentResourceName()
 local recoveryFile = 'data/vending_tow_recovery.json'
@@ -21,8 +23,16 @@ local function saveRecovery()
     local list = {}
     for _, entry in ipairs(recovery) do list[#list + 1] = entry end
     for objectNet, entry in pairs(tows) do
+        if DoesEntityExist(entry.entity) then
+            local coords = GetEntityCoords(entry.entity)
+            entry.coords = { x = coords.x, y = coords.y, z = coords.z }
+            entry.heading = GetEntityHeading(entry.entity)
+            if GetEntityRoutingBucket then entry.bucket = GetEntityRoutingBucket(entry.entity) end
+        end
         list[#list + 1] = { objectNet = objectNet, towId = entry.towId, identifier = entry.identifier,
-            serial = entry.serial, products = entry.products, cash = entry.cash }
+            serial = entry.serial, products = entry.products, cash = entry.cash, coords = entry.coords,
+            heading = entry.heading, bucket = entry.bucket }
+
     end
     local written = SaveResourceFile(resource, recoveryFile, json.encode(list), -1)
     if not written then print('[meta-comic] Could not save vending tow recovery journal') end
@@ -33,6 +43,8 @@ local function notify(source, message, notifyType)
     if MetaComic.Framework.notify then MetaComic.Framework.notify(source, message, notifyType) end
 end
 local function playerName(source) return Registry.nameOf(source) end
+-- a broken-into (stolen) machine's door hangs loose and swings while it moves (client/vending_door.lua)
+local function looseDoor(serial) local record = serial and Registry.get(serial); return record ~= nil and record.status == 'stolen' end
 
 -- the player's machine items: { slot, metadata, stolen }
 local function machineSlots(source)
@@ -103,12 +115,13 @@ RegisterNetEvent('meta_comic:server:vendingTow', function(vehicleNet)
     local objectNet = NetworkGetNetworkIdFromEntity(object)
     local towId = ('%s:%s:%s'):format(source, objectNet, GetGameTimer())
     Entity(object).state:set('metaComicTowId', towId, true)
+    Entity(object).state:set('metaComicDoorLoose', looseDoor(metadata.serial), true)
     tows[objectNet] = { entity = object, serial = metadata.serial, products = metadata.products, cash = metadata.cash, vehicle = vehicleNet,
         by = source, byName = playerName(source), identifier = Registry.identifierOf(source), towId = towId }
     saveRecovery()
     if MetaComic.VendingSecurity then MetaComic.VendingSecurity.track(metadata.serial, object) end
     if metadata.serial then
-        Registry.update(metadata.serial, { holder = false }, ('Dragged behind a vehicle by %s'):format(playerName(source)), playerName(source))
+        Registry.update(metadata.serial, { holder = false, worldState = 'towed' }, ('Dragged behind a vehicle by %s'):format(playerName(source)), playerName(source))
     end
     TriggerClientEvent('meta_comic:client:vendingTow', -1, objectNet, vehicleNet)
     notify(source, 'Machine tied on. Get in and drive.', 'success')
@@ -131,7 +144,7 @@ local function finish(objectNet, receiver)
     SetTimeout(500, function() if DoesEntityExist(entry.entity) then DeleteEntity(entry.entity) end end)
     if entry.serial then
         if receiver then
-            Registry.update(entry.serial, { holder = { id = Registry.identifierOf(receiver), name = playerName(receiver) } },
+            Registry.update(entry.serial, { worldState = false, holder = { id = Registry.identifierOf(receiver), name = playerName(receiver) } },
                 ('Untied by %s'):format(playerName(receiver)), playerName(receiver))
         else
             Registry.update(entry.serial, { status = 'removed', holder = false }, 'Lost while being dragged')
@@ -187,13 +200,14 @@ RegisterNetEvent('meta_comic:server:vendingCarryDrop', function()
     local objectNet = NetworkGetNetworkIdFromEntity(object)
     local towId = ('drop:%s:%s:%s'):format(source, objectNet, GetGameTimer())
     Entity(object).state:set('metaComicTowId', towId, true)
+    Entity(object).state:set('metaComicDoorLoose', looseDoor(metadata.serial), true)
     Entity(object).state:set('metaComicTowNeedsGround', true, true)
     tows[objectNet] = { entity = object, serial = metadata.serial, products = metadata.products, cash = metadata.cash,
         snapped = true, by = source, byName = playerName(source), identifier = Registry.identifierOf(source), towId = towId }
     saveRecovery()
     if MetaComic.VendingSecurity then MetaComic.VendingSecurity.track(metadata.serial, object) end
     TriggerClientEvent('meta_comic:client:vendingRopeSnapped', -1, objectNet)
-    if metadata.serial then Registry.update(metadata.serial, { holder = false }, 'Dropped before entering a vehicle', playerName(source)) end
+    if metadata.serial then Registry.update(metadata.serial, { holder = false, worldState = 'ground' }, 'Dropped before entering a vehicle', playerName(source)) end
     dropping[source] = nil
     notify(source, 'Machine dropped. You can pick it up with ox_target.', 'info')
 end)
@@ -225,6 +239,7 @@ CreateThread(function()
                     entry.overloadedAt = entry.overloadedAt or now
                     if now - entry.overloadedAt >= duration then
                         entry.snapped = true
+                        if entry.serial then Registry.update(entry.serial, { worldState = 'ground' }, 'Tow rope snapped; cabinet remains in world') end
                         TriggerClientEvent('meta_comic:client:vendingRopeSnapped', -1, objectNet)
                         if GetPlayerPing(entry.by) > 0 and Registry.identifierOf(entry.by) == entry.identifier then
                             notify(entry.by, 'The towing rope snapped. Pick up the machine where it fell.', 'error')
@@ -238,15 +253,20 @@ CreateThread(function()
     end
 end)
 
--- a dragged machine whose prop vanished goes back to whoever tied it (if online), otherwise it is lost
+-- Missing props are recorded for later reconciliation; never teleport a cabinet back into inventory.
 CreateThread(function()
     while true do
         Wait(5000)
         for objectNet, entry in pairs(tows) do
             if not DoesEntityExist(entry.entity) then
-                finish(objectNet, GetPlayerPing(entry.by) > 0 and entry.by or nil)
+                recovery[#recovery + 1] = { serial = entry.serial, products = entry.products, cash = entry.cash,
+                    coords = entry.coords, heading = entry.heading, bucket = entry.bucket, missing = true }
+                tows[objectNet] = nil
+                TriggerClientEvent('meta_comic:client:vendingUntow', -1, objectNet)
+                if entry.serial then Registry.update(entry.serial, { holder = false, worldState = 'missing' }, 'Unplugged cabinet entity missing; no inventory return') end
             end
         end
+        if not stopping then saveRecovery() end
     end
 end)
 
@@ -255,33 +275,52 @@ AddEventHandler('onResourceStop', function(name)
     stopping = true
     saveRecovery()
     -- Keep endpoints alive while each client tears down its rope on stop.
-    -- The next startup removes these orphaned props and returns their items.
+    -- The next startup recovers these as untied world cabinets, never inventory items.
     for _, entry in pairs(tows) do
         if DoesEntityExist(entry.entity) then FreezeEntityPosition(entry.entity, true) end
     end
 end)
 
 CreateThread(function()
-    Wait(2000) -- allow client stop handlers to finish before removing old endpoints
+    Wait(2000) -- allow client stop handlers to finish before adopting old endpoints
     while not stopping and #recovery > 0 do
         for index = #recovery, 1, -1 do
             local entry = recovery[index]
-            local object = entry.objectNet and NetworkGetEntityFromNetworkId(entry.objectNet) or 0
-            -- Net IDs can be reused; never delete an unrelated entity.
-            if object ~= 0 and DoesEntityExist(object) and entry.towId and Entity(object).state.metaComicTowId == entry.towId then
-                DeleteEntity(object)
-            end
-            local receiver = entry.identifier and Registry.onlineSource(entry.identifier)
-            if receiver and Vending.giveMachineItem(receiver, entry.serial, entry.products, entry.cash) then
-                table.remove(recovery, index)
-                saveRecovery()
-                if entry.serial then
-                    Registry.update(entry.serial, { holder = { id = entry.identifier, name = playerName(receiver) } },
-                        'Recovered after towing resource restart', playerName(receiver))
+            if not entry.missing then
+                local object = entry.objectNet and NetworkGetEntityFromNetworkId(entry.objectNet) or 0
+                -- Net IDs can be reused. Adopt only our exact cabinet; never delete unrelated entities.
+                if object == 0 or not DoesEntityExist(object) or not entry.towId or Entity(object).state.metaComicTowId ~= entry.towId then
+                    object = 0
+                    local coords = entry.coords
+                    if type(coords) == 'table' and tonumber(coords.x) and tonumber(coords.y) and tonumber(coords.z) then
+                        object = CreateObjectNoOffset(MODEL, coords.x, coords.y, coords.z + 1.0, true, true, false)
+                    end
                 end
-                notify(receiver, 'Your towed vending machine was returned after the resource restarted.', 'success')
+                if object ~= 0 and DoesEntityExist(object) then
+                    FreezeEntityPosition(object, true)
+                    SetEntityHeading(object, tonumber(entry.heading) or GetEntityHeading(object))
+                    if SetEntityRoutingBucket and entry.bucket then SetEntityRoutingBucket(object, entry.bucket) end
+                    if SetEntityOrphanMode then SetEntityOrphanMode(object, 2) end
+                    local objectNet = NetworkGetNetworkIdFromEntity(object)
+                    local towId = ('world:%s:%s'):format(objectNet, GetGameTimer())
+                    Entity(object).state:set('metaComicTowId', towId, true)
+                    Entity(object).state:set('metaComicDoorLoose', looseDoor(entry.serial), true)
+                    Entity(object).state:set('metaComicTowNeedsGround', true, true)
+                    tows[objectNet] = { entity = object, serial = entry.serial, products = entry.products, cash = entry.cash,
+                        snapped = true, towId = towId, coords = entry.coords, heading = entry.heading, bucket = entry.bucket }
+                    table.remove(recovery, index)
+                    saveRecovery()
+                    if MetaComic.VendingSecurity then MetaComic.VendingSecurity.track(entry.serial, object) end
+                    if entry.serial then Registry.update(entry.serial, { holder = false, worldState = 'ground' }, 'Unplugged cabinet recovered in world after restart') end
+                    TriggerClientEvent('meta_comic:client:vendingRopeSnapped', -1, objectNet)
+                elseif not entry.coords then
+                    -- Older journals may lack a reliable location. Keep contents for reconciliation.
+                    entry.missing = true
+                    if entry.serial then Registry.update(entry.serial, { holder = false, worldState = 'missing' }, 'Recovery location unknown; no inventory return') end
+                    saveRecovery()
+                end
             end
         end
-        Wait(5000) -- retry when an offline owner rejoins or inventory space becomes available
+        Wait(5000)
     end
 end)

@@ -106,6 +106,7 @@ local function attachProps()
         end
         SetModelAsNoLongerNeeded(machineHash)
         props.machine = machine
+        Entity(machine).state:set('metaComicDoorLoose', stolen, true) -- broken-into: its door swings (client/vending_door.lua)
     end
     if anim.dict and loadDict(anim.dict) then TaskPlayAnim(ped, anim.dict, anim.clip, 3.0, 3.0, -1, anim.flag or 49, 0, false, false, false) end
     SetCurrentPedWeapon(ped, joaat("WEAPON_UNARMED"), true)
@@ -167,7 +168,10 @@ CreateThread(function()
         Wait(carrying and 1000 or 1500)
     end
 end)
-RegisterNetEvent('meta_comic:client:vendingCarryInfo', function(isStolen) stolen = isStolen == true end)
+RegisterNetEvent('meta_comic:client:vendingCarryInfo', function(isStolen)
+    stolen = isStolen == true
+    if props.machine and DoesEntityExist(props.machine) then Entity(props.machine).state:set('metaComicDoorLoose', stolen, true) end
+end)
 
 -- Ropes ----------------------------------------------------------------------------------------------------------------
 local function entityOf(netId)
@@ -203,6 +207,34 @@ local function applyTowPhysics(object)
     FreezeEntityPosition(object, false)
     ActivatePhysics(object)
 end
+-- Only the network owner may move the shared cabinet. Ground discovery and
+-- collision streaming can finish on different frames; keep gravity off until both do.
+local function groundMachine(object)
+    FreezeEntityPosition(object, true)
+    SetEntityHasGravity(object, false)
+    SetEntityCollision(object, true, true)
+    SetEntityLoadCollisionFlag(object, true)
+    local model = GetEntityModel(object)
+    RequestCollisionForModel(model)
+    local coords = GetEntityCoords(object)
+    RequestCollisionAtCoord(coords.x, coords.y, coords.z)
+    if not HasCollisionForModelLoaded(model) or not HasCollisionLoadedAroundEntity(object) then return false end
+    local found, ground = GetGroundZFor_3dCoord(coords.x, coords.y, coords.z + 10.0, false)
+    if not found then return false end
+    -- The cabinet origin is midway up its mesh, not at its feet. In particular,
+    -- the vehicle/player height is not the ground height behind an elevated rear.
+    local minimum = GetModelDimensions(model)
+    SetEntityRotation(object, 0.0, 0.0, GetEntityHeading(object), 2, true)
+    SetEntityCoordsNoOffset(object, coords.x, coords.y, ground - minimum.z + 0.15, false, false, false)
+    if not PlaceObjectOnGroundProperly(object) then return false end
+    local placed = GetEntityCoords(object)
+    if placed.z + minimum.z < ground - 0.1 then
+        SetEntityCoordsNoOffset(object, coords.x, coords.y, ground - minimum.z + 0.15, false, false, false)
+    end
+    SetEntityVelocity(object, 0.0, 0.0, 0.0)
+    Entity(object).state:set('metaComicTowNeedsGround', false, true)
+    return true
+end
 local function makeRope(objectNet, vehicleNet)
     if stopping then return false end
     local pending = ropes[objectNet]
@@ -217,11 +249,7 @@ local function makeRope(objectNet, vehicleNet)
         -- Only the network owner positions the shared object. Other clients retry
         -- once that position is replicated, including on later stream-in.
         if not NetworkHasControlOfEntity(object) then return false end
-        local coords = GetEntityCoords(object)
-        RequestCollisionAtCoord(coords.x, coords.y, coords.z)
-        if not HasCollisionLoadedAroundEntity(object) then return false end
-        if not PlaceObjectOnGroundProperly(object) then return false end
-        state:set('metaComicTowNeedsGround', false, true)
+        if not groundMachine(object) then return false end
     end
     RopeLoadTextures()
     local timeout = GetGameTimer() + 3000
@@ -230,11 +258,18 @@ local function makeRope(objectNet, vehicleNet)
     local length = tonumber(tow.Length) or 6.0
     local from, to = rearOf(vehicle), GetOffsetFromEntityInWorldCoords(object, 0.0, 0.0, 0.6)
     local rope = AddRope(from.x, from.y, from.z, 0.0, 0.0, 0.0, length, 4, length, 0.5, 0.5, false, false, false, 1.0, false, 0)
-    AttachEntitiesToRope(rope, vehicle, object, from.x, from.y, from.z, to.x, to.y, to.z, length, false, false, 0, 0)
-    if NetworkHasControlOfEntity(object) then
+    if not DoesRopeExist(rope) then return false end
+    local owner = NetworkHasControlOfEntity(object)
+    if owner then
+        -- One client simulates the shared cabinet. Spectators draw a pinned
+        -- rope, avoiding duplicate physics constraints on the same car.
+        AttachEntitiesToRope(rope, vehicle, object, from.x, from.y, from.z, to.x, to.y, to.z, length, false, false, 0, 0)
         applyTowPhysics(object)
+    else
+        PinRopeVertex(rope, 0, from.x, from.y, from.z)
+        PinRopeVertex(rope, GetRopeVertexCount(rope) - 1, to.x, to.y, to.z)
     end
-    ropes[objectNet] = { rope = rope, vehicle = vehicleNet, physicsOwner = NetworkHasControlOfEntity(object) }
+    ropes[objectNet] = { rope = rope, vehicle = vehicleNet, physicsOwner = owner }
     return true
 end
 RegisterNetEvent('meta_comic:client:vendingTow', function(objectNet, vehicleNet)
@@ -279,8 +314,15 @@ CreateThread(function()
             elseif entry.pending and not entry.creating and object and vehicle then makeRope(objectNet, entry.vehicle)
             elseif entry.rope and object then
                 local owner = NetworkHasControlOfEntity(object)
-                if owner and not entry.physicsOwner then applyTowPhysics(object) end
-                entry.physicsOwner = owner
+                if owner ~= entry.physicsOwner then
+                    local vehicleNet = entry.vehicle
+                    dropRope(objectNet)
+                    ropes[objectNet] = { vehicle = vehicleNet, pending = true }
+                elseif not owner and vehicle then
+                    local from, to = rearOf(vehicle), GetOffsetFromEntityInWorldCoords(object, 0.0, 0.0, 0.6)
+                    PinRopeVertex(entry.rope, 0, from.x, from.y, from.z)
+                    PinRopeVertex(entry.rope, GetRopeVertexCount(entry.rope) - 1, to.x, to.y, to.z)
+                end
             end
         end
         for objectNet, entry in pairs(looseMachines) do
@@ -289,13 +331,7 @@ CreateThread(function()
             if owner and not entry.physicsOwner then
                 local state = Entity(object).state
                 if state.metaComicTowNeedsGround then
-                    local coords = GetEntityCoords(object)
-                    RequestCollisionAtCoord(coords.x, coords.y, coords.z)
-                    SetEntityCollision(object, true, true)
-                    SetEntityLoadCollisionFlag(object, true)
-                    if HasCollisionLoadedAroundEntity(object) and PlaceObjectOnGroundProperly(object) then
-                        state:set('metaComicTowNeedsGround', false, true)
-                    else
+                    if not groundMachine(object) then
                         owner = false -- retry ground placement before enabling gravity
                     end
                 elseif state.metaComicTowNeedsGround == nil then
@@ -305,7 +341,7 @@ CreateThread(function()
             end
             entry.physicsOwner = owner
         end
-        Wait(1000)
+        Wait(100)
     end
 end)
 CreateThread(function() Wait(2000); TriggerServerEvent('meta_comic:server:vendingTows') end)
@@ -372,7 +408,7 @@ CreateThread(function()
             end
         end,
     } })
-    exports.ox_target:addModel(MODEL, { {
+    exports.ox_target:addModel({ MODEL, 'prop_vend_soda_01' }, { {
         name = 'meta_comic_vending_untow', label = tow.UntieLabel or 'Untie vending machine', icon = 'fas fa-link-slash', distance = distance,
         canInteract = function(entity) return not busy and NetworkGetEntityIsNetworked(entity) and ropes[NetworkGetNetworkIdFromEntity(entity)] ~= nil end,
         onSelect = function(data)

@@ -2,13 +2,18 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { bridge } from '../runtime'
 import useConfirm from './useConfirm'
 import './vendingRecords.css'
+import VendingKeyArchive from './VendingKeyArchive'
+import VendingRecordView from './VendingRecordView'
 
 // Admin "Machine records" tab: registered owners with their tax rates, and every vending machine serial with its
 // owner, card payment routing, where it is and what happened to it. Tax rates are edited here and saved with
 // "Save tax rates"; the other buttons (register, assign, reset routing, ...) save straight away after confirming.
+// An owner opening it through the portal (Config.Portal, scope 'owner') sees only their own machines, read-only
+// apart from printing their papers. Each machine lists its recent sales (Ownership.SalesLog).
 const STATUS = { placed: 'Placed', item: 'Item', stolen: 'Stolen', removed: 'Removed' }
 const money = n => `$${Math.round(Number(n) || 0).toLocaleString()}`
 const when = seconds => seconds ? new Date(seconds * 1000).toLocaleString() : '-'
+const salesOf = machine => Array.isArray(machine.sales) ? machine.sales : [] // an empty Lua table arrives as {}
 const taxMap = people => Object.fromEntries((people || []).map(person => [person.id, String(person.tax ?? '')]))
 
 export default function VendingRecordsPanel() {
@@ -20,6 +25,8 @@ export default function VendingRecordsPanel() {
   const [filter, setFilter] = useState('')
   const [open, setOpen] = useState('')
   const [form, setForm] = useState({ serverId: '', id: '', name: '', tax: '' })
+  const [keyForm, setKeyForm] = useState({ serial: '', serverId: '', access: 'full' })
+  const [report, setReport] = useState(null)
 
   const apply = result => { setState(result); setTaxes(taxMap(result.people)) }
   const load = async () => {
@@ -30,7 +37,7 @@ export default function VendingRecordsPanel() {
 
   const act = async (payload, done) => {
     setBusy(true); setMessage('')
-    try { apply(await bridge.saveVendingRecords(payload)); if (done) setMessage(done) }
+    try { const result = await bridge.saveVendingRecords(payload); apply(result); if (result.keyReportPreview) setReport(result.keyReportPreview); if (done) setMessage(done) }
     catch (error) { setMessage(error?.message || String(error)) } finally { setBusy(false) }
   }
   const dirtyTaxes = useMemo(() => {
@@ -41,9 +48,10 @@ export default function VendingRecordsPanel() {
   const taxesValid = Object.values(dirtyTaxes).every(value => value !== '' && Number(value) >= 0 && Number(value) <= 100)
   const saveTaxes = () => act({ action: 'tax', taxes: Object.fromEntries(Object.entries(dirtyTaxes).map(([id, value]) => [id, Number(value)])) }, 'Tax rates saved.')
 
+  const ownerView = state?.scope === 'owner'
   const people = state?.people || []
   const owners = [{ id: 'business', name: state?.business || 'The business' }, ...people]
-  const machines = (state?.machines || []).filter(machine => !filter || `${machine.serial} ${machine.ownerName} ${machine.routing} ${machine.status} ${machine.holder?.name || ''}`.toLowerCase().includes(filter.toLowerCase()))
+  const machines = (state?.machines || []).filter(machine => !filter || `${machine.serial} ${machine.ownerName} ${machine.routing} ${machine.status} ${machine.holder?.name || ''} ${JSON.stringify(machine.keyArchive || {})}`.toLowerCase().includes(filter.toLowerCase()))
   const online = (state?.online || []).filter(player => !people.some(person => person.id === player.id))
 
   const register = async () => {
@@ -71,27 +79,38 @@ export default function VendingRecordsPanel() {
     if (!await confirm(`Pay ${money(state.businessPending)} of held business earnings into your bank account?`, 'Pay out')) return
     act({ action: 'withdraw' }, 'Paid out.')
   }
+  const issueKey = async () => {
+    if (!await confirm(`Issue a ${keyForm.access} key for ${keyForm.serial} to player ${keyForm.serverId}? Existing keys remain valid.`, 'Issue key')) return
+    act({ action: 'issueKey', serial: keyForm.serial, serverId: Number(keyForm.serverId), access: keyForm.access }, 'Numbered key issued and permanently recorded.')
+  }
 
   return (
     <section className="management-page records-page">
       {dialog}
+      {report && <VendingRecordView record={report} onClose={() => setReport(null)} />}
       <div className="management-heading">
-        <div><span className="eyebrow">Restricted FiveM tools</span><h2>Machine records</h2><p>Who owns each vending machine, where its card payments go and what happened to it. Owners must be registered before machines can be assigned to them.</p></div>
+        {ownerView
+          ? <div><span className="eyebrow">Your vending machines</span><h2>Machine records</h2><p>Your machines, where their card payments go, what happened to them and their recent sales.</p></div>
+          : <div><span className="eyebrow">Restricted FiveM tools</span><h2>Machine records</h2><p>Who owns each vending machine, where its card payments go and what happened to it. Owners must be registered before machines can be assigned to them.</p></div>}
         <button onClick={load} disabled={busy}>Refresh</button>
-        <button disabled={busy || !state} onClick={() => act({ action: 'ledger' }, 'Ledger given to you.')}>Give me a ledger</button>
+        {!ownerView && <button disabled={busy || !state} onClick={() => act({ action: 'ledger' }, 'Ledger given to you.')}>Give me a ledger</button>}
       </div>
       {message && <div className="management-message">{message}</div>}
       {!state && !message && <div className="management-message">Loading records…</div>}
       {state && <>
-        <div className="records-summary">
+        {ownerView ? <div className="records-summary">
+          <div><span>Owner</span><strong>{people[0]?.name || '-'}</strong><em>{people[0] ? `Routing ${people[0].routing} · tax ${people[0].tax}%` : ''}</em></div>
+          <div><span>Machines</span><strong>{(state.machines || []).filter(m => m.status !== 'removed').length}</strong></div>
+          <div><span>Card earnings waiting</span><strong>{money(people[0]?.pending)}</strong><em>Paid when you are in the city</em></div>
+        </div> : <div className="records-summary">
           <div><span>Business</span><strong>{state.business}</strong><em>Routing {state.businessRouting}</em></div>
           <div><span>Registered owners</span><strong>{people.length}</strong></div>
           <div><span>Machines</span><strong>{(state.machines || []).filter(m => m.status !== 'removed').length}</strong><em>{(state.machines || []).filter(m => m.status === 'stolen').length} stolen · {(state.machines || []).filter(m => m.tampered).length} rerouted</em></div>
           <div><span>Held business earnings</span><strong>{money(state.businessPending)}</strong><button className="ghost" disabled={busy || !(state.businessPending > 0)} onClick={withdraw}>Pay out to me</button></div>
-        </div>
+        </div>}
 
-        <div className="records-grid">
-          <div className="management-card records-people">
+        <div className={`records-grid${ownerView ? ' owner-view' : ''}`}>
+          {!ownerView && <div className="management-card records-people">
             <div className="records-card-head">
               <h3>Registered owners</h3>
               <button className="primary" disabled={busy || !taxesDirty || !taxesValid} onClick={saveTaxes}>Save tax rates</button>
@@ -120,12 +139,28 @@ export default function VendingRecordsPanel() {
               <input type="number" min="0" max="100" placeholder={`Tax % (default ${state.defaultTax})`} value={form.tax} onChange={event => setForm(current => ({ ...current, tax: event.target.value }))} />
               <button className="primary" disabled={busy || (!form.serverId && !form.id.trim())} onClick={register}>Register</button>
             </div>
-          </div>
+          </div>}
 
           <div className="management-card records-machines">
+            {state.keysEnabled && !ownerView && <div className="records-register">
+              <h4>Issue a numbered machine key</h4>
+              <select aria-label="Key machine" value={keyForm.serial} onChange={event => setKeyForm(current => ({ ...current, serial: event.target.value }))}>
+                <option value="">Choose machine…</option>
+                {(state.machines || []).filter(machine => machine.status !== 'removed').map(machine => <option key={machine.serial} value={machine.serial}>{machine.serial} · {machine.ownerName}</option>)}
+              </select>
+              <select aria-label="Key recipient" value={keyForm.serverId} onChange={event => setKeyForm(current => ({ ...current, serverId: event.target.value }))}>
+                <option value="">Choose recipient…</option>
+                {(state.online || []).map(player => <option key={player.serverId} value={String(player.serverId)}>[{player.serverId}] {player.name}</option>)}
+              </select>
+              <select aria-label="Key access" value={keyForm.access} onChange={event => setKeyForm(current => ({ ...current, access: event.target.value }))}>
+                <option value="full">Full access: stock, prices, cash, bolts</option><option value="service">Service: restock and prices</option>
+              </select>
+              <button disabled={busy || !keyForm.serial || !keyForm.serverId} onClick={issueKey}>Issue key</button>
+              <p>Rekey or repair at the physical machine using a replacement cylinder. Previous keys stay in the permanent archive.</p>
+            </div>}
             <div className="records-card-head">
               <h3>Machines</h3>
-              <input className="records-filter" placeholder="Search serial, owner, routing…" value={filter} onChange={event => setFilter(event.target.value)} />
+              <input className="records-filter" placeholder="Search serial, owner, key, cylinder…" value={filter} onChange={event => setFilter(event.target.value)} />
             </div>
             {!machines.length && <p className="records-empty">No machines{filter ? ' match' : ' yet'}.</p>}
             {machines.map(machine => (
@@ -134,25 +169,39 @@ export default function VendingRecordsPanel() {
                   <button className="records-serial" onClick={() => setOpen(current => current === machine.serial ? '' : machine.serial)}>{machine.serial}</button>
                   <span className={`records-pill ${machine.status}`}>{STATUS[machine.status] || machine.status}</span>
                   {machine.tampered && <span className="records-pill rerouted">Rerouted</span>}
-                  <select value={machine.owner || 'business'} disabled={busy || machine.status === 'removed'} onChange={event => assign(machine, event.target.value)}>
+                  {ownerView ? <span className="records-owner-name">{machine.ownerName}</span> : <select value={machine.owner || 'business'} disabled={busy || machine.status === 'removed'} onChange={event => assign(machine, event.target.value)}>
                     {owners.map(owner => <option key={owner.id} value={owner.id}>{owner.name}</option>)}
-                  </select>
+                  </select>}
                 </div>
                 <div className="records-machine-meta">
                   <span>Card payments: {machine.tampered ? <b>{machine.routing} ({machine.routingName})</b> : `${machine.routingName} · ${machine.routing}`}</span>
                   {machine.status === 'placed' && machine.coords && <span>At {Math.round(machine.coords.x)}, {Math.round(machine.coords.y)}{machine.cash != null ? ` · ${money(machine.cash)} cash inside` : ''}</span>}
                   {machine.status !== 'placed' && machine.holder && <span>Last held by {machine.holder.name}</span>}
                   {machine.owner !== 'business' && <span>Tax {machine.tax}%</span>}
+                  {salesOf(machine).length > 0 && <span>{salesOf(machine).length} recent sale{salesOf(machine).length === 1 ? '' : 's'} · {money(salesOf(machine).reduce((sum, sale) => sum + (Number(sale.price) || 0), 0))}</span>}
+                  {machine.lockId && <span>Cylinder {machine.lockId} · {machine.securitySeal ? 'Temporarily sealed; replacement required' : machine.lockCondition}</span>}
                 </div>
                 <div className="records-machine-actions">
-                  {machine.tampered && <button className="ghost" disabled={busy} onClick={() => resetRouting(machine)}>Reset routing</button>}
+                  {machine.tampered && !ownerView && <button className="ghost" disabled={busy} onClick={() => resetRouting(machine)}>Reset routing</button>}
                   <button className="ghost" disabled={busy} onClick={() => act({ action: 'certificate', serial: machine.serial }, `Certificate for ${machine.serial} given to you.`)}>Print certificate</button>
-                  <button className="ghost" onClick={() => setOpen(current => current === machine.serial ? '' : machine.serial)}>{open === machine.serial ? 'Hide history' : 'History'}</button>
+                  {state.keysEnabled && <button className="ghost" disabled={busy} onClick={() => act({ action: 'keyReport', serial: machine.serial }, `Permanent key records for ${machine.serial} printed.`)}>Print key records</button>}
+                  <button className="ghost" onClick={() => setOpen(current => current === machine.serial ? '' : machine.serial)}>{open === machine.serial ? 'Hide history & sales' : 'History & sales'}</button>
                 </div>
                 {open === machine.serial && <ol className="records-history">
                   {(machine.history || []).map((event, index) => <li key={index}><time>{when(event.at)}</time>{event.event}{event.by ? <em> · {event.by}</em> : null}</li>)}
                   {!(machine.history || []).length && <li>No history yet.</li>}
                 </ol>}
+                {open === machine.serial && <div className="records-sales">
+                  <h4>Sales</h4>
+                  {salesOf(machine).length ? <div className="records-sales-table"><table>
+                    <thead><tr><th>When</th><th>Item</th><th>Paid with</th><th>Price</th><th>Tax</th><th>Paid to owner</th></tr></thead>
+                    <tbody>{salesOf(machine).map((sale, index) => <tr key={index}>
+                      <td>{sale.at ? when(sale.at) : sale.when || '-'}</td><td>{sale.item || '-'}</td><td>{sale.method === 'cash' ? 'Cash' : 'Card'}</td>
+                      <td>{money(sale.price)}</td><td>{sale.method === 'card' ? money(sale.tax) : '-'}</td><td>{sale.method === 'card' ? money(sale.paid) : 'Kept in the cash box'}</td>
+                    </tr>)}</tbody>
+                  </table></div> : <p className="records-empty">No sales recorded yet.</p>}
+                </div>}
+                {open === machine.serial && state.keysEnabled && <VendingKeyArchive archive={machine.keyArchive} currentLockId={machine.lockId} />}
               </div>
             ))}
           </div>

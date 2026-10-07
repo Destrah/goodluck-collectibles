@@ -62,4 +62,6 @@
 .record-ledger-list td{border-bottom:1px dotted #b8a982;padding:5px 6px}
 .record-ledger-list tr.stolen td{color:#8f2a17}
 .record-close{min-width:120px}
+.vending-key-archive{font-size:12px;overflow-wrap:anywhere}.vending-key-archive>p{opacity:.8}.vending-key-archive section{margin:14px 0;border-top:1px solid #8885;padding-top:8px}.vending-key-archive h4{margin:4px 0}.vending-key-table{overflow-x:auto}.vending-key-table table{width:100%;border-collapse:collapse;text-align:left}.vending-key-table th,.vending-key-table td{padding:6px;border-bottom:1px solid #8884;vertical-align:top}.vending-key-table small{display:block;font-size:10px;opacity:.8}.record-key-report{width:min(900px,100%)}
 @media (max-width:520px){.record-paper{padding:20px 18px}.record-paper dl{grid-template-columns:1fr}}
+.records-grid.owner-view{grid-template-columns:1fr}.records-owner-name{font-weight:600}.records-sales{margin:10px 0}.records-sales h4{margin:4px 0}.records-sales-table{overflow-x:auto}.records-sales-table table{width:100%;border-collapse:collapse;font-size:12px;text-align:left}.records-sales-table th,.records-sales-table td{padding:5px 6px;border-bottom:1px solid #8884}
