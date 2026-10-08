@@ -2,6 +2,14 @@
 
 This folder is an optional FiveM host for the same React application.
 
+## Vending machine preview
+
+![Vending machine main door, server cabinet and cashbox opening and closing](../docs/media/vending-machine.gif)
+
+The main door opens first, then the server cabinet and cashbox. All three close in reverse order. This asset animation uses the current prop meshes and configured hinges with inspection lighting outside FiveM; it is not an in-game recording.
+
+Machine records load history and sales only when expanded, with independent pages of 25, 50 or 100 rows in fixed-height tables. Page requests enforce the same owner, OS and admin visibility rules as the records list. They read the existing server registry cache, without a database query per page. Add `HistoryLimit = 500` and `SalesLimit = 500` to your existing `Config.VendingMachines.Records` table to retain more future records; omitted settings keep the existing `Ownership.HistoryLength` / `SalesLog` limits. Already-trimmed records cannot be recovered. Deploy the updated client RPC registration, registry/records server modules and rebuilt NUI together.
+
 ## Generate the Sample testing set
 
 Run `/collectiblessample` in game with the same management permission as `/collectiblesadmin` (or run `collectiblessample` in the server console). It imports **Sample**: 100 original illustrated base cards and 800 prints, covering all five rarity tiers, all eight holo choices, four layouts, all supported subject effects, varying base/print weights, and aligned alpha/luminance/inverted masks. Base artwork and masks are uploaded first; only HTTPS URLs are saved. Inventory icons are then drawn/uploaded through the existing background pipeline.
@@ -582,6 +590,16 @@ Printed snapshots are stored separately as `vending_key_reports` in the configur
 Standalone Vite mode shows current and retired sample cylinders, supports demo key issuance, and previews printed key records without an inventory. Physical cabinet operations run in FiveM.
 
 ## Money
+
+### Machine accounting and sensor records
+
+The full `/collectiblesadmin` records and map show actual server cash/stock and the complete retained activity history, including skimmers and crime actors. Portals and embedded pages, including manager and replacement-OS sessions, show recorded accounting and circuit-board observations. Theft removes physical cash/packs without changing recorded totals. Purchases, restocking and authorized withdrawals adjust the ledger, which persists with the serial. Existing machines receive a baseline from their current contents when this version first loads.
+
+At the machine, **Reconcile recorded cash and stock** requires authorized OS/service access, a full-access cabinet session, and the main door and server rack open. It replaces recorded counts with physical counts. Door, cashbox and server-cabinet transitions are sensor logs. Unidentified actions have no employee name; possible forced-lock resistance/vibration is recorded without identifying the intruder. Skimmer actions and explicit hacking/theft details stay in the admin view.
+
+The physical **Collect cash** menu always displays the actual cashbox balance and updates to zero after collection, without reconciliation. Purchases are blocked while the main door is open, including requests from an earlier menu. If the door opens during dispensing, payment is refunded and reserved stock is restored.
+
+**Falsify sensor records** is a timed hack at an open server rack. `Crime.FalsifyLogs` configures its tools, checks and duration. A successful hack can attribute anonymous sensor records to a registered person's name or identifier. The server checks that the rack remains open at completion and preserves the real actor and falsification event for admins. This changes displayed identities, not inventory or permanent key evidence.
 
 `Config.Money` decides how each account is paid. `'framework'` uses QBCore / Qbox `player.Functions.AddMoney` / `RemoveMoney` (cash, bank or any other account) and the ox_core bank account; `'item'` uses an inventory item (`CashItem`, default the ox_inventory `money` item). `Cash = 'auto'` uses the item on ox_core and the framework cash everywhere else. `Custom = { add = ..., remove = ..., balance = ... }` plugs in any other money system.
 

@@ -353,7 +353,10 @@ RegisterNetEvent('meta_comic:server:vendingKeyLock', function(id)
     local src = source -- saving can yield, and `source` is gone after a yield
     local entry = Vending.get(id)
     if not service.access(src, entry, 'service') then return end
-    if service.busy(entry) or Vending.isTransferringStock(entry) or MetaComic.VendingLoot and MetaComic.VendingLoot.busy(entry) then return end
+    if MetaComic.VendingLoot and MetaComic.VendingLoot.busy(entry) then
+        return notify(src, 'You cannot close the main door while someone is looting this machine.', 'error')
+    end
+    if service.busy(entry) or Vending.isTransferringStock(entry) then return end
     local record = Registry.get(entry.serial)
     if locks[entry.serial] then return end
     locks[entry.serial] = true

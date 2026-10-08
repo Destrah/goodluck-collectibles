@@ -6,6 +6,7 @@ local crime = cfg.Crime or {}
 if cfg.Enabled == false or crime.Enabled == false then return end
 
 local ACTIONS = {
+    { id = 'falsifylogs', key = 'FalsifyLogs', label = 'Falsify sensor records', icon = 'fas fa-laptop-code' },
     { id = 'breakin', key = 'BreakIn', label = 'Break in', icon = 'fas fa-screwdriver-wrench' },
     { id = 'hack', key = 'Hack', label = 'Hack payment terminal', icon = 'fas fa-laptop-code' },
     { id = 'fullhack', key = 'FullHack', label = 'Take over machine operating system', icon = 'fas fa-user-secret' },
@@ -23,6 +24,7 @@ local ACTIONS = {
     { id = 'inspectpanel', key = 'InspectPanel', label = 'Check coin panel for tampering', icon = 'fas fa-magnifying-glass' },
 }
 local busy = false
+local crimeGeneration = 0
 local looting = false
 local lootGeneration = 0
 local stopLootVisual
@@ -70,12 +72,16 @@ local function dropProp()
     held = nil
 end
 -- the action's animation (and prop) looping while the minigame is on screen
-local function startPose(anim)
+local function startPose(anim, current)
     local ped = PlayerPedId()
-    if not anim then return end
+    if not anim or current and not current() then return end
     if anim.scenario then TaskStartScenarioInPlace(ped, anim.scenario, 0, true) return end
-    if loadDict(anim.dict) then TaskPlayAnim(ped, anim.dict, anim.clip, 3.0, 3.0, -1, anim.flag or 49, 0, false, false, false) end
+    if loadDict(anim.dict) and (not current or current()) then TaskPlayAnim(ped, anim.dict, anim.clip, 3.0, 3.0, -1, anim.flag or 49, 0, false, false, false) end
     local hash = anim.prop and loadModel(anim.prop)
+    if current and not current() then
+        if hash then SetModelAsNoLongerNeeded(hash) end
+        return
+    end
     if hash then
         local coords = GetEntityCoords(ped)
         held = CreateObject(hash, coords.x, coords.y, coords.z + 0.2, true, true, false)
@@ -84,18 +90,29 @@ local function startPose(anim)
         SetModelAsNoLongerNeeded(hash)
     end
 end
-local function stopPose()
+local function cancelActiveProgress()
+    if GetResourceState('ox_lib') == 'started' then
+        pcall(function()
+            if exports.ox_lib:progressActive() then exports.ox_lib:cancelProgress() end
+        end)
+    end
+end
+local function stopPose(interrupted)
     if stopLootVisual then stopLootVisual() end
     dropProp()
-    ClearPedTasks(PlayerPedId())
+    local ped = PlayerPedId()
+    ClearPedSecondaryTask(ped)
+    if interrupted then ClearPedTasksImmediately(ped) else ClearPedTasks(ped) end
 end
 
 -- Per-batch visual lifecycle. These props/animations never award inventory or cash.
 local lootProp, lootAnim, visualToken = nil, nil, 0
 local lootMachine -- machine id being looted
+local lootAnchor, lootPositioning -- settled position and the visual token moving between cash/stock spots
 -- keepPose: between batches only the hand prop goes; the pose carries on so the cash kneel doesn't restart
 stopLootVisual = function(keepPose)
     visualToken = visualToken + 1
+    lootPositioning = nil
     if lootProp and DoesEntityExist(lootProp) then DeleteEntity(lootProp) end
     lootProp = nil
     if keepPose then return end
@@ -150,14 +167,20 @@ local function animateLootBatch(data, deadline, generation)
             local target = GetOffsetFromEntityInWorldCoords(machine.entity, spot.x, spot.y, spot.z)
             local heading = GetEntityHeading(machine.entity)
             local away = #(GetEntityCoords(ped).xy - target.xy)
+            if not data.isCurrent and away > 0.05 then lootPositioning = token end
             -- switching pose (e.g. cash kneel -> pack grab), or the turn-to-face from lootStarted still running: clear
             -- it here, before the snap and Wait(0) below, so the clear can't land after the TaskPlayAnim and wipe the grab
             ClearPedTasks(ped)
             lootAnim = nil
-            if away > 1.5 then
-                TaskGoStraightToCoord(ped, target.x, target.y, target.z, 1.0, 2000, heading, 0.1)
-                local walkUntil = math.min(deadline - 500, GetGameTimer() + 2000)
-                while current() and GetGameTimer() < walkUntil and #(GetEntityCoords(ped).xy - target.xy) > 0.3 do Wait(0) end
+            if away > 0.05 then
+                -- Give the normal walking task a second to approach, including short cash/stock transitions.
+                TaskGoStraightToCoord(ped, target.x, target.y, target.z, 1.0, 1200, heading, 0.1)
+                local walkUntil = math.min(deadline - 500, GetGameTimer() + 1000)
+                while current() and GetGameTimer() < walkUntil do Wait(0) end
+            end
+            if not current() then
+                if hash then SetModelAsNoLongerNeeded(hash) end
+                return
             end
             -- snap to the exact spot so every batch starts from the same place (no shuffling)
             if away > 0.05 then
@@ -166,6 +189,14 @@ local function animateLootBatch(data, deadline, generation)
             end
             SetEntityHeading(ped, heading)
             Wait(0) -- let the teleport settle (it can reset the ped's tasks) before the anim goes on
+            if not current() then
+                if hash then SetModelAsNoLongerNeeded(hash) end
+                return
+            end
+            if lootPositioning == token then
+                lootAnchor = GetEntityCoords(ped)
+                lootPositioning = nil
+            end
         end
         local function play(anim)
             if not current() or GetGameTimer() >= deadline then return false end
@@ -251,6 +282,21 @@ RegisterNetEvent('meta_comic:client:vendingWork', function(data)
     lootMachine = tonumber(data.id)
     local finishAt = GetGameTimer() + math.max(1000, tonumber(data.duration) or 1000)
     local function current() return working and workGeneration == generation end
+    local ped = PlayerPedId()
+    ClearEntityLastDamageEntity(ped)
+    CreateThread(function()
+        while current() do
+            if IsEntityDead(ped) or HasEntityBeenDamagedByAnyPed(ped) or IsPedRagdoll(ped) or IsPedBeingStunned(ped, 0) then
+                working = false
+                workGeneration = workGeneration + 1
+                cancelActiveProgress()
+                stopPose(true)
+                TriggerServerEvent('meta_comic:server:vendingWorkCancel')
+                return
+            end
+            Wait(0)
+        end
+    end)
     CreateThread(function()
         local cycle = math.max(1200, tonumber(data.cycle) or 2000)
         while current() and GetGameTimer() < finishAt - 400 do
@@ -267,12 +313,23 @@ RegisterNetEvent('meta_comic:client:vendingWork', function(data)
     else
         Wait(math.max(0, finishAt - GetGameTimer()))
     end
+    -- A canceled progress call can resume after an interruption or after a newer job starts.
+    if not current() then return end
     working = false
     workGeneration = workGeneration + 1
-    stopPose()
+    stopPose(not completed)
     if completed then TriggerServerEvent('meta_comic:server:vendingWorkFinish', data.token)
     else TriggerServerEvent('meta_comic:server:vendingWorkCancel') end
 end)
+
+local function stopLooting()
+    looting = false
+    lootGeneration = lootGeneration + 1
+    cancelActiveProgress()
+    stopPose(true)
+    lootMachine = nil
+    lootAnchor, lootPositioning = nil, nil
+end
 
 RegisterNetEvent('meta_comic:client:lootInspect', function(data)
     local timeout = GetGameTimer() + 3000
@@ -312,29 +369,30 @@ RegisterNetEvent('meta_comic:client:lootInspect', function(data)
     exports.ox_lib:showContext('meta_comic_vending_loot')
 end)
 RegisterNetEvent('meta_comic:client:lootStarted', function(data)
-    if busy or looting then return TriggerServerEvent('meta_comic:server:lootCancel') end
+    if busy or looting or working then return TriggerServerEvent('meta_comic:server:lootCancel') end
     looting = true
     lootMachine = tonumber(data.id)
     lootGeneration = lootGeneration + 1
     local generation = lootGeneration
+    lootAnchor, lootPositioning = nil, nil
     local machine = MetaComic.VendingMachineById and MetaComic.VendingMachineById(data.id)
     if machine and machine.entity and DoesEntityExist(machine.entity) then TaskTurnPedToFaceEntity(PlayerPedId(), machine.entity, 500) end
-    startPose(data.animation)
+    startPose(data.animation, function() return looting and lootGeneration == generation end)
+    if not looting or lootGeneration ~= generation then return end
     local ped0 = PlayerPedId()
     ClearEntityLastDamageEntity(ped0)
     local visuals = ((crime.BreakIn or {}).Loot or {}).Visuals or {}
     local pushLimit = tonumber(visuals.PushDistance) or 0.6
-    local settleAt, anchor = GetGameTimer() + 800, nil
+    local settleAt = GetGameTimer() + 800
     CreateThread(function()
         while looting and lootGeneration == generation do
             -- punched, shoved or knocked over (an owner or employee stepping in): stop
             local ped = PlayerPedId()
-            if not anchor and GetGameTimer() >= settleAt then anchor = GetEntityCoords(ped) end
+            if not lootAnchor and not lootPositioning and GetGameTimer() >= settleAt then lootAnchor = GetEntityCoords(ped) end
             if HasEntityBeenDamagedByAnyPed(ped) or IsPedRagdoll(ped) or IsPedBeingStunned(ped, 0)
-                or anchor and #(GetEntityCoords(ped) - anchor) > pushLimit then
+                or lootAnchor and not lootPositioning and #(GetEntityCoords(ped) - lootAnchor) > pushLimit then
                 TriggerServerEvent('meta_comic:server:lootCancel')
-                looting = false
-                stopPose()
+                stopLooting()
                 notify('You were interrupted and stopped looting.', 'error')
                 return
             end
@@ -346,14 +404,12 @@ RegisterNetEvent('meta_comic:client:lootStarted', function(data)
             local here = machine and machine.entity and DoesEntityExist(machine.entity) and GetEntityCoords(machine.entity)
             if here and #(GetEntityCoords(PlayerPedId()) - here) > (tonumber((((crime.BreakIn or {}).Loot or {}).Visuals or {}).CancelDistance) or 3.0) then
                 TriggerServerEvent('meta_comic:server:lootCancel')
-                looting = false
-                stopPose()
+                stopLooting()
                 return
             end
             if IsControlJustPressed(0, 177) or IsEntityDead(PlayerPedId()) then
                 TriggerServerEvent('meta_comic:server:lootCancel')
-                looting = false
-                stopPose()
+                stopLooting()
                 return
             end
             BeginTextCommandDisplayHelp('STRING')
@@ -382,13 +438,15 @@ RegisterNetEvent('meta_comic:client:lootBatch', function(data)
     local completed = exports.ox_lib:progressBar({ duration = math.max(1, deadline - GetGameTimer()),
         label = data.kind == 'cash' and 'Taking cash' or data.productKind == 'box' and 'Taking card boxes' or 'Taking card packs', canCancel = true,
         disable = { car = true, combat = true } })
-    if completed ~= true and looting and lootGeneration == generation then TriggerServerEvent('meta_comic:server:lootCancel') end
+    if completed ~= true and looting and lootGeneration == generation then
+        TriggerServerEvent('meta_comic:server:lootCancel')
+        stopLooting()
+    end
 end)
 RegisterNetEvent('meta_comic:client:lootStopped', function(reason)
-    looting = false
-    lootGeneration = lootGeneration + 1
-    if GetResourceState('ox_lib') == 'started' then pcall(function() exports.ox_lib:cancelProgress() end) end
-    stopPose()
+    -- A delayed acknowledgement must not clear a different action started after local cancellation.
+    if not looting then return end
+    stopLooting()
     notify(reason or 'Looting stopped.', 'info')
 end)
 
@@ -406,26 +464,48 @@ local function progress(data)
 end
 
 RegisterNetEvent('meta_comic:client:crimeStart', function(data)
-    if busy or looting then return TriggerServerEvent('meta_comic:server:crimeCancel') end
+    if busy or looting or working then return TriggerServerEvent('meta_comic:server:crimeCancel') end
     busy = true
+    crimeGeneration = crimeGeneration + 1
+    local generation = crimeGeneration
+    local function current() return busy and crimeGeneration == generation end
+    local ped = PlayerPedId()
+    ClearEntityLastDamageEntity(ped)
+    CreateThread(function()
+        while current() do
+            if IsEntityDead(ped) or HasEntityBeenDamagedByAnyPed(ped) or IsPedRagdoll(ped) or IsPedBeingStunned(ped, 0) then
+                busy = false
+                crimeGeneration = crimeGeneration + 1
+                cancelActiveProgress()
+                stopPose(true)
+                TriggerServerEvent('meta_comic:server:crimeCancel')
+                return
+            end
+            Wait(0)
+        end
+    end)
     local machine = MetaComic.VendingMachineById and MetaComic.VendingMachineById(data.id)
     if machine and machine.entity and DoesEntityExist(machine.entity) then
         TaskTurnPedToFaceEntity(PlayerPedId(), machine.entity, 700)
         Wait(700)
     end
     local passed = true
-    startPose(data.animation)
+    if not current() then return end
+    startPose(data.animation, current)
+    if not current() then return end
     if data.minigame then
         passed = MetaComic.RunMinigames(data.minigame)
     end
+    if not current() then return end
     if not passed then
-        stopPose()
+        stopPose(true)
         TriggerServerEvent('meta_comic:server:crimeFinish', data.token, false)
         busy = false
         return
     end
     local finished = progress(data)
-    stopPose()
+    if not current() then return end
+    stopPose(not finished)
     if finished then
         TriggerServerEvent('meta_comic:server:crimeFinish', data.token, true)
     else
@@ -445,6 +525,13 @@ CreateThread(function()
     -- asks the server to start an action; fitting or adjusting a skimmer first asks for its cut
     local function start(machineId, id)
         local option
+        if id == 'falsifylogs' then
+            local result = exports.ox_lib:inputDialog('Falsify sensor records', {
+                { type = 'input', label = 'Registered employee name or identifier', required = true },
+            })
+            if not result then return end
+            option = { employee = result[1] }
+        end
         if (id == 'installskimmer' or id == 'adjustskimmer') and GetResourceState('ox_lib') == 'started' then
             local sk = cfg.Skimmer or {}
             local max = math.max(0, math.min(100, tonumber(sk.MaxPercent) or 50))
@@ -479,6 +566,7 @@ CreateThread(function()
                     local machine = MetaComic.VendingMachineOf and MetaComic.VendingMachineOf(entity)
                     if not machine or busy or looting then return false end
                     local controlled = MetaComic.VendingControls and MetaComic.VendingControls(machine.id)
+                    if action.id == 'falsifylogs' then return MetaComic.VendingTechReady and MetaComic.VendingTechReady(machine.id, action.id) == true end
                     if action.id == 'bolt' then return machine.bolted == false end -- server verifies installer, owner, employee or full key
                     if action.id == 'steal' and machine.bolted == false then return false end
                     if action.id == 'takemachine' and machine.bolted ~= false then return false end
@@ -557,9 +645,11 @@ end)
 
 AddEventHandler('onResourceStop', function(name)
     if name == GetCurrentResourceName() then
-        if looting and GetResourceState('ox_lib') == 'started' then pcall(function() exports.ox_lib:cancelProgress() end) end
-        looting = false
-        stopLootVisual()
-        dropProp()
+        local active = looting or working or busy
+        working = false
+        workGeneration = workGeneration + 1
+        busy = false
+        crimeGeneration = crimeGeneration + 1
+        if active then stopLooting() else stopLootVisual(); dropProp() end
     end
 end)

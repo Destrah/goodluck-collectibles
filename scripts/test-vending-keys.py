@@ -159,6 +159,25 @@ class KeyTests(unittest.TestCase):
         ''')
         self.lua.execute((ROOT / 'fivem/server/modules/vending_door.lua').read_text(encoding='utf-8'))
 
+    def test_key_close_notifies_and_preserves_access_while_looting(self):
+        self.issue()
+        self.unlock()
+        self.lua.execute('MetaComic.VendingLoot.busy=function() return true end;messages={}')
+        self.lua.execute("source=11;handlers['meta_comic:server:vendingKeyLock'](1)")
+        self.assertTrue(self.lua.eval("Keys.access(11,entry,'service')"))
+        self.assertEqual(self.lua.eval('#messages'), 1)
+        self.assertIn('while someone is looting', self.lua.eval('messages[1].message'))
+
+    def test_damaged_door_close_notifies_and_stays_open_while_looting(self):
+        self.load_server_door()
+        self.lua.execute("record.lockCondition='damaged';source=66;handlers['meta_comic:server:vendingDamagedDoor'](1,true)")
+        self.lua.execute("MetaComic.VendingLoot.busy=function() return true end;messages={};handlers['meta_comic:server:vendingDamagedDoor'](1,false)")
+        self.assertTrue(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+        self.assertEqual(self.lua.eval('#messages'), 1)
+        self.assertIn('while someone is looting', self.lua.eval('messages[1].message'))
+        self.lua.execute("MetaComic.VendingLoot.busy=function() return false end;handlers['meta_comic:server:vendingDamagedDoor'](1,false)")
+        self.assertFalse(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+
     def test_damaged_door_is_public_but_sealed_or_repaired_door_is_not(self):
         self.load_server_door()
         self.lua.execute("record.lockCondition='damaged';record.unlockedUntil=now+600;source=66;handlers['meta_comic:server:vendingDamagedDoor'](1,true)")
@@ -214,6 +233,10 @@ class KeyTests(unittest.TestCase):
             MetaComic.GiveSealed=function(_,_,_,amount) given=given+amount;return true end
         ''')
         code = (ROOT / 'fivem/server/modules/vending_machines.lua').read_text(encoding='utf-8')
+        accounting = 'function accounting(entry)' + code.split('local function accounting(entry)', 1)[1].split('local function clientProducts', 1)[0]
+        self.lua.execute("for _,p in ipairs(entry.products) do p.kind=p.kind or 'pack' end")
+        self.lua.execute(accounting.replace('local function accountChange', 'function accountChange'))
+        self.lua.execute('MetaComic.Vending.accounting=accounting;accounting(entry)')
         access = 'local function recordOf' + code.split('local function recordOf', 1)[1].split('-- Products', 1)[0]
         self.lua.execute(access + '\nCabinetAccess=cabinetAccess;BusinessStaff=businessStaff;CanMaintain=canControl;CanOperate=canOperateSystem;CanRestock=canRestock;RegisteredControls=controls;RegisteredBy=controlledBy')
         self.lua.execute('cabinetAccess=CabinetAccess;businessStaff=BusinessStaff;canControl=CanMaintain;canOperateSystem=CanOperate;controls=RegisteredControls;controlledBy=RegisteredBy;MetaComic.Vending.businessStaff=BusinessStaff;MetaComic.Vending.canControl=CanMaintain;MetaComic.Vending.canOperateSystem=CanOperate')
@@ -608,7 +631,7 @@ class KeyTests(unittest.TestCase):
 
     def test_employee_can_recover_business_board_but_must_access_open_cashbox(self):
         self.load_management_handlers()
-        self.lua.execute("record.owner=nil;record.systemController='hacker';boardOpen=false;MetaComic.VendingCashbox.hackReady=function() return boardOpen end;source=33;handlers['meta_comic:server:crimeStart'](1,'replaceboard')")
+        self.lua.execute("record.owner=nil;record.systemController='hacker';boardOpen=false;MetaComic.VendingCashbox.needs=function() return 'rack' end;MetaComic.VendingCashbox.ready=function() return boardOpen end;source=33;handlers['meta_comic:server:crimeStart'](1,'replaceboard')")
         self.assertIsNone(self.lua.eval('startData'))
         self.lua.execute("boardOpen=true;handlers['meta_comic:server:crimeStart'](1,'replaceboard')")
         self.assertEqual(self.lua.eval('startData.duration'), 60000)

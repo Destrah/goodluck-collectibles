@@ -29,7 +29,7 @@ class OSTests(unittest.TestCase):
             MetaComic.Portal={ownerScope=function(src) if src==11 then return 'owner' end end}
             Registry=MetaComic.VendingRegistry
             record.status='placed';record.coords={x=10,y=20,z=30}
-            record.history={{at=900,event='Original private business history'}}
+            record.history={{at=900,event='Original private business history',sensor=true}}
             record.sales={{at=900,total=123,secret='Original sale'}}
             order={1};cfg=Config.VendingMachines
             function clientProducts(e) return MetaComic.CopyTable(e.products) end
@@ -46,7 +46,7 @@ class OSTests(unittest.TestCase):
     def test_new_os_does_not_receive_business_history_sales_or_existing_keys(self):
         self.issue()
         self.take_over()
-        self.lua.execute("Registry.update('VM-1',nil,'New private OS event');Registry.logSale('VM-1',{at=1100,total=456})")
+        self.lua.execute("Registry.sensor('VM-1','New private OS event',22);Registry.logSale('VM-1',{at=1100,total=456})")
         self.assertEqual(self.lua.eval('Registry.viewFor(record,22,true).history[1].event'), 'New private OS event')
         self.assertEqual(self.lua.eval('#Registry.viewFor(record,22,true).sales'), 1)
         self.assertEqual(self.lua.eval('Registry.viewFor(record,22,true).sales[1].total'), 456)
@@ -81,7 +81,7 @@ class OSTests(unittest.TestCase):
 
     def test_records_rpc_and_printing_partition_both_groups(self):
         self.issue(); self.take_over()
-        self.lua.execute("Registry.update('VM-1',nil,'Private takeover log');Registry.logSale('VM-1',{at=1100,total=456})")
+        self.lua.execute("Registry.sensor('VM-1','Private takeover log',22);Registry.logSale('VM-1',{at=1100,total=456})")
         self.assertEqual(self.lua.eval('MetaComic.RpcHandlers.getVendingRecords(22).scope'), 'os')
         self.assertEqual(self.lua.eval('MetaComic.RpcHandlers.getVendingRecords(22).machines[1].history[1].event'), 'Private takeover log')
         self.assertTrue(self.lua.eval('MetaComic.RpcHandlers.getVendingRecords(11).machines[1].remoteOffline'))
@@ -144,7 +144,7 @@ class OSTests(unittest.TestCase):
 
     def test_existing_takeover_migration_preserves_existing_records_only_for_business(self):
         self.issue()
-        self.lua.execute("record.systemController='hacker';Registry.update('VM-1',nil,'New deployment OS event')")
+        self.lua.execute("record.systemController='hacker';Registry.ensureOS(record);Registry.sensor('VM-1','New deployment OS event',22)")
         self.assertEqual(self.lua.eval('Registry.viewFor(record,11,true).history[1].event'), 'Original private business history')
         self.assertEqual(self.lua.eval('#Registry.viewFor(record,22,true).history'), 1)
         self.assertEqual(self.lua.eval('Registry.viewFor(record,22,true).history[1].event'), 'New deployment OS event')
@@ -174,8 +174,8 @@ class OSTests(unittest.TestCase):
         self.take_over()
         self.lua.execute("Registry.update('VM-1',nil,'First OS private event');source=11;handlers['meta_comic:server:crimeStart'](1,'replaceboard');timer=60000;handlers['meta_comic:server:crimeFinish'](startData.token,true)")
         self.lua.execute("Registry.update('VM-1',Registry.osStartFields(record,'person-66'),'Second takeover')")
-        self.assertEqual(self.lua.eval('#Registry.viewFor(record,66,true).history'), 1)
-        self.assertEqual(self.lua.eval('Registry.viewFor(record,66,true).history[1].event'), 'Second takeover')
+        self.assertEqual(self.lua.eval('#Registry.viewFor(record,66,true).history'), 0)
+        self.assertEqual(self.lua.eval('record.osHistory[1].event'), 'Second takeover')
         self.assertEqual(self.lua.eval('record.osArchives[1].history[1].event'), 'First OS private event')
 
     def test_all_changed_lua_sources_parse(self):

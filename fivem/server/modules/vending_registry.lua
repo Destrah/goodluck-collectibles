@@ -12,7 +12,7 @@ local own = cfg.Ownership or {}
 MetaComic.VendingRegistry = {}
 local service = MetaComic.VendingRegistry
 local KEY = 'vending_registry'
-local HISTORY = math.max(1, math.floor(tonumber(own.HistoryLength) or 25))
+local HISTORY = math.max(1, math.min(5000, math.floor(tonumber((cfg.Records or {}).HistoryLimit) or tonumber(own.HistoryLength) or 25)))
 local BUSINESS = 'business'
 
 local function notify(source, message, notifyType)
@@ -298,15 +298,69 @@ function service.view(record, withHistory)
         routingName = tampered and not own.RevealHacker and 'Unknown account' or routing.name,
         status = record.status, machineId = record.machineId, coords = record.coords, holder = record.holder,
         systemTakenOver = service.systemController(record) ~= nil, worldState = record.worldState,
-        createdAt = record.createdAt, updatedAt = record.updatedAt, history = withHistory and record.history or nil,
+        createdAt = record.createdAt, updatedAt = record.updatedAt, history = withHistory == true and record.history or nil,
         lockId = keyRecords.lockId, lockCondition = record.lockCondition, securitySeal = record.securitySeal,
         keyArchive = withHistory and keyRecords.archive or nil,
-        sales = withHistory and MetaComic.CopyTable(record.sales or {}) or nil, -- Ownership.SalesLog, newest first
+        sales = withHistory == true and MetaComic.CopyTable(record.sales or {}) or nil, -- newest first
     }
+end
+-- Only circuit-board observations and authenticated service activity belong in the OS log.
+local function publicEvent(e)
+        local text = e.event or ''
+        local mapped = text:find('Cabinet forced open', 1, true) and 'Lock resistance / vibration detected'
+            or text:find('Failed break-in', 1, true) and 'Possible lock tampering: vibration detected'
+        -- Legacy entries have no authentication evidence. Never infer an actor from the server's name.
+        local observable = e.sensor or text == 'GPS disabled' or text == 'GPS rearmed at this location'
+            or text == 'GPS position initialized' or text:find('GPS movement', 1, true)
+            or text:find('Assigned to ', 1, true) == 1 or text == 'Registration certificate printed'
+            or text == 'Payment recipient changed manually' or text == 'Routing reset to the owner'
+            or text == 'Control board physically replaced' or text == 'OS operating access granted'
+            or text == 'OS operating access revoked'
+        if mapped then return { at = e.at, event = mapped, by = e.displayBy }
+        elseif observable then
+            return { at = e.at, event = text, by = e.displayBy or (e.authenticated and e.by or nil) }
+        end
+end
+local function publicHistory(record, history)
+    local result = {}
+    for _, e in ipairs(history or {}) do
+        local visible = publicEvent(e)
+        if visible then result[#result + 1] = visible end
+    end
+    return result
+end
+function service.identifiedOperator(record, source)
+    if not record or not source then return false end
+    local id = identifierOf(source)
+    local vending = MetaComic.Vending
+    local entry = vending and vending.bySerial(record.serial)
+    local registeredKeyholder = false
+    for _, key in ipairs(record.keyArchive and record.keyArchive.keys or {}) do
+        if key.issuedTo == id and key.lockId == record.lockId and not key.deliveryFailed then registeredKeyholder = true; break end
+    end
+    return id ~= nil and (record.owner == id or service.osMember(record, id) or registeredKeyholder
+        or entry and vending.businessStaff and vending.businessStaff(source, entry) == true
+        or MetaComic.CanManage and MetaComic.CanManage(source) == true)
+end
+function service.sensor(serial, event, source)
+    local record = service.ensure(serial)
+    if record.systemController and not record.osBusinessSnapshot and not service.ensureOS(record) then return false end
+    local identified = service.identifiedOperator(record, source)
+    local field = record.systemController and 'osHistory' or 'history'
+    record[field] = record[field] or {}
+    table.insert(record[field], 1, { at = os.time(), event = event, sensor = true,
+        by = source and nameOf(source) or nil, authenticated = identified == true })
+    while #record[field] > HISTORY do table.remove(record[field]) end
+    save()
 end
 function service.viewFor(record, source, withHistory)
     if not record then return nil end
-    if not record.systemController then return service.view(record, withHistory) end
+    if not record.systemController then
+        local view = service.view(record, withHistory)
+        view.holder = nil -- inventory possession is server evidence, not a board observation
+        if withHistory == true then view.history = publicHistory(record, view.history) end
+        return view
+    end
     service.ensureOS(record)
     if service.osMember(record, identifierOf(source)) then
         -- The replacement OS receives only records generated during this takeover.
@@ -332,18 +386,22 @@ function service.viewFor(record, source, withHistory)
         table.sort(operators)
         return { serial = record.serial, ownerName = 'Taken-over OS', osView = true, systemTakenOver = true,
             status = record.status, machineId = record.machineId, coords = MetaComic.CopyTable(record.coords),
-            holder = MetaComic.CopyTable(record.holder), worldState = record.worldState,
+            worldState = record.worldState,
             routing = routing.number, routingName = routing.name, tampered = record.tampered,
             createdAt = record.osStartedAt, updatedAt = record.updatedAt,
-            history = withHistory and MetaComic.CopyTable(record.osHistory or {}) or nil,
-            sales = withHistory and MetaComic.CopyTable(record.osSales or {}) or nil,
+            history = withHistory == true and publicHistory(record, record.osHistory) or nil,
+            sales = withHistory == true and MetaComic.CopyTable(record.osSales or {}) or nil,
             keyArchive = withHistory and archive or nil, lockId = known[record.lockId] and record.lockId or nil,
             lockCondition = known[record.lockId] and record.lockCondition or nil,
             osOperators = operators, canManageOSAccess = record.systemController == identifierOf(source) }
     end
-    local view = MetaComic.CopyTable(record.osBusinessSnapshot or {
-        serial = record.serial, owner = record.owner or BUSINESS, ownerName = service.ownerName(record), history = {}, sales = {} })
+    local view = {}
+    for key, value in pairs(record.osBusinessSnapshot or {
+        serial = record.serial, owner = record.owner or BUSINESS, ownerName = service.ownerName(record), history = {}, sales = {} }) do
+        if withHistory == true or (key ~= 'history' and key ~= 'sales') then view[key] = MetaComic.CopyTable(value) end
+    end
     view.coords, view.machineId, view.holder, view.worldState, view.cash = nil, nil, nil, nil, nil
+    if withHistory == true then view.history = publicHistory(record, view.history) end
     view.remoteOffline, view.systemTakenOver = true, true
     if not withHistory then view.history, view.sales, view.keyArchive = nil, nil, nil end
     return view
@@ -353,6 +411,50 @@ function service.all()
     for _, record in pairs(load().serials) do list[#list + 1] = record end
     table.sort(list, function(a, b) return (a.serial or '') < (b.serial or '') end)
     return list
+end
+
+-- Page from the already-loaded registry: no SQL query or full log copy per portal request.
+-- Select the same live/frozen OS records as viewFor before counting or slicing anything.
+function service.recordLogPage(record, source, forensic, kind, page, pageSize)
+    pageSize = math.max(1, math.min(100, math.floor(tonumber(pageSize) or 50)))
+    page = math.max(1, math.floor(tonumber(page) or 1))
+    local rows = {}
+    if forensic then
+        local streams = { record[kind] or {}, record[kind == 'history' and 'osHistory' or 'osSales'] or {} }
+        for _, archive in ipairs(record.osArchives or {}) do streams[#streams + 1] = archive[kind] or {} end
+        local order = {}
+        for _, stream in ipairs(streams) do
+            for _, row in ipairs(stream) do rows[#rows + 1] = row; order[row] = #rows end
+        end
+        table.sort(rows, function(a, b)
+            if (a.at or 0) == (b.at or 0) then return order[a] < order[b] end
+            return (a.at or 0) > (b.at or 0)
+        end)
+    elseif record.systemController then
+        service.ensureOS(record)
+        if service.osMember(record, identifierOf(source)) then
+            rows = record[kind == 'history' and 'osHistory' or 'osSales'] or {}
+        else rows = (record.osBusinessSnapshot or {})[kind] or {} end
+    else rows = record[kind] or {} end
+    local total, amount = 0, 0
+    for _, row in ipairs(rows) do
+        if kind ~= 'history' or forensic or publicEvent(row) then
+            total = total + 1
+            if kind == 'sales' then amount = amount + (tonumber(row.price) or 0) end
+        end
+    end
+    local pages = math.max(1, math.ceil(total / pageSize))
+    page = math.min(page, pages)
+    local first, last, index, items = (page - 1) * pageSize + 1, page * pageSize, 0, {}
+    for _, row in ipairs(rows) do
+        local visible = kind == 'history' and not forensic and publicEvent(row) or nil
+        if kind ~= 'history' or forensic or visible then
+            index = index + 1
+            if index >= first and index <= last then items[#items + 1] = visible or MetaComic.CopyTable(row) end
+            if index >= last then break end
+        end
+    end
+    return { items = items, total = total, amount = amount, page = page, pageSize = pageSize, pages = pages }
 end
 
 -- Money -------------------------------------------------------------------------------------------------------------
@@ -423,7 +525,7 @@ function service.logSale(serial, sale)
     record[field] = type(record[field]) == 'table' and record[field] or {}
     sale.when = sale.when or os.date('%Y-%m-%d %H:%M', sale.at or os.time())
     table.insert(record[field], 1, sale)
-    local limit = math.max(1, tonumber(own.SalesLog) or 50)
+    local limit = math.max(1, math.min(5000, math.floor(tonumber((cfg.Records or {}).SalesLimit) or tonumber(own.SalesLog) or 50)))
     while #record[field] > limit do table.remove(record[field]) end
     save()
 end

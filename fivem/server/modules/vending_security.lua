@@ -11,14 +11,14 @@ local tracked, alerted, locks = {}, {}, {}
 local function notify(source, message, kind)
     if MetaComic.Framework.notify then MetaComic.Framework.notify(source, message, kind) end
 end
-local function write(record, field, value, event, source)
+local function write(record, field, value, event, source, authenticated)
     if record.systemController and not Registry.ensureOS(record) then return false end
     local historyField = record.systemController and 'osHistory' or 'history'
     local old, history, updated = record[field], record[historyField], record.updatedAt
     record[field] = value
     if event then -- no event = nothing in the machine's history (card copying must not show up there)
         record[historyField] = MetaComic.CopyTable(history or {})
-        table.insert(record[historyField], 1, { at = os.time(), event = event, by = source and Registry.nameOf(source) })
+        table.insert(record[historyField], 1, { at = os.time(), event = event, by = source and Registry.nameOf(source), authenticated = authenticated == true and Registry.identifiedOperator(record, source) == true })
         local limit = math.max(1, tonumber((cfg.Ownership or {}).HistoryLength) or 25)
         while #record[historyField] > limit do table.remove(record[historyField]) end
     end
@@ -31,14 +31,14 @@ function service.track(serial, entity) if serial then tracked[serial] = entity e
 -- last GPS fix of machines that aren't standing anywhere (carried as an item, dropped, towed): the admin map shows them
 local positions = {}
 function service.gpsPosition(serial) return serial and positions[serial] or nil end
-function service.gps(source, entry, enabled)
+function service.gps(source, entry, enabled, authenticated)
     if gps.Enabled == false or locks[entry.serial] then return false end
     local record = Registry.get(entry.serial)
     if not record or (enabled and not (Vending.canOperateSystem or Vending.canControl)(source, entry)) then return false end
     locks[entry.serial] = true
     local oldOrigin = record.gpsOrigin
     if enabled then record.gpsOrigin = { x = entry.x, y = entry.y, z = entry.z } end
-    local ok = write(record, 'gpsDisabled', not enabled, enabled and 'GPS rearmed at this location' or 'GPS disabled', source)
+    local ok = write(record, 'gpsDisabled', not enabled, enabled and 'GPS rearmed at this location' or 'GPS disabled', source, authenticated)
     if not ok then record.gpsOrigin = oldOrigin end
     locks[entry.serial] = nil
     if ok then Vending.broadcast(entry); notify(source, enabled and 'GPS enabled at this spot.' or 'GPS disabled.', 'success') end

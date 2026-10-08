@@ -1,4 +1,4 @@
-import { getResourceName } from '../env'
+import { getResourceName, isEmbedded } from '../env'
 import { withCollectibleKeys } from '../../collectibles/legacyKeys.js'
 
 const listeners = new Set()
@@ -57,11 +57,12 @@ export const fivemBridge = {
   getCatalog: () => nuiFetch('getCatalog'),
   getSets: () => nuiFetch('getSets'),
   saveSets: sets => nuiFetch('saveSets', { sets }),
-  getVendingMachines: () => nuiFetch('getVendingMachines'), // managers: every placed machine + stock
+  getVendingMachines: () => nuiFetch('getVendingMachines', { forensic: !isEmbedded }),
   getCrafting: () => nuiFetch('getCrafting'), // managers: recipes and what they can make
   saveCrafting: payload => nuiFetch('saveCrafting', payload),
-  getVendingRecords: () => nuiFetch('getVendingRecords'), // managers: owners, tax rates, every machine serial
-  saveVendingRecords: payload => nuiFetch('saveVendingRecords', payload),
+  getVendingRecords: () => nuiFetch('getVendingRecords', { forensic: !isEmbedded, summary: true }),
+  getVendingRecordPage: payload => nuiFetch('getVendingRecordPage', { ...payload, forensic: !isEmbedded }),
+  saveVendingRecords: payload => nuiFetch('saveVendingRecords', { ...payload, forensic: !isEmbedded, summary: true }),
   minigameResult: payload => nuiFetch('minigameResult', payload), // built-in skill check finished
   getMinigames: () => nuiFetch('getMinigames'), // admin Minigames tab: Config.Minigames + last in-game test
   testMinigame: payload => nuiFetch('testMinigame', payload), // { name, speed }: run a preset in game

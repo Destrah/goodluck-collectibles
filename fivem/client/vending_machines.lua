@@ -913,6 +913,18 @@ end
 local function ownerOptions(id, info)
     local options = {}
     if type(info) ~= 'table' or not info.serial then return options end
+    if not info.systemRackClosed then
+        options[#options + 1] = { title = 'Falsify sensor log identities', icon = 'laptop-code',
+            onSelect = function()
+                local result = exports.ox_lib:inputDialog('Falsify sensor records', {
+                    { type = 'input', label = 'Registered employee name or identifier', required = true },
+                })
+                if result then TriggerServerEvent('meta_comic:server:crimeStart', id, 'falsifylogs', { employee = result[1] }) end
+            end }
+    end
+    options[#options + 1] = { title = 'Reconcile recorded cash and stock', icon = 'arrows-rotate', disabled = not info.canResync,
+        description = 'Authorized OS access and an open server rack required',
+        onSelect = function() ownerAction(id, 'resync') end }
     options[#options + 1] = {
         title = ('Serial %s'):format(info.serial),
         description = ('Owner: %s%s'):format(info.ownerName or '?', info.owner ~= 'business' and (' Â· tax %s%%'):format(info.tax or 0) or ''),
@@ -1122,7 +1134,11 @@ CreateThread(function()
         },
         {
             name = 'meta_comic_vending_buy', label = 'Buy', icon = 'fas fa-cart-shopping', distance = distance,
-            canInteract = function(entity) return shop.Enabled ~= false and machineOf(entity) ~= nil end,
+            canInteract = function(entity)
+                local machine = machineOf(entity)
+                return shop.Enabled ~= false and machine ~= nil
+                    and not (MetaComic.VendingDoorOpen and MetaComic.VendingDoorOpen(machine.id))
+            end,
             onSelect = function(data)
                 local machine = machineOf(data.entity)
                 if machine then TriggerServerEvent('meta_comic:server:vendingOpen', machine.id, 'buy') end

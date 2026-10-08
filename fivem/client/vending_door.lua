@@ -66,6 +66,7 @@ local RACKANGLE = tonumber(rack.LidAngle) or 100.0
 local RACKSIGN = (tonumber(rack.LidDirection) or -1) < 0 and -1 or 1
 local RACK_NEEDS = {}
 for _, action in ipairs(rack.Required or { 'hack', 'fullhack', 'replaceboard', 'disablegps', 'enablegps', 'system' }) do RACK_NEEDS[action] = true end
+RACK_NEEDS.falsifylogs = true
 local leds = rack.Lights or {}
 local LEDS = RACK_ON and leds.Enabled ~= false
 local LED_GPS, LED_OS = leds.Gps or vec3(0.4595, -0.363, 0.5231), leds.Os or vec3(0.4826, -0.363, 0.5231)
@@ -74,6 +75,10 @@ local LED_INTENSITY, LED_DISTANCE = tonumber(leds.Intensity) or 3.0, tonumber(le
 local racks = {} -- machine id -> true while its rack is open (from the server)
 
 local doors = {} -- machine id -> { target, angle, entity (machine prop it replaced), body, door }
+MetaComic.VendingDoorOpen = function(id)
+    local state = doors[tonumber(id) or 0]
+    return state ~= nil and (state.target > 0 or state.angle > 0)
+end
 -- the hacks need the cabinet and its cash box open (client/vending_crime.lua)
 MetaComic.VendingHackReady = function(id) return box.Enabled == false or lids[tonumber(id) or 0] ~= nil end
 -- the hacks and the GPS switch in Rack.Required need the server rack open instead (the server checks again)
@@ -159,9 +164,15 @@ local function moveSkimmer(state, toDoor)
     local prop = state.skimmer
     if not prop or not DoesEntityExist(prop) then state.skimmer = nil; return end
     local o, r = skimmerOffset()
-    if toDoor and state.door and DoesEntityExist(state.door) then
-        local d = (cfg.Skimmer or {}).DoorAdjust or vector3(0.0, -0.004, 0.0) -- nudge while it rides on the door prop only
-        AttachEntityToEntity(prop, state.door, 0, o.x - HINGE.x + d.x, o.y - HINGE.y + d.y, o.z - HINGE.z + d.z, r.x, r.y, r.z, false, false, false, false, 2, true)
+    if toDoor and state.body and DoesEntityExist(state.body) then
+        -- hang it on the body, swung round the hinge by the door's angle: GTA doesn't reliably carry a prop that is
+        -- attached to another attached prop (the door), so it's posed alongside the door every frame instead
+        SetEntityVisible(prop, true, false) -- hiding the full machine also hid the skimmer attached to it
+        local d = (cfg.Skimmer or {}).DoorAdjust or vector3(0.0, -0.004, 0.0)
+        local a = math.rad(SIGN * (state.angle or 0.0))
+        local x, y = o.x + d.x - HINGE.x, o.y + d.y - HINGE.y
+        AttachEntityToEntity(prop, state.body, 0, HINGE.x + x * math.cos(a) - y * math.sin(a), HINGE.y + x * math.sin(a) + y * math.cos(a),
+            o.z + d.z, r.x, r.y, r.z + SIGN * (state.angle or 0.0), false, false, false, false, 2, true)
     elseif state.entity and DoesEntityExist(state.entity) then
         AttachEntityToEntity(prop, state.entity, -1, o.x, o.y, o.z, r.x, r.y, r.z, false, false, false, false, 2, true)
     end
@@ -277,10 +288,7 @@ local function animate()
                     end
                     if state.body then
                         -- the skimmer rides on the door; a skimmer (re)spawned while the door is open moves onto it too
-                        local sk = machine.skimmerProp
-                        if sk ~= state.skimmer or (sk and DoesEntityExist(sk) and DoesEntityExist(state.door) and GetEntityAttachedTo(sk) ~= state.door) then
-                            state.skimmer = sk; moveSkimmer(state, true) -- (re)attach until it really hangs on the door prop
-                        end
+                        state.skimmer = machine.skimmerProp -- picks up a skimmer fitted or re-synced while the door is open
                         local step = SPEED * dt
                         if state.angle < state.target then state.angle = math.min(state.target, state.angle + step)
                         elseif state.angle > state.target then state.angle = math.max(state.target, state.angle - step) end
@@ -296,6 +304,7 @@ local function animate()
                         if level and (state.cashLevel ~= level or state.cashBroken ~= brokenBoxes[id]) then fillCash(state, level, brokenBoxes[id])
                         elseif not level and state.cash and state.lidAngle == 0 then clearCash(state) end
                         pose(state)
+                        moveSkimmer(state, true)
                         drawLeds(state, machine, ped)
                         if state.target == 0 and state.angle == 0 and state.lidAngle == 0 and state.rackAngle == 0 then restore(state); doors[id] = nil end
                     end

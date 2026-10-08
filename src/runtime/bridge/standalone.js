@@ -1,6 +1,7 @@
 import { DEMO_PRESETS } from '../../minigames/presets.js'
 import { makePack } from '../packLogic'
 import { recordPulls } from '../../grading/standaloneCopies.js'
+import { isEmbedded } from '../env'
 
 // demo data so the Crafting tab can be tried outside FiveM (nothing is saved)
 const demoCrafting = () => {
@@ -36,6 +37,22 @@ for (const machine of demoRecords.machines) {
 }
 
 const listeners = new Set()
+function demoRecordsView(summary = true) {
+  const view = structuredClone(demoRecords)
+  view.forensic = !isEmbedded
+  if (isEmbedded) for (const machine of view.machines) {
+    delete machine.holder
+    machine.history = machine.history.filter(event => !/skimmer|stolen|hacking/i.test(event.event))
+  }
+  if (summary) for (const machine of view.machines) {
+    machine.historyCount = (machine.history || []).length
+    machine.salesCount = (machine.sales || []).length
+    machine.salesAmount = (machine.sales || []).reduce((sum, sale) => sum + (Number(sale.price) || 0), 0)
+    delete machine.history
+    delete machine.sales
+  }
+  return view
+}
 const SETS_KEY = 'meta-comic-card-sets-v1'
 const CONTAINERS_KEY = 'meta-comic-card-containers-v1'
 const readSets = () => JSON.parse(localStorage.getItem(SETS_KEY) || '[]')
@@ -84,7 +101,17 @@ export const standaloneBridge = {
   // vending machines only exist in FiveM; a few demo machines let the map page be checked in the browser
   async getCrafting() { return demoCrafting() },
   async saveCrafting(payload) { const current = demoCrafting(); return payload?.reset ? current : { ...current, custom: true, recipes: payload.recipes } },
-  async getVendingRecords() { return structuredClone(demoRecords) },
+  async getVendingRecords() { return demoRecordsView() },
+  async getVendingRecordPage({ serial, kind, page = 1, pageSize = 50 }) {
+    if (!['history', 'sales'].includes(kind)) throw new Error('Invalid record page.')
+    const machine = demoRecordsView(false).machines.find(entry => entry.serial === serial)
+    if (!machine) throw new Error('Unknown machine serial.')
+    const rows = machine[kind] || []
+    pageSize = Math.max(1, Math.min(100, Math.floor(Number(pageSize) || 50)))
+    const pages = Math.max(1, Math.ceil(rows.length / pageSize))
+    page = Math.max(1, Math.min(pages, Math.floor(Number(page) || 1)))
+    return { ok: true, serial, kind, items: rows.slice((page - 1) * pageSize, page * pageSize), total: rows.length, page, pageSize, pages }
+  },
   async getMinigames() { return { ok: true, presets: DEMO_PRESETS } }, // built-in games play in the page
   async testMinigame() { return { ok: false, error: 'Only in game.' } },
   async saveVendingRecords(payload) {
@@ -99,14 +126,14 @@ export const standaloneBridge = {
     if (payload?.action === 'keyReport') {
       const machine = demoRecords.machines.find(m => m.serial === payload.serial)
       if (!machine) throw new Error('Unknown machine serial.')
-      return { ...structuredClone(demoRecords), keyReportPreview: { kind: 'keyreport', business: demoRecords.business, printed: {
+      return { ...demoRecordsView(), keyReportPreview: { kind: 'keyreport', business: demoRecords.business, printed: {
         serial: machine.serial, ownerName: machine.ownerName, lockId: machine.lockId, archive: structuredClone(machine.keyArchive), printedAt: Math.floor(Date.now() / 1000),
       } } }
     }
     if (payload?.action === 'tax') for (const person of demoRecords.people) if (payload.taxes?.[person.id] != null) person.tax = payload.taxes[person.id]
     if (payload?.action === 'assign') { const machine = demoRecords.machines.find(m => m.serial === payload.serial); const person = demoRecords.people.find(p => p.id === payload.owner); if (machine) Object.assign(machine, { owner: payload.owner, ownerName: person?.name || demoRecords.business, tampered: false }) }
     if (payload?.action === 'resetRouting') { const machine = demoRecords.machines.find(m => m.serial === payload.serial); if (machine) machine.tampered = false }
-    return structuredClone(demoRecords)
+    return demoRecordsView()
   },
   async minigameResult() { return { ok: true } },
   async getVendingMachines() {

@@ -4,6 +4,7 @@ import useConfirm from './useConfirm'
 import './vendingRecords.css'
 import VendingKeyArchive from './VendingKeyArchive'
 import VendingRecordView from './VendingRecordView'
+import VendingRecordTables from './VendingRecordTables'
 
 // Admin "Machine records" tab: registered owners with their tax rates, and every vending machine serial with its
 // owner, card payment routing, where it is and what happened to it. Tax rates are edited here and saved with
@@ -12,8 +13,6 @@ import VendingRecordView from './VendingRecordView'
 // apart from printing their papers. Each machine lists its recent sales (Ownership.SalesLog).
 const STATUS = { placed: 'Placed', item: 'Item', stolen: 'Stolen', removed: 'Removed' }
 const money = n => `$${Math.round(Number(n) || 0).toLocaleString()}`
-const when = seconds => seconds ? new Date(seconds * 1000).toLocaleString() : '-'
-const salesOf = machine => Array.isArray(machine.sales) ? machine.sales : [] // an empty Lua table arrives as {}
 const taxMap = people => Object.fromEntries((people || []).map(person => [person.id, String(person.tax ?? '')]))
 
 export default function VendingRecordsPanel() {
@@ -183,10 +182,11 @@ export default function VendingRecordsPanel() {
                 </div>
                 <div className="records-machine-meta">
                   <span>Card payments: {machine.tampered ? <b>{machine.routing} ({machine.routingName})</b> : `${machine.routingName} · ${machine.routing}`}</span>
-                  {machine.status === 'placed' && machine.coords && <span>At {Math.round(machine.coords.x)}, {Math.round(machine.coords.y)}{machine.cash != null ? ` · ${money(machine.cash)} cash inside` : ''}</span>}
+                  {machine.status === 'placed' && machine.coords && <span>At {Math.round(machine.coords.x)}, {Math.round(machine.coords.y)}{machine.cash != null ? ` · ${money(machine.cash)} ${state.forensic ? 'cash inside' : 'recorded cash inside'}` : ''}</span>}
+                  {state.forensic && <span>GPS {machine.gpsDisabled ? 'disabled' : 'enabled'} · Skimmer {machine.skimmer ? 'installed' : 'absent'}</span>}
                   {machine.status !== 'placed' && machine.holder && <span>Last held by {machine.holder.name}</span>}
                   {machine.owner !== 'business' && <span>Tax {machine.tax}%</span>}
-                  {salesOf(machine).length > 0 && <span>{salesOf(machine).length} recent sale{salesOf(machine).length === 1 ? '' : 's'} · {money(salesOf(machine).reduce((sum, sale) => sum + (Number(sale.price) || 0), 0))}</span>}
+                  {machine.salesCount > 0 && <span>{machine.salesCount} recorded sale{machine.salesCount === 1 ? '' : 's'} · {money(machine.salesAmount)}</span>}
                   {machine.lockId && <span>Cylinder {machine.lockId} · {machine.securitySeal ? 'Temporarily sealed; replacement required' : machine.lockCondition}</span>}
                 </div>
                 <div className="records-machine-actions">
@@ -201,20 +201,7 @@ export default function VendingRecordsPanel() {
                   {state.keysEnabled && <button className="ghost" disabled={busy} onClick={() => act({ action: 'keyReport', serial: machine.serial }, `Permanent key records for ${machine.serial} printed.`)}>Print key records</button>}
                   <button className="ghost" onClick={() => setOpen(current => current === machine.serial ? '' : machine.serial)}>{open === machine.serial ? 'Hide history & sales' : 'History & sales'}</button>
                 </div>
-                {open === machine.serial && <ol className="records-history">
-                  {(machine.history || []).map((event, index) => <li key={index}><time>{when(event.at)}</time>{event.event}{event.by ? <em> · {event.by}</em> : null}</li>)}
-                  {!(machine.history || []).length && <li>No history yet.</li>}
-                </ol>}
-                {open === machine.serial && <div className="records-sales">
-                  <h4>Sales</h4>
-                  {salesOf(machine).length ? <div className="records-sales-table"><table>
-                    <thead><tr><th>When</th><th>Item</th><th>Paid with</th><th>Price</th><th>Tax</th><th>Paid to owner</th></tr></thead>
-                    <tbody>{salesOf(machine).map((sale, index) => <tr key={index}>
-                      <td>{sale.at ? when(sale.at) : sale.when || '-'}</td><td>{sale.item || '-'}</td><td>{sale.method === 'cash' ? 'Cash' : 'Card'}</td>
-                      <td>{money(sale.price)}</td><td>{sale.method === 'card' ? money(sale.tax) : '-'}</td><td>{sale.method === 'card' ? money(sale.paid) : 'Kept in the cash box'}</td>
-                    </tr>)}</tbody>
-                  </table></div> : <p className="records-empty">No sales recorded yet.</p>}
-                </div>}
+                {open === machine.serial && <VendingRecordTables key={machine.serial} serial={machine.serial} revision={state} />}
                 {open === machine.serial && state.keysEnabled && <VendingKeyArchive archive={machine.keyArchive} currentLockId={machine.lockId} />}
               </div>
             ))}

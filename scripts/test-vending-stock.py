@@ -37,6 +37,10 @@ class StockTests(unittest.TestCase):
             end
         ''')
         script = (ROOT/'fivem/server/modules/vending_machines.lua').read_text(encoding='utf-8')
+        accounting = 'function accounting(entry)' + script.split('local function accounting(entry)', 1)[1].split('local function clientProducts', 1)[0]
+        self.lua.execute('Registry=MetaComic.VendingRegistry')
+        self.lua.execute(accounting.replace('local function accountChange', 'function accountChange'))
+        self.lua.execute('accounting(entry)')
         actual = script.split('local function withdrawStock', 1)[1].split('-- Owner actions:', 1)[0]
         self.lua.execute('local function withdrawStock' + actual)
 
@@ -93,5 +97,50 @@ class StockTests(unittest.TestCase):
         self.action('withdraw', "set='set-a',kind='pack',amount=2")
         self.assertEqual(self.lua.eval('given'), 3)
         self.assertEqual(self.lua.eval('entry.products[1].stock'), 5)
+
+    def load_buy_handler(self):
+        self.lua.execute('''
+            shop={};MAX_CASH=0;cfg={SlotPacks={Enabled=false}};charged=0;refunded=0;cabinetOpen=false
+            function paymentMethods() return {cash=true,card=true} end
+            function kindLabel() return 'pack' end
+            MetaComic.VendingCashbox={cabinetOpen=function() return cabinetOpen end}
+            MetaComic.Money.remove=function(_,_,amount) charged=charged+amount;return true end
+            MetaComic.Money.add=function(_,_,amount) refunded=refunded+amount;return true end
+            MetaComic.GiveSealed=function(_,_,_,amount) given=given+amount;return true,{name='Test'} end
+            function saveEntry() return true end
+        ''')
+        code=(ROOT/'fivem/server/modules/vending_machines.lua').read_text(encoding='utf-8')
+        actual=code.split('local buying = {}',1)[1].split("AddEventHandler('playerDropped'",1)[0]
+        self.lua.execute('local buying = {}'+actual)
+
+    def test_open_machine_rejects_stale_buy_menu_and_closed_machine_sells(self):
+        self.load_buy_handler()
+        self.lua.execute("cabinetOpen=true;handlers['meta_comic:server:vendingBuy'](1,'set-a','pack','cash')")
+        self.assertEqual(self.lua.eval('charged'), 0)
+        self.assertEqual(self.lua.eval('given'), 0)
+        self.assertEqual(self.lua.eval('entry.products[1].stock'), 8)
+        self.lua.execute("cabinetOpen=false;handlers['meta_comic:server:vendingBuy'](1,'set-a','pack','cash')")
+        self.assertEqual(self.lua.eval('charged'), 100)
+        self.assertEqual(self.lua.eval('given'), 1)
+
+    def test_opening_during_dispensing_refunds_and_restores_stock(self):
+        self.load_buy_handler()
+        self.lua.execute("cfg.SlotPacks.Enabled=true;function Wait() cabinetOpen=true end;handlers['meta_comic:server:vendingBuy'](1,'set-a','pack','cash')")
+        self.assertEqual(self.lua.eval('charged'), 100)
+        self.assertEqual(self.lua.eval('refunded'), 100)
+        self.assertEqual(self.lua.eval('given'), 0)
+        self.assertEqual(self.lua.eval('entry.products[1].stock'), 8)
+        self.assertEqual(self.lua.eval('accounting(entry).cash'), 0)
+
+    def test_open_machine_cannot_open_buy_menu(self):
+        self.load_buy_handler()
+        self.lua.execute('function clientProducts() return {} end;menus=0;function TriggerLatentClientEvent() menus=menus+1 end')
+        code=(ROOT/'fivem/server/modules/vending_machines.lua').read_text(encoding='utf-8')
+        actual=code.split("RegisterNetEvent('meta_comic:server:vendingOpen'",1)[1].split('-- Manage',1)[0]
+        self.lua.execute("RegisterNetEvent('meta_comic:server:vendingOpen'"+actual)
+        self.lua.execute("cabinetOpen=true;handlers['meta_comic:server:vendingOpen'](1,'buy')")
+        self.assertEqual(self.lua.eval('menus'), 0)
+        self.lua.execute("cabinetOpen=false;handlers['meta_comic:server:vendingOpen'](1,'buy')")
+        self.assertEqual(self.lua.eval('menus'), 1)
 
 if __name__ == '__main__': unittest.main()

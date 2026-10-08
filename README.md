@@ -8,7 +8,13 @@ The same React interface runs as a standalone browser lab for designing and prev
 
 ### Animated previews
 
-Captured from the resource's actual renderers in standalone mode, using bundled/sample artwork. These silent GIFs show the shared NUI presentation; FiveM inventory checks, rewards, and persistence run on the server.
+**Vending machine service access:** the main door opens, followed by the server cabinet and cashbox; the cashbox, server cabinet and main door then close in reverse order.
+
+![MetaComics vending machine opening its main door, server cabinet and cashbox, then closing all three](docs/media/vending-machine.gif)
+
+This asset preview uses the current streamed prop meshes, the vending atlas and the hinge positions, directions and opening angles from `fivem/config.lua`. It is rendered outside FiveM with inspection lighting; it demonstrates the moving parts, not an in-game interaction recording.
+
+The following collectible previews were captured from the resource's actual renderers in standalone mode, using bundled/sample artwork. These silent GIFs show the shared NUI presentation; FiveM inventory checks, rewards, and persistence run on the server.
 
 | 3D card pack opening (back peel) | Card inspection and foil |
 | --- | --- |

@@ -34,9 +34,7 @@
 .records-machine-meta{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:11px;color:#9aa6b8}
 .records-machine-meta b{color:#ffcf86}
 .records-machine-actions{display:flex;gap:6px;flex-wrap:wrap}
-.records-history{margin:4px 0 0;padding-left:18px;font-size:11px;color:#b9c3d3;display:flex;flex-direction:column;gap:3px}
-.records-history time{color:#7f8ba0;margin-right:8px}
-.records-history em{color:#7f8ba0;font-style:normal}
+.records-log{margin:14px 0}.records-log-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}.records-log-heading h4{margin:0}.records-log-heading label{display:flex;align-items:center;gap:8px;font-size:12px;color:#b9c3d3}.records-log-heading select{width:auto;padding:5px 8px}.records-log-table{height:450px;overflow:auto;border:1px solid #8884;border-radius:8px}.records-log-sales .records-log-table{height:480px}.records-log-table table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;text-align:left}.records-log-table th,.records-log-table td{padding:6px 8px;border-bottom:1px solid #8884;vertical-align:top}.records-log-table th{position:sticky;top:0;background:#151c29;z-index:1}.records-log-table td:nth-child(2){min-width:140px}.records-log-history td:nth-child(2){white-space:nowrap}.records-log-history td:nth-child(3){width:55%}.records-pagination{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:8px;flex-wrap:wrap}.records-pagination span{margin-right:auto;font-size:12px;color:#b9c3d3}.records-pagination button{padding:6px 10px}.records-log-table .records-empty button{margin-left:10px}
 @media (max-width:900px){.records-grid{grid-template-columns:1fr}.records-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:520px){.records-summary{grid-template-columns:1fr}.records-person{grid-template-columns:1fr 70px}.records-person>button{grid-column:1/-1;justify-self:start}}
 /* record items (certificate / ledger) */

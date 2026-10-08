@@ -489,6 +489,8 @@ Config.VendingMachines = {
     -- ['vending_registration'] = { label = 'Vending Registration', weight = 10, client = { export = '<resource>.UseVendingRecord' } }
     -- ['vending_ledger'] = { label = 'Vending Ledger', weight = 300, client = { export = '<resource>.UseVendingLedger' } }
     Records = {
+        HistoryLimit = 500, -- retained events per business/OS log; portal pages load only the requested rows
+        SalesLimit = 500,   -- retained sales per business/OS log; old trimmed records cannot be recovered
         CertificateItem = 'vending_registration', -- one machine's papers: shows its current owner, routing and status
         LedgerItem = 'vending_ledger',             -- every registered owner and machine
         LedgerShowsRemoved = false,
@@ -598,6 +600,13 @@ Config.VendingMachines = {
             Cooldown = 1800, FailCooldown = 60,
             FailMessage = 'The terminal locked you out.',
         },
+        FalsifyLogs = {
+            Enabled = true, Label = 'Falsify machine sensor records', ProgressLabel = 'Rewriting sensor identities...',
+            Duration = 45000, Cooldown = 0, FailCooldown = 60,
+            Items = { { item = 'laptop', count = 1 }, { item = 'hackingdevice', count = 1, remove = true } },
+            Minigame = { 'keypad_hard', 'wires_hard' },
+            Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
+        },
         FullHack = {
             Enabled = true, Label = 'Take over machine operating system', Icon = 'fas fa-user-secret',
             ProgressLabel = 'Taking over the machine operating system',
@@ -677,7 +686,7 @@ Config.VendingMachines = {
         Enabled = true, Item = 'card_skimmer',
         Model = 'metacomics_card_skimmer', -- stream your new prop before installing; no placeholder model
         Offset = vec3(0.359, -0.4310, 0.352), Rotation = vec3(0.0, 0.0, 0.0), -- exactly over the coin panel (rounded metacomics_card_skimmer, 2026-10-08)
-        DoorAdjust = vec3(0.0, -0.2000, 0.0), -- extra nudge while it rides on the open door (negative y = further out)
+        DoorAdjust = vec3(0.0, -0.0, 0.0), -- extra nudge while it rides on the open door (negative y = further out)
         -- the skimmer copies the card of every card purchase (cash purchases are unaffected). The installer reads it
         -- (or removes it and uses the item) for a card data item, and sells that to a buyer below.
         -- whoever fits it picks the cut (0 - MaxPercent, default Percent): that share of each card payment never reaches the

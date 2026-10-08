@@ -436,7 +436,7 @@ end)
 
 for _,action in ipairs({'getCollectibles','saveCollectible','openCollectibleContainer','createCollectibleContainer','claimCollectibles','printCollectible',
     'gradingMark','gradingSubmit','gradingCancel','roughHandling','gradingRecord','getPrintOdds','binderStoreCard','binderTakeCard',
-    'getVendingMachines','getCrafting','saveCrafting','getVendingRecords','saveVendingRecords'}) do
+    'getVendingMachines','getCrafting','saveCrafting','getVendingRecords','getVendingRecordPage','saveVendingRecords'}) do
     RegisterNUICallback(action,function(data,cb) cb(serverRpc(action,data or {},120000)) end)
 end
 

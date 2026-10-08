@@ -11,7 +11,7 @@ local crime = cfg.Crime or {}
 if cfg.Enabled == false or crime.Enabled == false then return end
 local Registry = MetaComic.VendingRegistry
 local Vending = MetaComic.Vending
-local ACTIONS = { breakin = 'BreakIn', hack = 'Hack', fullhack = 'FullHack', steal = 'Steal', disablegps = 'DisableGPS', enablegps = 'EnableGPS',
+local ACTIONS = { falsifylogs = 'FalsifyLogs', breakin = 'BreakIn', hack = 'Hack', fullhack = 'FullHack', steal = 'Steal', disablegps = 'DisableGPS', enablegps = 'EnableGPS',
     installskimmer = 'InstallSkimmer', collectskimmer = 'CollectSkimmer', removeskimmer = 'RemoveSkimmer', replaceboard = 'ReplaceBoard', secure = 'Secure',
     inspectpanel = 'InspectPanel', adjustskimmer = 'AdjustSkimmer', takemachine = 'TakeMachine', bolt = 'BoltMachine' }
 local pending, cooldowns = {}, {}
@@ -75,7 +75,7 @@ RegisterNetEvent('meta_comic:server:crimeStart', function(id, action, option)
     if action == 'steal' and record and record.unbolted == true then return notify(source, 'This machine is not bolted down. Use Steal Machine.', 'error') end
     -- already open (broken into, or unlocked with a key): go straight to the inspect / loot menu
     if action == 'breakin' and looting and (looting.lootable or looting.isOpen)(entry) then return looting.inspect(source, entry) end
-    local maintenance = action == 'bolt' or action == 'disablegps' or action == 'enablegps' or action == 'collectskimmer' or action == 'removeskimmer' or action == 'replaceboard' or action == 'secure' or action == 'inspectpanel' or action == 'adjustskimmer'
+    local maintenance = action == 'falsifylogs' or action == 'bolt' or action == 'disablegps' or action == 'enablegps' or action == 'collectskimmer' or action == 'removeskimmer' or action == 'replaceboard' or action == 'secure' or action == 'inspectpanel' or action == 'adjustskimmer'
     local criminal = action ~= 'bolt' and action ~= 'enablegps' and action ~= 'collectskimmer' and action ~= 'removeskimmer' and action ~= 'replaceboard' and action ~= 'secure' and action ~= 'inspectpanel' and action ~= 'adjustskimmer'
     -- checking the coin panel for a skimmer: the owner, whoever controls the machine, managers and police
     if action == 'inspectpanel' and not canInspect(source, entry) then return end
@@ -97,6 +97,9 @@ RegisterNetEvent('meta_comic:server:crimeStart', function(id, action, option)
     if action == 'fullhack' and record and (record.owner == Registry.identifierOf(source) or Registry.systemController(record) ~= nil) then return end
     -- hacks and the GPS switch need the machine open and its server rack open (the cash box without a rack)
     local cashbox = MetaComic.VendingCashbox
+    if action == 'falsifylogs' and (not cashbox or not cashbox.cabinetOpen(entry.id) or not cashbox.rackOpen or not cashbox.rackOpen(entry.id)) then
+        return notify(source, 'Open the machine and its server rack first.', 'error')
+    end
     local need = cashbox and cashbox.needs and cashbox.needs(action)
     if need and not cashbox.ready(entry, action) then
         return notify(source, need == 'rack' and 'Open the machine and its server rack first.'
@@ -129,6 +132,7 @@ RegisterNetEvent('meta_comic:server:crimeStart', function(id, action, option)
         for _, game in ipairs(type(s.Minigame) == 'table' and s.Minigame or { s.Minigame }) do minigame[#minigame + 1] = game end
     end
     pending[source] = { token = token, id = entry.id, serial = entry.serial, revision = record and record.lockRevision, action = action, startedAt = GetGameTimer(), duration = duration,
+        alias = action == 'falsifylogs' and type(option) == 'table' and tostring(option.employee or '') or nil,
         percent = (action == 'installskimmer' or action == 'adjustskimmer') and MetaComic.VendingSecurity.cutOf(type(option) == 'table' and option.percent) or nil }
     local evidenceAction = action == 'takemachine' and 'steal' or action
     if criminal and MetaComic.Police then MetaComic.Police.alert(source, { action = evidenceAction, stage = 'start', coords = coords(entry), serial = entry.serial }) end
@@ -156,6 +160,30 @@ local function useUpItems(source, action)
 end
 
 local handlers = {}
+function handlers.falsifylogs(source, entry, s, job)
+    local record = Registry.get(entry.serial)
+    local person = job.alias and Registry.person(job.alias)
+    if not person then
+        for _, registered in ipairs(Registry.people()) do
+            if registered.name == job.alias then person = registered; break end
+        end
+    end
+    if not person then notify(source, 'Choose a registered employee identity.', 'error'); return false end
+    local old = MetaComic.CopyTable(record)
+    local field = record.systemController and 'osHistory' or 'history'
+    for _, e in ipairs(record[field] or {}) do
+        if not e.authenticated and (e.sensor or e.event == 'GPS disabled' or e.event == 'GPS rearmed at this location' or (e.event or ''):find('Cabinet forced open', 1, true)
+            or (e.event or ''):find('Failed break-in', 1, true)) then e.displayBy = person.name end
+    end
+    if not Registry.save() then
+        for k in pairs(record) do record[k] = nil end
+        for k, v in pairs(old) do record[k] = v end
+        return false
+    end
+    Registry.update(entry.serial, nil, 'OS log identities falsified as ' .. person.name, Registry.nameOf(source))
+    notify(source, 'Anonymous sensor records now display the selected registered identity.', 'success')
+    return true
+end
 function handlers.breakin(source, entry, s)
     if (s.Loot or {}).Enabled ~= false then
         if not MetaComic.VendingLoot then
@@ -324,6 +352,9 @@ RegisterNetEvent('meta_comic:server:crimeFinish', function(token, success)
     end
     if GetGameTimer() - job.startedAt < job.duration - 750 then return notify(source, 'You stopped too early.', 'error') end
     local cashbox = MetaComic.VendingCashbox
+    if job.action == 'falsifylogs' and (not cashbox or not cashbox.cabinetOpen(entry.id) or not cashbox.rackOpen or not cashbox.rackOpen(entry.id)) then
+        return notify(source, 'The machine or server rack was shut before you finished.', 'error')
+    end
     local need = cashbox and cashbox.needs and cashbox.needs(job.action)
     if need and not cashbox.ready(entry, job.action) then
         return notify(source, need == 'rack' and 'The server rack was shut before you finished.'

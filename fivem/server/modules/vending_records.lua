@@ -193,16 +193,37 @@ local function onlinePlayers()
     return list
 end
 -- ownerId: an owner using the portal (Config.Portal) sees only their own machines and record
-local function snapshot(ownerId, source)
+local function snapshot(ownerId, source, forensic, summary)
     local machines, people = {}, {}
     local counts = {}
     for _, record in ipairs(Registry.all()) do
         local osAccess = Registry.osMember(record, Registry.identifierOf(source))
         if ownerId and record.owner ~= ownerId and not osAccess then goto continue end
         if MetaComic.VendingKeys then MetaComic.VendingKeys.ensure(record) end
-        local view = Registry.viewFor(record, source, true)
+        local detail = summary and 'keys' or true
+        local view = forensic and Registry.view(record, detail) or Registry.viewFor(record, source, detail)
         local entry = record.status == 'placed' and Vending.bySerial(record.serial)
-        if not view.remoteOffline then view.cash = entry and entry.cash or nil end
+        if not view.remoteOffline then view.cash = entry and (forensic and entry.cash or Vending.accounting(entry).cash) or nil end
+        if forensic then
+            view.keyArchive = MetaComic.CopyTable(record.keyArchive)
+            view.skimmer = MetaComic.CopyTable(record.skimmer)
+            view.gpsDisabled = record.gpsDisabled
+            view.products = entry and MetaComic.CopyTable(entry.products) or nil
+            if not summary then
+                view.history = MetaComic.CopyTable(record.history or {})
+                for _, e in ipairs(record.osHistory or {}) do view.history[#view.history + 1] = MetaComic.CopyTable(e) end
+                for _, archive in ipairs(record.osArchives or {}) do
+                    for _, e in ipairs(archive.history or {}) do view.history[#view.history + 1] = MetaComic.CopyTable(e) end
+                end
+                table.sort(view.history, function(a, b) return (a.at or 0) > (b.at or 0) end)
+            end
+        end
+        if summary then
+            local history = Registry.recordLogPage(record, source, forensic, 'history', 1, 1)
+            local sales = Registry.recordLogPage(record, source, forensic, 'sales', 1, 1)
+            view.historyCount, view.salesCount, view.salesAmount = history.total, sales.total, sales.amount
+            view.history, view.sales = nil, nil
+        end
         machines[#machines + 1] = view
         if record.owner and record.status ~= 'removed' then counts[record.owner] = (counts[record.owner] or 0) + 1 end
         ::continue::
@@ -214,7 +235,7 @@ local function snapshot(ownerId, source)
         end
     end
     return {
-        ok = true, machines = machines, people = people, online = ownerId and {} or onlinePlayers(), business = Registry.businessName,
+        ok = true, forensic = forensic == true, machines = machines, people = people, online = ownerId and {} or onlinePlayers(), business = Registry.businessName,
         scope = ownerId and (Registry.hasOSAccess(source) and 'os' or 'owner') or 'manager',
         businessRouting = Registry.businessRouting(), businessPending = not ownerId and Registry.businessPending() or 0,
         defaultTax = tonumber((cfg.Ownership or {}).DefaultTax) or 10,
@@ -228,10 +249,26 @@ if MetaComic.RpcHandlers then
         if Registry.hasOSAccess(source) then return Registry.identifierOf(source) end
         return MetaComic.Portal and MetaComic.Portal.ownerScope(source, 'records') or nil
     end
-    MetaComic.RpcHandlers.getVendingRecords = function(source)
+    MetaComic.RpcHandlers.getVendingRecords = function(source, payload)
         local ownerId = ownerScope(source)
         if ownerId == nil then return { ok = false, error = 'You are not allowed to see the machine records.' } end
-        return snapshot(ownerId or nil, source)
+        return snapshot(ownerId or nil, source, not ownerId and type(payload) == 'table' and payload.forensic == true, type(payload) == 'table' and payload.summary == true)
+    end
+    MetaComic.RpcHandlers.getVendingRecordPage = function(source, payload)
+        if type(payload) ~= 'table' or type(payload.serial) ~= 'string'
+            or (payload.kind ~= 'history' and payload.kind ~= 'sales') then
+            return { ok = false, error = 'Invalid record page.' }
+        end
+        local ownerId = ownerScope(source)
+        local record = Registry.get(payload.serial)
+        if ownerId == nil or not record or (ownerId and record.owner ~= ownerId
+            and not Registry.osMember(record, Registry.identifierOf(source))) then
+            return { ok = false, error = 'You are not allowed to see these machine records.' }
+        end
+        local result = Registry.recordLogPage(record, source, not ownerId and payload.forensic == true,
+            payload.kind, payload.page, payload.pageSize)
+        result.ok, result.serial, result.kind = true, record.serial, payload.kind
+        return result
     end
     -- payload.action: 'register' { serverId | id, name, tax } | 'tax' { id, tax } (or { taxes = { [id] = rate } })
     --   | 'unregister' { id } | 'assign' { serial, owner } | 'resetRouting' { serial } | 'withdraw' { amount }
@@ -241,7 +278,7 @@ if MetaComic.RpcHandlers then
         if payload.action == 'osAccess' then
             local ok, err = Registry.setOSAccess(source, payload.serial, payload.serverId, payload.allowed == true)
             if not ok then return { ok = false, error = err } end
-            return snapshot(not canManage(source) and Registry.identifierOf(source) or nil, source)
+            return snapshot(not canManage(source) and Registry.identifierOf(source) or nil, source, canManage(source) and payload.forensic == true, payload.summary == true)
         end
         local ownerId = ownerScope(source)
         if ownerId == nil then return { ok = false, error = 'You are not allowed to change the machine records.' } end
@@ -250,7 +287,7 @@ if MetaComic.RpcHandlers then
             if payload.action == 'keyReport' and Registry.osMember(record, Registry.identifierOf(source)) then
                 local ok, err = service.giveKeyReport(source, payload.serial)
                 if not ok then return { ok = false, error = err } end
-                return snapshot(ownerId, source)
+                return snapshot(ownerId, source, false, payload.summary == true)
             end
             if (payload.action ~= 'certificate' and payload.action ~= 'keyReport') or not record or record.owner ~= ownerId then
                 return { ok = false, error = 'Only the business can do that.' }
@@ -295,6 +332,6 @@ if MetaComic.RpcHandlers then
             return { ok = false, error = 'Unknown action.' }
         end
         if not ok then return { ok = false, error = err or 'Could not save the records.' } end
-        return snapshot(ownerId or nil, source)
+        return snapshot(ownerId or nil, source, not ownerId and payload.forensic == true, payload.summary == true)
     end
 end
