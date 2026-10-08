@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import zlib from 'node:zlib';
 import assert from 'node:assert/strict';
 
-const file = 'fivem/stream/metacomics_vending_machine.ydr';
+const file = process.argv[2] || 'fivem/stream/metacomics_vending_machine.ydr';
 const resource = fs.readFileSync(file);
 assert.equal(resource.subarray(0, 4).toString(), 'RSC7');
 const data = zlib.inflateRawSync(resource.subarray(16));

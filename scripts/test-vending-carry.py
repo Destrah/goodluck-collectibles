@@ -48,13 +48,13 @@ class VendingCarryTests(unittest.TestCase):
           function CreateThread(fn) threads[#threads+1]=coroutine.create(fn) end
           function Wait() coroutine.yield() end
           function step(time) now=time;local ok,err=coroutine.resume(threads[1]);assert(ok,err) end
-          function SetTimeout(_,fn) pendingDelete=fn end
+          function SetTimeout(ms,fn) if ms==30000 then initializationTimeout=fn else pendingDelete=fn end end
           function GetGameTimer() return now end
           function GetCurrentResourceName() return 'test' end
           function LoadResourceFile() return nil end
           function SaveResourceFile() writes=writes+1;return true end
           json={decode=function() return nil end,encode=function() return '{}' end}
-          function joaat(name) lastHashedModel=name;return 123 end
+          function joaat(name) lastHashedModel=name;return name=='metacomics_vending_body' and 124 or 123 end
           function NetworkGetEntityFromNetworkId(id) return coords[id] and id or 0 end
           function NetworkGetNetworkIdFromEntity(id) return id end
           function DoesEntityExist(id) return coords[id]~=nil end
@@ -65,14 +65,15 @@ class VendingCarryTests(unittest.TestCase):
           function GetEntityHeading() return 0 end
           function SetEntityHeading() end
           function GetEntitySpeed() return speed end
-          function FreezeEntityPosition() end
-          function CreateObjectNoOffset(_,x,y,z) coords[100]=vector3(x,y,z);return 100 end
+          function FreezeEntityPosition(id,value) frozenEntities=frozenEntities or {};frozenEntities[id]=value end
+          function CreateObjectNoOffset(model,x,y,z) spawnedModel=model;coords[100]=vector3(x,y,z);return 100 end
           function DeleteEntity(id) coords[id]=nil end
           function Entity(id)
             if not states[id] then states[id]={set=function(self,k,v) self[k]=v end} end
             return {state=states[id]}
           end
           function GetPlayerPing() return 100 end
+          function NetworkGetEntityOwner() return 1 end
           function TriggerClientEvent(name,_,...)
             events[#events+1]={name=name,args={...}}
           end
@@ -86,8 +87,13 @@ class VendingCarryTests(unittest.TestCase):
     def tow(self):
         self.lua.execute("handlers['meta_comic:server:vendingTow'](200);states[100].metaComicTowNeedsGround=false;step(0);step(0)")
 
-    def test_loose_world_physics_uses_stock_collision_parent(self):
-        self.assertEqual(self.lua.eval('lastHashedModel'), 'prop_vend_soda_01')
+    def test_stolen_tow_uses_custom_body_collision(self):
+        self.lua.execute("handlers['meta_comic:server:vendingTow'](200)")
+        self.assertEqual(self.lua.eval('spawnedModel'), 124)
+
+    def test_intact_tow_uses_complete_custom_machine(self):
+        self.lua.execute("Config.VendingCarry.Tow.StolenOnly=false;MetaComic.VendingRegistry.get=function() return {status='owned'} end;handlers['meta_comic:server:vendingTow'](200)")
+        self.assertEqual(self.lua.eval('spawnedModel'), 123)
 
     def test_snap_requires_grace_and_continuous_overload(self):
         self.tow()
@@ -123,11 +129,17 @@ class VendingCarryTests(unittest.TestCase):
           Config.VendingCarry.Tow.Physics={Mass=450,LinearDamping=0.2,AngularDamping=0.8}
           owned=true;physicsCalls=0
           function NetworkDoesNetworkIdExist(id) return coords[id]~=nil end
-          function NetworkHasControlOfEntity() return owned end
+          function NetworkHasControlOfEntity(id)
+            if id==200 and carOwned~=nil then return carOwned end
+            return owned
+          end
+          function NetworkRequestControlOfEntity(id) requestedControl=id end
           function SetObjectPhysicsParams(...) physicsCalls=physicsCalls+1;physicsArgs={...} end
           function SetEntityDynamic() end
           function SetEntityHasGravity() end
           function ActivatePhysics() end
+          function SetActivateObjectPhysicsAsSoonAsItIsUnfrozen() end
+          function TriggerServerEvent() end
           function SetEntityCollision() end
           function SetEntityLoadCollisionFlag() end
         ''')
@@ -223,7 +235,9 @@ class VendingCarryTests(unittest.TestCase):
           function GetEntityModel() return 123 end
           function RequestCollisionForModel() end
           function RequestCollisionAtCoord() end
-          function HasCollisionForModelLoaded() return modelReady end
+          function RequestModel() modelRequested=true end
+          function HasModelLoaded() return modelReady end
+          function SetModelAsNoLongerNeeded() end
           function HasCollisionLoadedAroundEntity() return worldReady end
           function GetGroundZFor_3dCoord() return foundGround,ground end
           function GetModelDimensions() return vector3(-1,-1,-0.95),vector3(1,1,1) end
@@ -243,8 +257,8 @@ class VendingCarryTests(unittest.TestCase):
         self.lua.execute('worldReady=true;foundGround=false')
         self.assertFalse(self.lua.eval('Ground(100)'))
         self.lua.execute('foundGround=true;placementOK=false')
-        self.assertFalse(self.lua.eval('Ground(100)'))
-        self.assertTrue(self.lua.eval('states[100].metaComicTowNeedsGround'))
+        self.assertTrue(self.lua.eval('Ground(100)'))
+        self.assertTrue(self.lua.eval('modelRequested and not states[100].metaComicTowNeedsGround'))
         self.lua.execute('placementOK=true')
         self.assertTrue(self.lua.eval('Ground(100)'))
         self.assertAlmostEqual(self.lua.eval('coords[100].z'), 13.10)
@@ -257,14 +271,19 @@ class VendingCarryTests(unittest.TestCase):
           function rearOf() return vector3(0,0,1) end
           function SetEntityCollision() end
           function SetEntityLoadCollisionFlag() end
-          function NetworkHasControlOfEntity() return owned end
+          function NetworkHasControlOfEntity(id)
+            if id==200 and carOwned~=nil then return carOwned end
+            return owned
+          end
+          function NetworkRequestControlOfEntity(id) requestedControl=id end
           function RopeLoadTextures() end
           function RopeAreTexturesLoaded() return true end
           function GetOffsetFromEntityInWorldCoords() return vector3(0,-5,1) end
           function AddRope() return 9 end
           function DoesRopeExist() return ropeFailed~=true end
-          function AttachEntitiesToRope() physical=(physical or 0)+1 end
+          function AttachEntitiesToRope(...) physical=(physical or 0)+1;ropeArgs=table.pack(...) end
           function applyTowPhysics() physics=(physics or 0)+1 end
+          function TriggerServerEvent() readySent=true end
           function PinRopeVertex() pins=(pins or 0)+1 end
           function GetRopeVertexCount() return 32 end
           coords[100]=vector3(0,-5,1);Entity(100).state:set('metaComicTowNeedsGround',false,true)
@@ -276,13 +295,37 @@ class VendingCarryTests(unittest.TestCase):
         self.assertIsNone(self.lua.eval('physical'))
         self.assertIsNone(self.lua.eval('physics'))
         self.assertEqual(self.lua.eval('pins'), 2)
+        self.lua.execute('carOwned=true;ropes[100]={}')
+        self.assertTrue(self.lua.eval('Make(100,200)'))
+        self.assertEqual(self.lua.eval('requestedControl'), 100)
+        self.assertIsNone(self.lua.eval('physical'))
         self.lua.execute('owned=true;ropes[100]={}')
         self.assertTrue(self.lua.eval('Make(100,200)'))
         self.assertEqual(self.lua.eval('physical'), 1)
         self.assertEqual(self.lua.eval('physics'), 1)
+        self.assertTrue(self.lua.eval('readySent'))
+        self.assertEqual(self.lua.eval('ropeArgs[2]'), 200)
+        self.assertEqual(self.lua.eval('ropeArgs[3]'), 100)
+        self.assertTrue(self.lua.eval('ropeArgs[13]==nil and ropeArgs[14]==nil'))
+        self.lua.execute('carOwned=false;ropes[100]={}')
+        self.assertTrue(self.lua.eval('Make(100,200)'))
+        self.assertEqual(self.lua.eval('physical'), 1)
         self.lua.execute('ropeFailed=true;ropes[100]={}')
         self.assertFalse(self.lua.eval('Make(100,200)'))
         self.assertEqual(self.lua.eval('physics'), 1)
+
+    def test_failed_initialization_returns_same_machine_once(self):
+        self.lua.execute("handlers['meta_comic:server:vendingTow'](200);initializationTimeout();initializationTimeout()")
+        self.assertEqual(self.lua.eval('removes'), 1)
+        self.assertEqual(self.lua.eval('adds'), 1)
+
+    def test_ready_owner_cancels_rollback_but_other_player_cannot(self):
+        self.lua.execute("handlers['meta_comic:server:vendingTow'](200);source=2;handlers['meta_comic:server:vendingTowReady'](100);initializationTimeout()")
+        self.assertEqual(self.lua.eval('adds'), 1)
+        self.setUp()
+        self.lua.execute("handlers['meta_comic:server:vendingTow'](200);handlers['meta_comic:server:vendingTowReady'](100);initializationTimeout()")
+        self.assertEqual(self.lua.eval('adds'), 0)
+        self.assertFalse(self.lua.eval('frozenEntities[100]'))
 
 
 if __name__ == '__main__':

@@ -17,6 +17,11 @@ class LootTests(unittest.TestCase):
             handlers={};events={};source=22;timer=0;packs=0;saves=0
             entry.cash=300;entry.products={{set='test',kind='pack',stock=3}}
             record.unlockedUntil=1600
+            doorOpen=true;cashboxOpen=true
+            MetaComic.VendingCashbox={
+                cabinetOpen=function() return doorOpen and not record.securitySeal and (keyOpened or record.displacedOpen or (tonumber(record.unlockedUntil) or 0)>now) end,
+                allows=function(_,mode) return doorOpen and (mode=='stock' or cashboxOpen) end,
+            }
             function RegisterNetEvent(name,fn) handlers[name]=fn end
             function AddEventHandler() end
             function GetCurrentResourceName() return 'test' end
@@ -45,6 +50,38 @@ class LootTests(unittest.TestCase):
         self.assertEqual(self.lua.eval('packs'), 0)
         self.assertEqual(self.lua.eval('entry.products[1].stock'), 3)
         self.assertTrue(self.lua.eval('MetaComic.VendingLoot.isOpen(entry)'))
+
+    def test_closed_damaged_or_relocated_cabinet_rejects_inspect_and_loot(self):
+        self.lua.execute("doorOpen=false;record.displacedOpen=true;handlers['meta_comic:server:lootInspect'](1);handlers['meta_comic:server:lootStart'](1,'both')")
+        self.assertTrue(self.lua.eval('MetaComic.VendingLoot.isOpen(entry)'))
+        self.assertFalse(self.lua.eval('MetaComic.VendingLoot.lootable(entry)'))
+        self.assertEqual(self.lua.eval('#events'), 0)
+        self.assertFalse(self.lua.eval('MetaComic.VendingLoot.busy(entry)'))
+
+    def test_closing_door_during_cash_or_stock_batch_stops_payout(self):
+        for mode in ('cash', 'stock'):
+            self.setUp(); self.start(mode)
+            self.lua.execute('doorOpen=false;advance(5000)')
+            self.assertEqual(self.lua.eval('paid'), 0)
+            self.assertEqual(self.lua.eval('packs'), 0)
+            self.assertEqual(self.lua.eval('entry.cash'), 300)
+            self.assertEqual(self.lua.eval('entry.products[1].stock'), 3)
+
+    def test_door_closing_during_save_rolls_back_cash_and_stock(self):
+        for mode in ('cash', 'stock'):
+            self.setUp()
+            self.lua.execute('MetaComic.Vending.save=function() doorOpen=false;return true end')
+            self.start(mode); self.lua.execute('advance(5000)')
+            self.assertEqual(self.lua.eval('paid'), 0)
+            self.assertEqual(self.lua.eval('packs'), 0)
+            self.assertEqual(self.lua.eval('entry.cash'), 300)
+            self.assertEqual(self.lua.eval('entry.products[1].stock'), 3)
+
+    def test_cashbox_closing_stops_cash_but_stock_still_allowed(self):
+        self.start('cash'); self.lua.execute('cashboxOpen=false;advance(4000)')
+        self.assertEqual(self.lua.eval('paid'), 0)
+        self.lua.execute("handlers['meta_comic:server:lootStart'](1,'stock');advance(4000);advance(9000)")
+        self.assertEqual(self.lua.eval('packs'), 1)
 
     def test_stock_only_and_full_inventory_rollback(self):
         self.start('stock')

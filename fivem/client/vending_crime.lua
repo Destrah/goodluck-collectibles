@@ -12,6 +12,8 @@ local ACTIONS = {
     { id = 'replaceboard', key = 'ReplaceBoard', label = 'Replace machine control board', icon = 'fas fa-microchip' },
     { id = 'secure', key = 'Secure', label = 'Secure vending machine', icon = 'fas fa-lock' },
     { id = 'steal', key = 'Steal', label = 'Unbolt machine', icon = 'fas fa-dolly' },
+    { id = 'takemachine', key = 'TakeMachine', label = 'Steal Machine', icon = 'fas fa-dolly' },
+    { id = 'bolt', key = 'BoltMachine', label = 'Bolt machine down', icon = 'fas fa-screwdriver-wrench' },
     { id = 'disablegps', key = 'DisableGPS', label = 'Disable machine GPS', icon = 'fas fa-satellite' },
     { id = 'enablegps', key = 'EnableGPS', label = 'Enable machine GPS', icon = 'fas fa-satellite' },
     { id = 'installskimmer', key = 'InstallSkimmer', label = 'Install card skimmer', icon = 'fas fa-credit-card' },
@@ -477,13 +479,19 @@ CreateThread(function()
                     local machine = MetaComic.VendingMachineOf and MetaComic.VendingMachineOf(entity)
                     if not machine or busy or looting then return false end
                     local controlled = MetaComic.VendingControls and MetaComic.VendingControls(machine.id)
-                    -- hacks only show with the machine and its cash box open (client/vending_door.lua)
-                    if (action.id == 'hack' or action.id == 'fullhack') and MetaComic.VendingHackReady and not MetaComic.VendingHackReady(machine.id) then return false end
+                    if action.id == 'bolt' then return machine.bolted == false end -- server verifies installer, owner, employee or full key
+                    if action.id == 'steal' and machine.bolted == false then return false end
+                    if action.id == 'takemachine' and machine.bolted ~= false then return false end
+                    -- hacks and the GPS switch only show with the machine and its server rack (or cash box) open (client/vending_door.lua)
+                    if MetaComic.VendingTechReady then
+                        if not MetaComic.VendingTechReady(machine.id, action.id) then return false end
+                    elseif (action.id == 'hack' or action.id == 'fullhack') and MetaComic.VendingHackReady and not MetaComic.VendingHackReady(machine.id) then return false end
                     if action.id == 'fullhack' then return not machine.systemTakenOver and MetaComic.VendingCanFullHack and MetaComic.VendingCanFullHack(machine.id) == true end
                     if action.id == 'replaceboard' then return machine.systemTakenOver and MetaComic.VendingCanReplaceBoard and MetaComic.VendingCanReplaceBoard(machine.id) == true end
                     if action.id == 'secure' then return not machine.securitySeal and ((machine.unlockedUntil or 0) > 0 or machine.lockCondition == 'damaged') end
                     if action.id == 'disablegps' then return (cfg.GPS or {}).Enabled ~= false and not machine.gpsDisabled end
-                    if action.id == 'enablegps' then return (cfg.GPS or {}).Enabled ~= false and machine.gpsDisabled == true and controlled == true end
+                    if action.id == 'enablegps' then return (cfg.GPS or {}).Enabled ~= false and machine.gpsDisabled == true
+                        and MetaComic.VendingCanOperateSystem and MetaComic.VendingCanOperateSystem(machine.id) == true end
                     -- a skimmer is meant to go unnoticed: its options only show to whoever installed it, and Install shows
                     -- whether or not one is already fitted. Owners and police check the panel instead.
                     if action.id == 'inspectpanel' then return MetaComic.VendingCanInspectPanel and MetaComic.VendingCanInspectPanel(machine.id) == true end
@@ -493,6 +501,7 @@ CreateThread(function()
                         if action.id == 'installskimmer' then return not mine and (crime.OwnersCanRob or not controlled) end
                         return machine.skimmer == true and mine -- the server checks the installer again
                     end
+                    if action.id == 'breakin' and (cfg.Keys or {}).Enabled == true then return true end -- server checks recovery permission
                     return crime.OwnersCanRob or not (MetaComic.VendingControls and MetaComic.VendingControls(machine.id))
                 end,
                 onSelect = function(data)

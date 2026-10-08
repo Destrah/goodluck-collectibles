@@ -150,13 +150,15 @@ end
 -- changes fields (use false to clear one) and logs what happened; saves
 function service.update(serial, fields, event, by)
     local record = service.ensure(serial)
+    if record.systemController and not record.osBusinessSnapshot and not (fields and fields.osBusinessSnapshot) then service.ensureOS(record) end
     for key, value in pairs(fields or {}) do
         if value == false then record[key] = nil else record[key] = value end
     end
     if event then
-        record.history = type(record.history) == 'table' and record.history or {}
-        table.insert(record.history, 1, { at = os.time(), event = event, by = by })
-        while #record.history > HISTORY do table.remove(record.history) end
+        local field = record.systemController and 'osHistory' or 'history'
+        record[field] = type(record[field]) == 'table' and record[field] or {}
+        table.insert(record[field], 1, { at = os.time(), event = event, by = by })
+        while #record[field] > HISTORY do table.remove(record[field]) end
     end
     record.updatedAt = os.time()
     save()
@@ -166,6 +168,12 @@ function service.ownerName(record)
     if not record or not record.owner then return service.businessName end
     local person = load().people[record.owner]
     return person and person.name or record.ownerName or record.owner
+end
+function service.businessOwned(record)
+    return record ~= nil and (not record.owner or record.owner == BUSINESS)
+end
+function service.ownedBy(record, id)
+    return record ~= nil and id ~= nil and id ~= BUSINESS and record.owner == id
 end
 -- a hack that expired (Crime.Hack.Hours) counts as fixed
 local function rerouted(record)
@@ -186,10 +194,72 @@ end
 function service.systemController(record)
     if record and record.systemController then return record.systemController end
 end
+function service.osMember(record, id)
+    return record ~= nil and record.systemController ~= nil and id ~= nil
+        and (record.systemController == id or type(record.osDelegates) == 'table' and record.osDelegates[id] == true)
+end
+function service.hasOSAccess(source)
+    local id = identifierOf(source)
+    for _, record in ipairs(service.all()) do if service.osMember(record, id) then return true end end
+    return false
+end
+function service.setOSAccess(source, serial, target, allowed)
+    local record = service.get(serial)
+    if not record or record.systemController ~= identifierOf(source) then return false, 'Only this OS controller can change remote access.' end
+    local id
+    if allowed ~= true and type(target) == 'string' and record.osDelegates and record.osDelegates[target] then
+        id = target -- existing delegates may be revoked while offline
+    else
+        target = tonumber(target)
+        if not target or target ~= math.floor(target) or not GetPlayerName(target) then return false, 'Choose an online player ID.' end
+        id = identifierOf(target)
+    end
+    if not id or id == record.systemController then return false, 'The controller always retains access.' end
+    local previous = MetaComic.CopyTable(record)
+    local delegates = MetaComic.CopyTable(record.osDelegates or {})
+    delegates[id] = allowed == true or nil
+    service.update(serial, { osDelegates = delegates }, allowed and 'OS operating access granted' or 'OS operating access revoked', nameOf(source))
+    if not service.save() then
+        for k in pairs(record) do record[k] = nil end
+        for k, v in pairs(previous) do record[k] = v end
+        return false, 'Could not save OS access.'
+    end
+    if MetaComic.Vending and MetaComic.Vending.sendAccessAll then MetaComic.Vending.sendAccessAll() end
+    return true
+end
+function service.osStartFields(record, id)
+    return { systemController = id, systemUntil = false, osDelegates = {}, osHistory = {}, osSales = {}, osStartedAt = os.time(),
+        osBusinessSnapshot = MetaComic.CopyTable(service.view(record, true)),
+        osKeyBaseline = #(record.keyArchive and record.keyArchive.keys or {}),
+        osCylinderBaseline = #(record.keyArchive and record.keyArchive.cylinders or {}) }
+end
+function service.ensureOS(record)
+    if not record or not record.systemController or record.osBusinessSnapshot then return true end
+    -- Upgrade an already-taken-over machine without giving its existing records to the new OS.
+    local old = MetaComic.CopyTable(record)
+    for key, value in pairs(service.osStartFields(record, record.systemController)) do
+        if value == false then record[key] = nil else record[key] = value end
+    end
+    if service.save() then return true end
+    for k in pairs(record) do record[k] = nil end
+    for k, v in pairs(old) do record[k] = v end
+    return false
+end
+function service.osRecoveryFields(record)
+    local archives = MetaComic.CopyTable(record.osArchives or {})
+    archives[#archives + 1] = { controller = record.systemController, startedAt = record.osStartedAt, endedAt = os.time(),
+        history = MetaComic.CopyTable(record.osHistory or {}), sales = MetaComic.CopyTable(record.osSales or {}) }
+    local fields = { systemController = false, systemUntil = false, osDelegates = false, osHistory = false, osSales = false,
+        osStartedAt = false, osBusinessSnapshot = false, osKeyBaseline = false, osCylinderBaseline = false, osArchives = archives }
+    if record.osBusinessSnapshot and record.osBusinessSnapshot.keyArchive then
+        fields.registeredKeyArchive = MetaComic.CopyTable(record.osBusinessSnapshot.keyArchive)
+        fields.registeredLockId = record.osBusinessSnapshot.lockId
+    end
+    return fields
+end
 function service.controller(record)
     local system = service.systemController(record)
     if system then return system end
-    if record and record.tampered and rerouted(record) and not record.routing.manual and record.routing.id ~= BUSINESS then return record.routing.id end
     return record and record.owner or nil
 end
 function service.assign(serial, ownerId, by)
@@ -208,11 +278,19 @@ function service.resetRouting(serial, by)
     return service.update(serial, { routing = false, tampered = false, routingUntil = false }, 'Routing reset to the owner', by)
 end
 -- a view for the records UI / record items (no history unless asked)
+-- Business records only know cylinders registered by an owner, manager or authorized employee.
+-- Physical lock/key state remains separate, including unreported replacements.
+function service.keyRecords(record)
+    if not record then return {} end
+    return { lockId = record.registeredLockId or record.lockId,
+        archive = MetaComic.CopyTable(record.registeredKeyArchive or record.keyArchive) }
+end
 function service.view(record, withHistory)
     if not record then return nil end
     local routing = service.routing(record)
     local person = record.owner and load().people[record.owner]
     local tampered = record.tampered == true and rerouted(record)
+    local keyRecords = service.keyRecords(record)
     return {
         serial = record.serial, owner = record.owner or BUSINESS, ownerName = service.ownerName(record),
         ownerRouting = person and person.routing or (not record.owner and service.businessRouting() or nil),
@@ -221,10 +299,54 @@ function service.view(record, withHistory)
         status = record.status, machineId = record.machineId, coords = record.coords, holder = record.holder,
         systemTakenOver = service.systemController(record) ~= nil, worldState = record.worldState,
         createdAt = record.createdAt, updatedAt = record.updatedAt, history = withHistory and record.history or nil,
-        lockId = record.lockId, lockCondition = record.lockCondition, securitySeal = record.securitySeal,
-        keyArchive = withHistory and MetaComic.CopyTable(record.keyArchive) or nil,
+        lockId = keyRecords.lockId, lockCondition = record.lockCondition, securitySeal = record.securitySeal,
+        keyArchive = withHistory and keyRecords.archive or nil,
         sales = withHistory and MetaComic.CopyTable(record.sales or {}) or nil, -- Ownership.SalesLog, newest first
     }
+end
+function service.viewFor(record, source, withHistory)
+    if not record then return nil end
+    if not record.systemController then return service.view(record, withHistory) end
+    service.ensureOS(record)
+    if service.osMember(record, identifierOf(source)) then
+        -- The replacement OS receives only records generated during this takeover.
+        local archive = { keys = {}, cylinders = {} }
+        for i, key in ipairs(record.keyArchive and record.keyArchive.keys or {}) do
+            if i > (record.osKeyBaseline or #record.keyArchive.keys) then archive.keys[#archive.keys + 1] = MetaComic.CopyTable(key) end
+        end
+        for i, cylinder in ipairs(record.keyArchive and record.keyArchive.cylinders or {}) do
+            if i > (record.osCylinderBaseline or #record.keyArchive.cylinders) then archive.cylinders[#archive.cylinders + 1] = MetaComic.CopyTable(cylinder) end
+        end
+        local known = {}
+        for _, cylinder in ipairs(archive.cylinders) do known[cylinder.id] = true end
+        for _, key in ipairs(archive.keys) do
+            if not known[key.lockId] then
+                -- New key issuance identifies its cylinder, but supplies no old installation or key history.
+                archive.cylinders[#archive.cylinders + 1] = { id = key.lockId, installedBy = 'Identified by new OS key issuance' }
+                known[key.lockId] = true
+            end
+        end
+        local routing = service.routing(record)
+        local operators = {}
+        for id, allowed in pairs(record.osDelegates or {}) do if allowed then operators[#operators + 1] = id end end
+        table.sort(operators)
+        return { serial = record.serial, ownerName = 'Taken-over OS', osView = true, systemTakenOver = true,
+            status = record.status, machineId = record.machineId, coords = MetaComic.CopyTable(record.coords),
+            holder = MetaComic.CopyTable(record.holder), worldState = record.worldState,
+            routing = routing.number, routingName = routing.name, tampered = record.tampered,
+            createdAt = record.osStartedAt, updatedAt = record.updatedAt,
+            history = withHistory and MetaComic.CopyTable(record.osHistory or {}) or nil,
+            sales = withHistory and MetaComic.CopyTable(record.osSales or {}) or nil,
+            keyArchive = withHistory and archive or nil, lockId = known[record.lockId] and record.lockId or nil,
+            lockCondition = known[record.lockId] and record.lockCondition or nil,
+            osOperators = operators, canManageOSAccess = record.systemController == identifierOf(source) }
+    end
+    local view = MetaComic.CopyTable(record.osBusinessSnapshot or {
+        serial = record.serial, owner = record.owner or BUSINESS, ownerName = service.ownerName(record), history = {}, sales = {} })
+    view.coords, view.machineId, view.holder, view.worldState, view.cash = nil, nil, nil, nil, nil
+    view.remoteOffline, view.systemTakenOver = true, true
+    if not withHistory then view.history, view.sales, view.keyArchive = nil, nil, nil end
+    return view
 end
 function service.all()
     local list = {}
@@ -296,11 +418,13 @@ end
 function service.logSale(serial, sale)
     local record = serial and load().serials[serial]
     if not record then return end
-    record.sales = type(record.sales) == 'table' and record.sales or {}
+    if record.systemController then service.ensureOS(record) end
+    local field = record.systemController and 'osSales' or 'sales'
+    record[field] = type(record[field]) == 'table' and record[field] or {}
     sale.when = sale.when or os.date('%Y-%m-%d %H:%M', sale.at or os.time())
-    table.insert(record.sales, 1, sale)
+    table.insert(record[field], 1, sale)
     local limit = math.max(1, tonumber(own.SalesLog) or 50)
-    while #record.sales > limit do table.remove(record.sales) end
+    while #record[field] > limit do table.remove(record[field]) end
     save()
 end
 function service.paySale(record, amount)

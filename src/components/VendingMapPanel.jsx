@@ -83,6 +83,11 @@ export default function VendingMapPanel() {
     } finally { setLoading(false) }
   }, [])
   useEffect(() => { load() }, [load])
+  useEffect(() => {
+    const refresh = event => { if (event.data?.type === 'metaComic:vendingRemoteAccessChanged') load() }
+    window.addEventListener('message', refresh)
+    return () => window.removeEventListener('message', refresh)
+  }, [load])
 
   useLayoutEffect(() => {
     const element = viewport.current

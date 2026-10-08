@@ -76,7 +76,7 @@ class StockTests(unittest.TestCase):
 
     def test_purchase_and_withdrawal_cannot_overlap_during_save(self):
         self.lua.execute('''
-            shop={};MAX_CASH=0
+            shop={};MAX_CASH=0;cfg={SlotPacks={Enabled=false}};Registry=MetaComic.VendingRegistry
             function paymentMethods() return {cash=true,card=true} end
             function kindLabel() return 'pack' end
             MetaComic.Money.remove=function() return true end

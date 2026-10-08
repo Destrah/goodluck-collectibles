@@ -22,15 +22,38 @@ local function notify(source, message, notifyType)
 end
 local function canManage(source) return MetaComic.CanManage and MetaComic.CanManage(source) == true end
 local function hasItem(source, item) return (MetaComic.Inventory.count and MetaComic.Inventory.count(source, item) or 0) > 0 end
+RegisterNetEvent('meta_comic:server:vendingOSAccess', function(serial, target, allowed)
+    local src = source
+    local ok, err = Registry.setOSAccess(src, serial, target, allowed == true)
+    notify(src, ok and 'OS operating access updated.' or err, ok and 'success' or 'error')
+end)
+for _, command in ipairs({ 'vendingosgrant', 'vendingosrevoke' }) do
+    RegisterCommand(command, function(src, args)
+        if src <= 0 then return end
+        local ok, err = Registry.setOSAccess(src, args[1], args[2], command == 'vendingosgrant')
+        notify(src, ok and 'OS operating access updated.' or err, ok and 'success' or 'error')
+    end, false)
+end
+
+-- Read the physical identification plate without a cabinet key or access to private lock records.
+RegisterNetEvent('meta_comic:server:vendingInspectSerial', function(id)
+    local src = source
+    if not (MetaComic.Police and MetaComic.Police.isPolice and MetaComic.Police.isPolice(src)) then return end
+    local entry = Vending.get(id)
+    if not entry or not Vending.near(src, entry, Vending.reach()) then return notify(src, 'Stand at the vending machine to read its serial number.', 'error') end
+    if type(entry.serial) ~= 'string' or entry.serial == '' then return notify(src, 'The machine serial number is unavailable.', 'error') end
+    TriggerClientEvent('meta_comic:client:vendingSerial', src, { serial = entry.serial })
+end)
 
 local function canReadKeys(source, record)
     return MetaComic.VendingKeys and (MetaComic.VendingKeys.authority(source, record)
         or MetaComic.Police and MetaComic.Police.isPolice and MetaComic.Police.isPolice(source))
 end
-local function keyReport(record)
-    return { serial = record.serial, ownerName = Registry.ownerName(record), lockId = record.lockId,
-        lockCondition = record.lockCondition, securitySeal = MetaComic.CopyTable(record.securitySeal),
-        archive = MetaComic.CopyTable(record.keyArchive), printedAt = os.time() }
+local function keyReport(record, source)
+    local view = Registry.viewFor(record, source, true)
+    return { serial = record.serial, ownerName = view.ownerName, lockId = view.lockId,
+        lockCondition = view.lockCondition, securitySeal = MetaComic.CopyTable(view.securitySeal),
+        archive = view.keyArchive, printedAt = os.time() }
 end
 local function reportStore()
     if printedReports then return printedReports end
@@ -42,11 +65,11 @@ local function reportStore()
 end
 function service.giveKeyReport(source, serial)
     local record = Registry.get(serial)
-    if not record or not canReadKeys(source, record) then return false, 'Only police, the registered owner or the business can print key records.' end
+    if not record or not (canReadKeys(source, record) or Registry.osMember(record, Registry.identifierOf(source))) then return false, 'No access to these key records.' end
     if not MetaComic.VendingKeys.ensure(record) then return false, 'Could not load the cylinder records.' end
     if printing then return false, 'The records printer is busy. Try again.' end
     printing = true
-    local report = keyReport(record)
+    local report = keyReport(record, source)
     local store = reportStore()
     local previousId = store.nextId
     store.nextId = previousId + 1
@@ -68,14 +91,14 @@ function service.giveKeyReport(source, serial)
 end
 local function readKeyReport(source, serial, print)
     local record = type(serial) == 'string' and Registry.get(serial)
-    if not record or not canReadKeys(source, record) then return notify(source, 'No accessible key records for that serial.', 'error') end
+    if not record or not (canReadKeys(source, record) or Registry.osMember(record, Registry.identifierOf(source))) then return notify(source, 'No accessible key records for that serial.', 'error') end
     if not MetaComic.VendingKeys.ensure(record) then return end
     if print == true then
         local ok, err = service.giveKeyReport(source, serial)
         return notify(source, ok and 'Permanent key records printed, including retired cylinders and keys.' or err, ok and 'success' or 'error')
     end
     TriggerLatentClientEvent('meta_comic:client:vendingRecord', source, 128 * 1024,
-        { kind = 'keyreport', printed = keyReport(record), business = Registry.businessName })
+        { kind = 'keyreport', printed = keyReport(record, source), business = Registry.businessName })
 end
 RegisterNetEvent('meta_comic:server:vendingKeyReport', function(serial, print) readKeyReport(source, serial, print) end)
 if MetaComic.VendingKeys then
@@ -102,10 +125,10 @@ function service.giveCertificate(source, serial)
     notify(source, 'Could not give the certificate.', 'error')
 end
 
-local function ledgerList()
+local function ledgerList(source)
     local machines, people = {}, {}
     for _, record in ipairs(Registry.all()) do
-        if record.status ~= 'removed' or records.LedgerShowsRemoved then machines[#machines + 1] = Registry.view(record) end
+        if record.status ~= 'removed' or records.LedgerShowsRemoved then machines[#machines + 1] = Registry.viewFor(record, source) end
     end
     for _, person in ipairs(Registry.people()) do people[#people + 1] = { name = person.name, routing = person.routing, tax = person.tax } end
     return machines, people
@@ -118,13 +141,13 @@ local function useCertificate(source, slot)
     local printed = item.metadata or item.info or {}
     local record = Registry.get(printed.serial)
     TriggerClientEvent('meta_comic:client:vendingRecord', source, {
-        kind = 'certificate', printed = printed, current = Registry.view(record), business = Registry.businessName,
+        kind = 'certificate', printed = printed, current = Registry.viewFor(record, source), business = Registry.businessName,
     })
 end
 local function useLedger(source, slot)
     local item = slot and MetaComic.Inventory.getSlot and MetaComic.Inventory.getSlot(source, tonumber(slot))
     if not item or item.name ~= LEDGER then return end
-    local machines, people = ledgerList()
+    local machines, people = ledgerList(source)
     TriggerLatentClientEvent('meta_comic:client:vendingRecord', source, 256 * 1024, { kind = 'ledger', machines = machines, people = people, business = Registry.businessName })
 end
 local function useKeyReport(source, slot)
@@ -144,7 +167,7 @@ local function useKey(source, slot)
     local record = Registry.get(metadata.serial)
     -- Never rewrite old key metadata when a cylinder is replaced.
     TriggerClientEvent('meta_comic:client:vendingRecord', source, { kind = 'key', printed = metadata,
-        currentLockId = record and record.lockId, business = Registry.businessName })
+        currentLockId = (Registry.viewFor(record, source) or {}).lockId, business = Registry.businessName })
 end
 RegisterNetEvent('meta_comic:server:useVendingKey', function(slot) useKey(source, slot) end)
 RegisterNetEvent('meta_comic:server:useVendingRecord', function(kind, slot)
@@ -170,15 +193,16 @@ local function onlinePlayers()
     return list
 end
 -- ownerId: an owner using the portal (Config.Portal) sees only their own machines and record
-local function snapshot(ownerId)
+local function snapshot(ownerId, source)
     local machines, people = {}, {}
     local counts = {}
     for _, record in ipairs(Registry.all()) do
-        if ownerId and record.owner ~= ownerId then goto continue end
+        local osAccess = Registry.osMember(record, Registry.identifierOf(source))
+        if ownerId and record.owner ~= ownerId and not osAccess then goto continue end
         if MetaComic.VendingKeys then MetaComic.VendingKeys.ensure(record) end
-        local view = Registry.view(record, true)
+        local view = Registry.viewFor(record, source, true)
         local entry = record.status == 'placed' and Vending.bySerial(record.serial)
-        view.cash = entry and entry.cash or nil
+        if not view.remoteOffline then view.cash = entry and entry.cash or nil end
         machines[#machines + 1] = view
         if record.owner and record.status ~= 'removed' then counts[record.owner] = (counts[record.owner] or 0) + 1 end
         ::continue::
@@ -191,7 +215,7 @@ local function snapshot(ownerId)
     end
     return {
         ok = true, machines = machines, people = people, online = ownerId and {} or onlinePlayers(), business = Registry.businessName,
-        scope = ownerId and 'owner' or 'manager',
+        scope = ownerId and (Registry.hasOSAccess(source) and 'os' or 'owner') or 'manager',
         businessRouting = Registry.businessRouting(), businessPending = not ownerId and Registry.businessPending() or 0,
         defaultTax = tonumber((cfg.Ownership or {}).DefaultTax) or 10,
         keysEnabled = MetaComic.VendingKeys ~= nil,
@@ -201,21 +225,33 @@ end
 if MetaComic.RpcHandlers then
     local function ownerScope(source)
         if canManage(source) then return false end
+        if Registry.hasOSAccess(source) then return Registry.identifierOf(source) end
         return MetaComic.Portal and MetaComic.Portal.ownerScope(source, 'records') or nil
     end
     MetaComic.RpcHandlers.getVendingRecords = function(source)
         local ownerId = ownerScope(source)
         if ownerId == nil then return { ok = false, error = 'You are not allowed to see the machine records.' } end
-        return snapshot(ownerId or nil)
+        return snapshot(ownerId or nil, source)
     end
     -- payload.action: 'register' { serverId | id, name, tax } | 'tax' { id, tax } (or { taxes = { [id] = rate } })
     --   | 'unregister' { id } | 'assign' { serial, owner } | 'resetRouting' { serial } | 'withdraw' { amount }
     --   | 'certificate' { serial } | 'ledger'
     MetaComic.RpcHandlers.saveVendingRecords = function(source, payload)
+        if type(payload) ~= 'table' then return { ok = false, error = 'Invalid record action.' } end
+        if payload.action == 'osAccess' then
+            local ok, err = Registry.setOSAccess(source, payload.serial, payload.serverId, payload.allowed == true)
+            if not ok then return { ok = false, error = err } end
+            return snapshot(not canManage(source) and Registry.identifierOf(source) or nil, source)
+        end
         local ownerId = ownerScope(source)
         if ownerId == nil then return { ok = false, error = 'You are not allowed to change the machine records.' } end
         if ownerId then -- owners may only print papers for their own machines
             local record = Registry.get(payload.serial)
+            if payload.action == 'keyReport' and Registry.osMember(record, Registry.identifierOf(source)) then
+                local ok, err = service.giveKeyReport(source, payload.serial)
+                if not ok then return { ok = false, error = err } end
+                return snapshot(ownerId, source)
+            end
             if (payload.action ~= 'certificate' and payload.action ~= 'keyReport') or not record or record.owner ~= ownerId then
                 return { ok = false, error = 'Only the business can do that.' }
             end
@@ -259,6 +295,6 @@ if MetaComic.RpcHandlers then
             return { ok = false, error = 'Unknown action.' }
         end
         if not ok then return { ok = false, error = err or 'Could not save the records.' } end
-        return snapshot(ownerId or nil)
+        return snapshot(ownerId or nil, source)
     end
 end

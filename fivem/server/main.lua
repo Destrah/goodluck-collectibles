@@ -291,7 +291,7 @@ local function portalOwnerId(source)
     if not id then return nil end
     if Registry.person and Registry.person(id) then return id end
     for _, record in ipairs(Registry.all and Registry.all() or {}) do
-        if record.owner == id and record.status ~= 'removed' then return id end
+        if (record.owner == id or Registry.osMember and Registry.osMember(record, id)) and record.status ~= 'removed' then return id end
     end
 end
 MetaComic.Portal = {

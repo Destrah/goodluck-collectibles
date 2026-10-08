@@ -358,6 +358,7 @@ local function add(entry)
         if existing.entity then CreateThread(function() syncPacks(existing) end) end
         existing.systemTakenOver = entry.systemTakenOver == true
         existing.unlockedUntil = entry.unlockedUntil or 0
+        existing.bolted = entry.bolted ~= false
         local wasSealed = existing.securitySeal ~= nil
         existing.lockCondition, existing.securitySeal = entry.lockCondition, entry.securitySeal
         if existing.entity and wasSealed ~= (existing.securitySeal ~= nil) then CreateThread(function() syncSeal(existing) end) end
@@ -378,6 +379,7 @@ local function add(entry)
         products = entry.products or {},
         systemTakenOver = entry.systemTakenOver == true,
         unlockedUntil = entry.unlockedUntil or 0,
+        bolted = entry.bolted ~= false,
         lockCondition = entry.lockCondition, securitySeal = entry.securitySeal,
         gpsDisabled = entry.gpsDisabled == true,
         skimmer = entry.skimmer == true,
@@ -406,9 +408,12 @@ local function setAccess(playerAccess)
     for _, id in ipairs(playerAccess.skimmers or {}) do skimmers[tonumber(id)] = true end
     local staffed = {}
     for _, id in ipairs(playerAccess.staffed or {}) do staffed[tonumber(id)] = true end
+    local systemControls = {}
+    for _, id in ipairs(playerAccess.systemControls or {}) do systemControls[tonumber(id)] = true end
     access = { manage = playerAccess.manage == true, restock = playerAccess.restock == true, controls = controls, fullHack = fullHack, replaceBoard = replaceBoard,
-        skimmers = skimmers, police = playerAccess.police == true, staffed = staffed,
+        skimmers = skimmers, police = playerAccess.police == true, staffed = staffed, systemControls = systemControls,
         placementBypass = playerAccess.placementBypass == true }
+    SendNUIMessage({ type = 'metaComic:vendingRemoteAccessChanged' })
 end
 
 RegisterNetEvent('meta_comic:client:vendingMachines', function(list, playerAccess)
@@ -446,7 +451,7 @@ RegisterNetEvent('meta_comic:client:vendingDrop', function(id, set, kind)
         end
     end
     if #choices == 0 then return end
-    local info = machine.packSlots[choices[math.random(#choices)]]
+    local info = machine.packSlots[choices[#choices]] -- same slot on every client (not random), so everyone sees the same pack drop
     local prop = table.remove(info, 1)
     if not prop or not DoesEntityExist(prop) then return end
     packOffsets[prop] = nil
@@ -803,6 +808,7 @@ local function controls(machine) return machine ~= nil and access.controls[machi
 MetaComic.VendingMachineOf = machineOf
 MetaComic.VendingMachineById = function(id) return machines[tonumber(id)] end
 MetaComic.VendingControls = function(id) return access.controls[tonumber(id)] == true end
+MetaComic.VendingCanOperateSystem = function(id) return access.systemControls ~= nil and access.systemControls[tonumber(id)] == true end
 MetaComic.VendingMySkimmer = function(id) return access.skimmers ~= nil and access.skimmers[tonumber(id)] == true end
 -- may check the coin panel for a skimmer: controls the machine, manages them, police, or an employee at a business machine
 MetaComic.VendingCanInspectPanel = function(id)
@@ -916,7 +922,7 @@ local function ownerOptions(id, info)
         title = info.tampered and 'Card payments: REROUTED' or ('Card payments: %s'):format(info.routingName or '?'),
         description = info.tampered and ('Going to account %s, not the owner\'s (%s)'):format(info.routing or '?', info.ownerRouting or '?') or ('Routing number %s'):format(info.routing or '?'),
         icon = info.tampered and 'triangle-exclamation' or 'building-columns', iconColor = info.tampered and '#e5484d' or nil,
-        disabled = info.systemTakenOver or not (info.tampered and (info.manager or info.isOwner)),
+        disabled = info.systemTakenOver or info.systemRackClosed or not (info.tampered and (info.manager or info.isOwner)),
         onSelect = function()
             if confirm('Reset routing', 'Send this machine\'s card payments to its owner again?') then ownerAction(id, 'resetRouting') end
         end,
@@ -949,7 +955,8 @@ local function ownerOptions(id, info)
     if info.canSetPayments then
         options[#options + 1] = {
             title = 'Change card payment recipient', icon = 'building-columns',
-            description = 'Choose an online player or a registered routing number',
+            description = info.systemRackClosed and 'Open the machine and its server rack first' or 'Choose an online player or a registered routing number',
+            disabled = info.systemRackClosed == true,
             onSelect = function()
                 local result = input('Card payment recipient', {
                     { type = 'select', label = 'Recipient type', required = true, options = {
@@ -964,12 +971,24 @@ local function ownerOptions(id, info)
     if info.canSwitchGPS then
         options[#options + 1] = {
             title = info.gpsDisabled and 'Enable machine GPS' or 'Disable machine GPS', icon = 'satellite',
-            description = info.gpsDisabled and 'Register this spot as the home location' or 'Switch off movement tracking',
+            description = info.gpsRackClosed and 'Open the machine and its server rack first'
+                or info.gpsDisabled and 'Register this spot as the home location' or 'Switch off movement tracking',
+            disabled = info.gpsRackClosed == true,
             onSelect = function() ownerAction(id, 'gps') end,
         }
     end
     if info.systemTakenOver then
         options[#options + 1] = { title = 'Operating system compromised', icon = 'user-secret', readOnly = true }
+    end
+    if info.canManageOSAccess then
+        options[#options + 1] = { title = 'Manage OS operating access', icon = 'users', description = 'Grant or revoke remote map, new records and operating controls.',
+            onSelect = function()
+                local result = input('OS operating access', {
+                    { type = 'number', label = 'Online player server ID', min = 1, required = true },
+                    { type = 'select', label = 'Access', required = true, options = { { value = 'grant', label = 'Grant' }, { value = 'revoke', label = 'Revoke' } } },
+                })
+                if result then TriggerServerEvent('meta_comic:server:vendingOSAccess', info.serial, result[1], result[2] == 'grant') end
+            end }
     end
     if info.canReplaceBoard and (cfg.Crime or {}).ReplaceBoard and cfg.Crime.ReplaceBoard.Enabled ~= false then
         options[#options + 1] = {
@@ -982,8 +1001,9 @@ local function ownerOptions(id, info)
         local people = { { value = 'business', label = info.business or 'The business' } }
         for _, person in ipairs(info.people or {}) do people[#people + 1] = { value = person.id, label = ('%s (tax %s%%)'):format(person.name, person.tax or 0) } end
         options[#options + 1] = {
-            title = 'Assign owner', description = 'Registered owners only (admin UI: Machine records)', icon = 'user-tag',
-            disabled = info.keysEnabled and not info.fullAccess,
+            title = 'Assign owner', icon = 'user-tag',
+            description = info.systemRackClosed and 'Open the machine and its server rack first' or 'Registered owners only (admin UI: Machine records)',
+            disabled = info.keysEnabled and not info.fullAccess or info.systemRackClosed == true,
             onSelect = function()
                 local result = input('Assign owner', {
                     { type = 'select', label = 'Owner', options = people, default = info.owner, required = true },
@@ -1014,6 +1034,11 @@ RegisterNetEvent('meta_comic:client:vendingManage', function(id, products, sets,
     local fullAccess = not (info and info.keysEnabled) or info.fullAccess == true
     if info and info.keysEnabled then
         options[#options + 1] = { title = 'Lock cabinet', description = 'Closes all key access sessions', icon = 'lock', onSelect = function() TriggerServerEvent('meta_comic:server:vendingKeyLock', id) end }
+    end
+    local inspect = ((cfg.Crime or {}).InspectPanel or {})
+    if info and info.canInspectPanel and inspect.Enabled ~= false and (cfg.Crime or {}).Enabled ~= false then
+        options[#options + 1] = { title = inspect.Label or 'Check coin panel for tampering', icon = 'magnifying-glass',
+            onSelect = function() TriggerServerEvent('meta_comic:server:crimeStart', id, 'inspectpanel') end }
     end
     for _, product in ipairs(products or {}) do
         local key = { set = product.set, kind = product.kind }
@@ -1088,6 +1113,14 @@ CreateThread(function()
     local distance = tonumber(shop.TargetDistance) or 2.0
     exports.ox_target:addModel(cfg.Model or 'metacomics_vending_machine', {
         {
+            name = 'meta_comic_vending_inspect_serial', label = 'Inspect machine serial number', icon = 'fas fa-barcode', distance = distance,
+            canInteract = function(entity) return access.police == true and machineOf(entity) ~= nil end,
+            onSelect = function(data)
+                local machine = machineOf(data.entity)
+                if machine then TriggerServerEvent('meta_comic:server:vendingInspectSerial', machine.id) end
+            end,
+        },
+        {
             name = 'meta_comic_vending_buy', label = 'Buy', icon = 'fas fa-cart-shopping', distance = distance,
             canInteract = function(entity) return shop.Enabled ~= false and machineOf(entity) ~= nil end,
             onSelect = function(data)
@@ -1115,6 +1148,14 @@ CreateThread(function()
 end)
 
 -- the vending machine item: place it like /placevending, then the server checks the item is still there
+RegisterNetEvent('meta_comic:client:vendingSerial', function(data)
+    if type(data) ~= 'table' or type(data.serial) ~= 'string' then return end
+    if not needsOxLib() then return notify(('Machine serial: %s'):format(data.serial), 'info') end
+    menu('meta_comic_vending_serial', 'Machine identification plate', {
+        { title = data.serial, description = 'Compare this serial with the owner\'s vending registration document.', icon = 'barcode', readOnly = true },
+    })
+end)
+
 RegisterNetEvent('meta_comic:client:placeVendingItem', function()
     if ghost then return notify('You are already placing a vending machine.', 'error') end
     local placed = placeGhost(cfg.Model or 'metacomics_vending_machine')
@@ -1150,6 +1191,36 @@ RegisterNUICallback('vendingWaypoint', function(data, cb)
     if x and y then SetNewWaypoint(x + 0.0, y + 0.0) end
     cb({ ok = x ~= nil and y ~= nil })
 end)
+
+-- light over the packs: a spotlight from the top inside the window (Config.VendingMachines.SlotPacks.Light), drawn
+-- every frame for machines within Range metres
+do
+    local light = (cfg.SlotPacks or {}).Light or {}
+    if light.Enabled ~= false then
+        local at, dir = light.Offset or vec3(-0.15, -0.36, 0.63), light.Direction or vec3(0.0, 0.15, -1.0)
+        local color = light.Color or { 255, 244, 225 }
+        local range = tonumber(light.Range) or 30.0
+        local distance, brightness = tonumber(light.Distance) or 1.4, tonumber(light.Brightness) or 4.0
+        local hardness, radius, falloff = tonumber(light.Hardness) or 0.0, tonumber(light.Radius) or 55.0, tonumber(light.Falloff) or 10.0
+        CreateThread(function()
+            while true do
+                local ped = GetEntityCoords(PlayerPedId())
+                local any = false
+                for _, machine in pairs(machines) do
+                    local entity = machine.entity
+                    if entity and DoesEntityExist(entity) and #(GetEntityCoords(entity) - ped) <= range then
+                        any = true
+                        local p = GetOffsetFromEntityInWorldCoords(entity, at.x, at.y, at.z)
+                        local d = GetOffsetFromEntityInWorldCoords(entity, at.x + dir.x, at.y + dir.y, at.z + dir.z) - p
+                        local len = math.max(#d, 0.001)
+                        DrawSpotLight(p.x, p.y, p.z, d.x / len, d.y / len, d.z / len, color[1], color[2], color[3], distance, brightness, hardness, radius, falloff)
+                    end
+                end
+                Wait(any and 0 or 1000)
+            end
+        end)
+    end
+end
 
 AddEventHandler('onResourceStop', function(name)
     if name ~= GetCurrentResourceName() then return end

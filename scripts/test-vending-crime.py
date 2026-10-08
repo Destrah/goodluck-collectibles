@@ -24,6 +24,9 @@ class CrimeTests(unittest.TestCase):
           function GetGameTimer() return timer end
           function RegisterNetEvent(name,fn) handlers[name]=fn end
           function AddEventHandler() end
+          doorOpen=false
+          function TriggerEvent(name,_,_,reason,action) if name=='meta_comic:server:vendingDoorSuccess' and reason=='crime' and action=='breakin' then doorOpen=true end end
+          MetaComic.VendingCashbox={cabinetOpen=function() return doorOpen end,allows=function() return true end}
           function TriggerClientEvent(name,_,data) if name=='meta_comic:client:crimeStart' then startData=data elseif name=='meta_comic:client:lootInspect' then inspectData=data end end
           MetaComic.Inventory.count=function() return 100 end
           MetaComic.Police.count=function() return 0 end
@@ -79,7 +82,38 @@ class CrimeTests(unittest.TestCase):
         self.assertEqual(self.lua.eval('entry.cash'), 0)
 
     def start(self):
+        # Exercise the optional GPS/open-cabinet prerequisites independently of the user's current defaults.
+        self.lua.execute('''
+            Config.VendingMachines.Crime.Steal.NeedsGPSDisabled=true
+            record.unlockedUntil=record.unlockedUntil or 1600
+            MetaComic.VendingLoot=MetaComic.VendingLoot or {busy=function() return false end,
+                isOpen=function() return record.unlockedUntil>now end}
+        ''')
         self.lua.execute("handlers['meta_comic:server:crimeStart'](1,'steal')")
+
+    def test_loose_machine_theft_needs_no_drill_or_open_cabinet(self):
+        self.lua.execute("record.unbolted=true;MetaComic.Inventory.count=function() return 0 end;handlers['meta_comic:server:crimeStart'](1,'takemachine')")
+        self.assertEqual(self.lua.eval('startData.duration'), 5000)
+        self.lua.execute("timer=5000;handlers['meta_comic:server:crimeFinish'](startData.token,true)")
+        self.assertEqual(self.lua.eval('pickups'), 1)
+
+    def test_loose_theft_rechecks_bolts_and_rejects_bolted_start(self):
+        self.lua.execute("handlers['meta_comic:server:crimeStart'](1,'takemachine')")
+        self.assertIsNone(self.lua.eval('startData'))
+        self.lua.execute("record.unbolted=true;handlers['meta_comic:server:crimeStart'](1,'takemachine');record.unbolted=nil;timer=5000;handlers['meta_comic:server:crimeFinish'](startData.token,true)")
+        self.assertEqual(self.lua.eval('pickups'), 0)
+
+    def test_only_installer_or_authorized_staff_can_bolt_after_full_duration(self):
+        self.lua.execute("record.unbolted=true;record.installedById='owner';handlers['meta_comic:server:crimeStart'](1,'bolt')")
+        self.assertIsNone(self.lua.eval('startData'))
+        self.lua.execute("source=11;handlers['meta_comic:server:crimeStart'](1,'bolt');handlers['meta_comic:server:crimeFinish'](startData.token,true)")
+        self.assertTrue(self.lua.eval('record.unbolted'))
+        self.lua.execute("handlers['meta_comic:server:crimeStart'](1,'bolt');timer=10000;handlers['meta_comic:server:crimeFinish'](startData.token,true)")
+        self.assertIsNone(self.lua.eval('record.unbolted'))
+
+    def test_bolt_save_failure_leaves_machine_loose(self):
+        self.lua.execute("record.unbolted=true;record.installedById='hacker';handlers['meta_comic:server:crimeStart'](1,'bolt');saveOK=false;timer=10000;handlers['meta_comic:server:crimeFinish'](startData.token,true)")
+        self.assertTrue(self.lua.eval('record.unbolted'))
 
     def test_full_hack_is_hardest_and_preserves_owner(self):
         self.lua.execute("MetaComic.Vending.sendAccessAll=function() end;handlers['meta_comic:server:crimeStart'](1,'fullhack')")
@@ -112,7 +146,7 @@ class CrimeTests(unittest.TestCase):
 
     def test_management_gps_switch_requires_owner_manager_or_full_takeover(self):
         script = (ROOT/'fivem/server/modules/vending_machines.lua').read_text(encoding='utf-8')
-        handler = script.split("RegisterNetEvent('meta_comic:server:vendingOwner'", 1)[1].split('-- Map of every machine', 1)[0]
+        handler = script.split('local function ownerAction', 1)[1].split('-- Map of every machine', 1)[0]
         self.lua.execute('''
             ready=true;machines={[1]=entry};Registry=MetaComic.VendingRegistry;stockTransfers={}
             function near() return true end
@@ -126,7 +160,10 @@ class CrimeTests(unittest.TestCase):
             function notify() end
             function openManage() end
         ''')
-        self.lua.execute("RegisterNetEvent('meta_comic:server:vendingOwner'" + handler)
+        policy = 'local function canOperateSystem' + script.split('local function canOperateSystem', 1)[1].split('local function canRestock', 1)[0]
+        self.lua.execute(policy + '\ncanOperateSystemTest=canOperateSystem')
+        self.lua.execute('canOperateSystem=canOperateSystemTest;MetaComic.Vending.canOperateSystem=canOperateSystemTest')
+        self.lua.execute('local function ownerAction' + handler)
         self.lua.execute("record.tampered=true;record.routing={id='hacker'};handlers['meta_comic:server:vendingOwner'](1,'gps')")
         self.assertFalse(self.lua.eval('record.gpsDisabled == true'))
         self.lua.execute("record.systemController='hacker';handlers['meta_comic:server:vendingOwner'](1,'gps')")

@@ -9,11 +9,13 @@ local Vending = MetaComic.Vending
 local open = {}      -- machine id -> { until = os.time() (nil while held), holders = { [source] = true } }
 local refreshLids
 local holding = {}   -- source -> machine id it keeps open (crime / looting until it ends)
+local manuallyClosed = {} -- a damaged lock cannot lock; closing its door only changes its position
 
 local function seconds(key, default) return math.max(1, tonumber(door[key]) or default) end
 local function send(id, isOpen) TriggerClientEvent('meta_comic:client:vendingDoor', -1, id, isOpen) end
 
 local function setOpen(id, untilAt, source)
+    manuallyClosed[id] = nil
     local state = open[id]
     if not state then state = { holders = {} }; open[id] = state; send(id, true) end
     if source then state.holders[source] = true; holding[source] = id end
@@ -88,6 +90,7 @@ AddEventHandler('playerDropped', function() release(source) end)
 -- with cash props by how much cash the machine holds.
 local box = door.CashBox or {}
 local lids = {}     -- machine id -> cash level (0 empty .. 3 full) while its lid is open
+local racks = {}    -- machine id -> true while its server rack is open
 local padlocks = {} -- source -> { token, id, at } while breaking a padlock
 local function notify(source, message, kind) if MetaComic.Framework.notify then MetaComic.Framework.notify(source, message, kind or 'info') end end
 local function cashLevel(entry) -- the client stacks cash props from the amount
@@ -103,7 +106,41 @@ local function openLid(entry)
     lids[entry.id] = cashLevel(entry)
     sendLid(entry.id, lids[entry.id])
 end
+-- Server rack in the recess right of the window (Config.VendingMachines.Door.Rack). The board, OS and payment hacks
+-- and the GPS switch (Rack.Required) need the cabinet and this rack open: a full key opens it from the key menu,
+-- anyone else picks its lock. It shuts whenever the cabinet does.
+local rack = door.Rack or {}
+local RACK_ON = rack.Enabled ~= false
+local RACK_NEEDS = {}
+for _, action in ipairs(rack.Required or { 'hack', 'fullhack', 'replaceboard', 'disablegps', 'enablegps', 'system' }) do RACK_NEEDS[action] = true end
+local rackJobs = {} -- source -> { token, id, at } while picking a rack lock
+local function sendRack(id, isOpen) TriggerClientEvent('meta_comic:client:vendingRack', -1, id, isOpen == true) end
+local function openRack(entry)
+    if not RACK_ON or racks[entry.id] then return end
+    racks[entry.id] = true
+    sendRack(entry.id, true)
+end
+local function closeRack(id)
+    if not racks[id] then return end
+    racks[id] = nil
+    sendRack(id, false)
+end
+-- what an action needs open besides the cabinet: 'rack', 'cashbox', 'cabinet' or nothing
+local function needs(action)
+    if RACK_ON and RACK_NEEDS[action] then return 'rack' end
+    if action == 'hack' or action == 'fullhack' or action == 'replaceboard' then return box.Enabled ~= false and 'cashbox' or 'cabinet' end
+end
+local function ready(entry, action)
+    local need = needs(action)
+    if not need then return true end
+    if entry == nil or open[entry.id] == nil then return false end
+    if need == 'rack' then return racks[entry.id] ~= nil end
+    return need ~= 'cashbox' or lids[entry.id] ~= nil
+end
 refreshLids = function()
+    for id in pairs(racks) do
+        if not open[id] or not Vending.get(id) then closeRack(id) end
+    end
     for id, level in pairs(lids) do
         local entry = Vending.get(id)
         if not open[id] or not entry then
@@ -118,21 +155,48 @@ end
 local function brokenIn(entry) return MetaComic.VendingLoot and MetaComic.VendingLoot.isOpen(entry) end
 local function padlockReady(source, entry)
     -- broken into, or the cabinet is open for any other reason (unlocked with a key, being serviced)
-    return box.Enabled ~= false and entry and not lids[entry.id] and (brokenIn(entry) or open[entry.id] ~= nil) and Vending.near(source, entry, Vending.reach() + 1.0)
+    return box.Enabled ~= false and entry and not lids[entry.id] and open[entry.id] ~= nil and Vending.near(source, entry, Vending.reach() + 1.0)
 end
 local function duration() return math.max(1000, tonumber(box.Duration) or 8000) end
 
 MetaComic.VendingCashbox = {
     isOpen = function(id) return lids[tonumber(id) or 0] ~= nil end,
     -- looting cash needs the lid open; with Lock = false the box never stops anyone
-    allows = function(entry, mode) return box.Enabled == false or box.Lock == false or mode == 'stock' or (entry and lids[entry.id] ~= nil) end,
-    -- payment hacks reach the board through the open cash box (server/modules/vending_crime.lua)
-    hackReady = function(entry) return box.Enabled == false or (entry ~= nil and lids[entry.id] ~= nil) end,
+    allows = function(entry, mode) return entry ~= nil and open[entry.id] ~= nil
+        and (box.Enabled == false or box.Lock == false or mode == 'stock' or lids[entry.id] ~= nil) end,
+    -- hacks reach the board through the open server rack, or the cash box without one (server/modules/vending_crime.lua)
+    hackReady = function(entry) return ready(entry, 'hack') end,
+    needs = needs, ready = ready,
+    rackOpen = function(id) return racks[tonumber(id) or 0] ~= nil end,
+    -- full-key holders open and shut the server rack from the key menu (client/vending_keys.lua)
+    keyRack = RACK_ON and rack.OpenWithKey ~= false,
     -- the cabinet door stands open (key unlock, servicing, break-in): anyone there can loot it (server/modules/vending_loot.lua)
     cabinetOpen = function(id) return open[tonumber(id) or 0] ~= nil end,
     -- full-key holders can open and shut the box on its own from the key menu (client/vending_keys.lua)
     keyBox = box.Enabled ~= false and box.OpenWithKey ~= false,
 }
+RegisterNetEvent('meta_comic:server:vendingDamagedDoor', function(id, wantOpen)
+    local src, entry = source, Vending.get(id)
+    local keys, registry = MetaComic.VendingKeys, MetaComic.VendingRegistry
+    local record = entry and registry.get(entry.serial)
+    if not record or not keys or not Vending.near(src, entry, Vending.reach()) or keys.busy(entry)
+        or Vending.isTransferringStock(entry) or MetaComic.VendingLoot and MetaComic.VendingLoot.busy(entry) then return end
+    if record.securitySeal then
+        if wantOpen ~= true or not keys.unseal(src, entry) then return end
+    end
+    if record.lockCondition ~= 'damaged' then return end
+    if wantOpen == true then
+        trigger(src, entry.id, seconds('UnlockSeconds', 30))
+    elseif wantOpen == false then
+        local state = open[entry.id]
+        if state and next(state.holders) then return end
+        manuallyClosed[entry.id] = true
+        open[entry.id], lids[entry.id] = nil, nil
+        send(entry.id, false)
+        sendLid(entry.id, nil)
+        closeRack(entry.id)
+    end
+end)
 -- key holders open the box along with the cabinet
 -- mode 'door' opens only the cabinet; 'both' (or nothing) also opens the box for a full key
 RegisterNetEvent('meta_comic:server:vendingKeyUnlock', function(id, mode)
@@ -228,7 +292,74 @@ RegisterNetEvent('meta_comic:server:cashboxFinish', function(token, success)
     if record then record.cashboxOpenFor = record.unlockedUntil; MetaComic.VendingRegistry.save() end
     notify(source, 'The cash box padlock snapped open.', 'success')
 end)
-AddEventHandler('playerDropped', function() padlocks[source] = nil end)
+AddEventHandler('playerDropped', function() padlocks[source] = nil; rackJobs[source] = nil end)
+-- a full key opens or shuts the server rack of an open cabinet
+RegisterNetEvent('meta_comic:server:vendingRackKey', function(id, wantOpen)
+    local source = source
+    local entry = Vending.get(id)
+    if not RACK_ON or rack.OpenWithKey == false or not entry or not Vending.near(source, entry, Vending.reach() + 1.0) then return end
+    local keys = MetaComic.VendingKeys
+    if keys and keys.access and keys.access(source, entry, 'full') ~= true then return notify(source, 'Unlock the cabinet with a full-access key first.', 'error') end
+    if wantOpen then
+        if not open[entry.id] then return notify(source, 'Open the machine first.', 'error') end
+        if racks[entry.id] then return end
+        openRack(entry)
+        notify(source, 'Server rack opened.', 'success')
+    elseif racks[entry.id] then
+        closeRack(entry.id)
+        local record = MetaComic.VendingRegistry and MetaComic.VendingRegistry.get(entry.serial)
+        if record and record.rackOpenFor then record.rackOpenFor = nil; MetaComic.VendingRegistry.save() end
+        notify(source, 'Server rack closed.', 'success')
+    end
+end)
+local function rackDuration() return math.max(1000, tonumber(rack.Duration) or 10000) end
+local function rackPickReady(source, entry)
+    return RACK_ON and rack.Lock ~= false and entry and not racks[entry.id] and open[entry.id] ~= nil and Vending.near(source, entry, Vending.reach() + 1.0)
+end
+RegisterNetEvent('meta_comic:server:rackStart', function(id)
+    local source = source
+    local entry = Vending.get(id)
+    if rackJobs[source] or padlocks[source] or not rackPickReady(source, entry) then return end
+    if MetaComic.VendingCrimeBusy and MetaComic.VendingCrimeBusy(source) then return end
+    for _, item in ipairs(rack.Items or {}) do
+        local name = type(item) == 'table' and item.item or item
+        local needed = type(item) == 'table' and tonumber(item.count) or 1
+        if (MetaComic.Inventory.count and MetaComic.Inventory.count(source, name) or 0) < needed then
+            return notify(source, ('You need a %s.'):format(type(item) == 'table' and item.label or name), 'error')
+        end
+    end
+    local token = ('%d:%d:%d'):format(source, os.time(), math.random(1, 1000000000))
+    rackJobs[source] = { token = token, id = entry.id, at = GetGameTimer() }
+    setOpen(entry.id, os.time() + seconds('MaxSeconds', 120), source)
+    TriggerClientEvent('meta_comic:client:rackStart', source, { token = token, id = entry.id, minigame = rack.Minigame,
+        duration = rackDuration(), animation = rack.Animation, finish = 'meta_comic:server:rackFinish', label = 'Picking the rack lock' })
+end)
+RegisterNetEvent('meta_comic:server:rackFinish', function(token, success)
+    local source = source
+    local job = rackJobs[source]
+    rackJobs[source] = nil
+    release(source)
+    if not job or job.token ~= token or success ~= true then return end
+    if GetGameTimer() - job.at < rackDuration() * 0.9 then return end
+    local entry = Vending.get(job.id)
+    if not rackPickReady(source, entry) then return end
+    for _, item in ipairs(rack.Items or {}) do
+        if type(item) == 'table' and (tonumber(item.breakChance) or 0) > 0 and math.random() * 100 < tonumber(item.breakChance) then
+            if MetaComic.Inventory.remove(source, item.item, 1) then notify(source, ('Your %s broke.'):format(item.label or item.item), 'error') end
+        end
+    end
+    openRack(entry)
+    -- remembered for this break-in (keyed by its unlock time) so the rack stays open across restarts
+    local record = MetaComic.VendingRegistry and MetaComic.VendingRegistry.get(entry.serial)
+    if record and brokenIn(entry) then record.rackOpenFor = record.unlockedUntil; MetaComic.VendingRegistry.save() end
+    notify(source, 'The server rack lock turned.', 'success')
+end)
+exports('SetVendingRack', function(id, isOpen)
+    local entry = Vending.get(tonumber(id) or 0)
+    if not entry then return false end
+    if isOpen then openRack(entry) else closeRack(entry.id) end
+    return true
+end)
 exports('SetVendingCashbox', function(id, isOpen)
     local entry = Vending.get(tonumber(id) or 0)
     if not entry then return false end
@@ -245,7 +376,9 @@ CreateThread(function()
         for id, state in pairs(open) do
             -- a broken-in cabinet stays open until it's secured or its unlock runs out
             local entry = Vending.get(id)
-            if entry and MetaComic.VendingLoot and MetaComic.VendingLoot.isOpen(entry) then
+            if entry and MetaComic.VendingKeys and MetaComic.VendingKeys.replacing(entry) then
+                state['until'] = math.max(state['until'] or 0, now + seconds('CloseDelay', 2))
+            elseif entry and MetaComic.VendingLoot and MetaComic.VendingLoot.isOpen(entry) then
                 state['until'] = math.max(state['until'] or 0, now + seconds('CloseDelay', 2))
             elseif state.breakIn and next(state.holders) == nil then
                 -- opened by a break-in that has ended (secured or timed out): close right away
@@ -264,12 +397,13 @@ CreateThread(function()
         if scan >= 5 and Vending.all and door.Crime ~= false then
             scan = 0
             for _, entry in ipairs(Vending.all()) do
-                if not open[entry.id] and brokenIn(entry) then
+                if not open[entry.id] and not manuallyClosed[entry.id] and brokenIn(entry) then
                     setOpen(entry.id, now + seconds('UnlockSeconds', 30))
                     open[entry.id].breakIn = true
                     local record = MetaComic.VendingRegistry and MetaComic.VendingRegistry.get(entry.serial)
                     local padlockGone = record and record.cashboxOpenFor ~= nil and record.cashboxOpenFor == record.unlockedUntil
                     if box.Enabled ~= false and (box.PadlockAfterBreakIn == false or padlockGone) then openLid(entry) end
+                    if record and record.rackOpenFor ~= nil and record.rackOpenFor == record.unlockedUntil then openRack(entry) end
                 end
             end
         end
@@ -283,6 +417,9 @@ RegisterNetEvent('meta_comic:server:vendingDoors', function()
     local boxes = {}
     for id, level in pairs(lids) do boxes[#boxes + 1] = { id, level, wasBrokenIn(id) } end
     TriggerClientEvent('meta_comic:client:vendingCashboxes', source, boxes)
+    local openRacks = {}
+    for id in pairs(racks) do openRacks[#openRacks + 1] = id end
+    TriggerClientEvent('meta_comic:client:vendingRacks', source, openRacks)
 end)
 
 -- other scripts: exports['<resource>']:SetVendingDoor(machineId, true | false, seconds)

@@ -8,15 +8,15 @@ local tow = cfg.Tow or {}
 local Registry = MetaComic.VendingRegistry
 local Vending = MetaComic.Vending
 local ITEM = vending.Item or 'vending_machine'
--- Use a native dynamic cabinet bound for loose-world physics. Custom body/door
--- drawables may have no usable dynamic collision; clients supply their visuals.
-local MODEL = joaat((vending.Door or {}).Enabled ~= false and 'prop_vend_soda_01' or (vending.Model or 'metacomics_vending_machine'))
+local MODEL = joaat(vending.Model or 'metacomics_vending_machine')
+local BODY = joaat((vending.Door or {}).BodyModel or 'metacomics_vending_body')
 local tows = {} -- object net id -> { entity, serial, products, cash, vehicle (net id), by (source), byName }
 local resource = GetCurrentResourceName()
 local recoveryFile = 'data/vending_tow_recovery.json'
 local ok, saved = pcall(json.decode, LoadResourceFile(resource, recoveryFile) or '')
 local recovery = ok and type(saved) == 'table' and saved or {}
 local stopping = false
+local finish
 
 -- File writes are synchronous: shutdown must not start inventory/SQL callbacks.
 local function saveRecovery()
@@ -45,6 +45,9 @@ end
 local function playerName(source) return Registry.nameOf(source) end
 -- a broken-into (stolen) machine's door hangs loose and swings while it moves (client/vending_door.lua)
 local function looseDoor(serial) local record = serial and Registry.get(serial); return record ~= nil and record.status == 'stolen' end
+local function machineModel(serial)
+    return (vending.Door or {}).Enabled ~= false and looseDoor(serial) and BODY or MODEL
+end
 
 -- the player's machine items: { slot, metadata, stolen }
 local function machineSlots(source)
@@ -101,7 +104,7 @@ RegisterNetEvent('meta_comic:server:vendingTow', function(vehicleNet)
     local spot = vehicleCoords + vector3(math.sin(rad), -math.cos(rad), 0.0) * (2.5 + length * 0.5) -- behind the vehicle
     -- Spawn above the surface and hold it until its owner has loaded collision
     -- and placed the model on the ground (its origin need not be at its base).
-    local object = CreateObjectNoOffset(MODEL, spot.x, spot.y, back.z + 1.0, true, true, false)
+    local object = CreateObjectNoOffset(machineModel(metadata.serial), spot.x, spot.y, back.z + 1.0, true, true, false)
     local timeout = GetGameTimer() + 3000
     while not DoesEntityExist(object) and GetGameTimer() < timeout do Wait(0) end
     if not DoesEntityExist(object) then
@@ -124,10 +127,23 @@ RegisterNetEvent('meta_comic:server:vendingTow', function(vehicleNet)
         Registry.update(metadata.serial, { holder = false, worldState = 'towed' }, ('Dragged behind a vehicle by %s'):format(playerName(source)), playerName(source))
     end
     TriggerClientEvent('meta_comic:client:vendingTow', -1, objectNet, vehicleNet)
-    notify(source, 'Machine tied on. Get in and drive.', 'success')
+    notify(source, 'Preparing the machine and towing rope...', 'info')
+    local pending = tows[objectNet]
+    SetTimeout(30000, function()
+        if tows[objectNet] ~= pending or pending.ready or stopping then return end
+        -- Roll back the same transfer, once, only to the original connected
+        -- player. If their inventory is full, retain the world cabinet for pickup.
+        if GetPlayerPing(source) > 0 and Registry.identifierOf(source) == pending.identifier then
+            if finish(objectNet, source) then
+                notify(source, 'Towing could not initialize. The machine was returned to you.', 'error')
+            else
+                notify(source, 'Towing could not initialize. Untie the machine to recover it.', 'error')
+            end
+        end
+    end)
 end)
 
-local function finish(objectNet, receiver)
+finish = function(objectNet, receiver)
     local entry = tows[objectNet]
     if stopping or not entry or entry.finishing then return false end
     entry.finishing = true
@@ -152,6 +168,21 @@ local function finish(objectNet, receiver)
     end
     return true
 end
+
+RegisterNetEvent('meta_comic:server:vendingTowReady', function(objectNet)
+    local entry = tows[tonumber(objectNet) or 0]
+    if not entry or entry.finishing or not DoesEntityExist(entry.entity) then return end
+    if NetworkGetEntityOwner(entry.entity) ~= source then return end
+    -- Release the server-authored freeze as well as the owner's local freeze.
+    -- Client-only unfreezing can be overwritten by the replicated server state.
+    FreezeEntityPosition(entry.entity, false)
+    TriggerClientEvent('meta_comic:client:vendingTowActivate', source, tonumber(objectNet))
+    if entry.ready then return end
+    entry.ready = true
+    if not entry.snapped and entry.by and GetPlayerPing(entry.by) > 0 and Registry.identifierOf(entry.by) == entry.identifier then
+        notify(entry.by, 'Machine tied on. Get in and drive.', 'success')
+    end
+end)
 
 RegisterNetEvent('meta_comic:server:vendingUntow', function(objectNet)
     local source = source
@@ -180,7 +211,7 @@ RegisterNetEvent('meta_comic:server:vendingCarryDrop', function()
     local metadata = chosen.metadata
     local coords = GetEntityCoords(ped)
     local heading = math.rad(GetEntityHeading(ped))
-    local object = CreateObjectNoOffset(MODEL, coords.x - math.sin(heading) * 1.3, coords.y + math.cos(heading) * 1.3, coords.z + 1.0, true, true, false)
+    local object = CreateObjectNoOffset(machineModel(metadata.serial), coords.x - math.sin(heading) * 1.3, coords.y + math.cos(heading) * 1.3, coords.z + 1.0, true, true, false)
     local timeout = GetGameTimer() + 3000
     while not DoesEntityExist(object) and GetGameTimer() < timeout do Wait(0) end
     if stopping or not DoesEntityExist(object) then
@@ -293,7 +324,7 @@ CreateThread(function()
                     object = 0
                     local coords = entry.coords
                     if type(coords) == 'table' and tonumber(coords.x) and tonumber(coords.y) and tonumber(coords.z) then
-                        object = CreateObjectNoOffset(MODEL, coords.x, coords.y, coords.z + 1.0, true, true, false)
+                        object = CreateObjectNoOffset(machineModel(entry.serial), coords.x, coords.y, coords.z + 1.0, true, true, false)
                     end
                 end
                 if object ~= 0 and DoesEntityExist(object) then

@@ -12,17 +12,19 @@ local function notify(source, message, kind)
     if MetaComic.Framework.notify then MetaComic.Framework.notify(source, message, kind) end
 end
 local function write(record, field, value, event, source)
-    local old, history, updated = record[field], record.history, record.updatedAt
+    if record.systemController and not Registry.ensureOS(record) then return false end
+    local historyField = record.systemController and 'osHistory' or 'history'
+    local old, history, updated = record[field], record[historyField], record.updatedAt
     record[field] = value
     if event then -- no event = nothing in the machine's history (card copying must not show up there)
-        record.history = MetaComic.CopyTable(history or {})
-        table.insert(record.history, 1, { at = os.time(), event = event, by = source and Registry.nameOf(source) })
+        record[historyField] = MetaComic.CopyTable(history or {})
+        table.insert(record[historyField], 1, { at = os.time(), event = event, by = source and Registry.nameOf(source) })
         local limit = math.max(1, tonumber((cfg.Ownership or {}).HistoryLength) or 25)
-        while #record.history > limit do table.remove(record.history) end
+        while #record[historyField] > limit do table.remove(record[historyField]) end
     end
     record.updatedAt = os.time()
     if Registry.save() then return true end
-    record[field], record.history, record.updatedAt = old, history, updated
+    record[field], record[historyField], record.updatedAt = old, history, updated
     return false
 end
 function service.track(serial, entity) if serial then tracked[serial] = entity end end
@@ -32,7 +34,7 @@ function service.gpsPosition(serial) return serial and positions[serial] or nil 
 function service.gps(source, entry, enabled)
     if gps.Enabled == false or locks[entry.serial] then return false end
     local record = Registry.get(entry.serial)
-    if not record or (enabled and not Vending.canControl(source, entry)) then return false end
+    if not record or (enabled and not (Vending.canOperateSystem or Vending.canControl)(source, entry)) then return false end
     locks[entry.serial] = true
     local oldOrigin = record.gpsOrigin
     if enabled then record.gpsOrigin = { x = entry.x, y = entry.y, z = entry.z } end

@@ -60,23 +60,31 @@ local function playerName(source) return Registry.nameOf(source) end
 
 -- Who may do what -----------------------------------------------------------------------------------------------------
 local function recordOf(entry) return entry and entry.serial and Registry.get(entry.serial) or nil end
--- the business (managers) runs every machine; a person runs the machines they own, and a hacker the ones they rerouted
--- (the owner keeps access too, so they can reset the routing when they find their machine)
+-- Registered maintenance authority is independent of payment routing and OS takeover.
 local function controlledBy(record, id)
     if not id then return false end
-    return (record ~= nil and record.owner == id) or Registry.controller(record) == id
+    return Registry.ownedBy(record, id)
 end
-local function controls(source, entry) return controlledBy(recordOf(entry), playerId(source)) end
+local function controls(source, entry) return controlledBy(recordOf(entry), playerId(source)) or Registry.osMember(recordOf(entry), playerId(source)) end
 local function canControl(source, entry) return canManage(source) or controls(source, entry) end
+local function canOperateSystem(source, entry)
+    local record = recordOf(entry)
+    if not record then return false end
+    local system = Registry.systemController(record)
+    if system then return Registry.osMember(record, playerId(source)) end
+    return canManage(source) or Registry.ownedBy(record, playerId(source))
+end
 local function canRestock(source, entry)
-    if MetaComic.VendingKeys then return MetaComic.VendingKeys.access(source, entry, 'service') end
+    if MetaComic.VendingKeys then return MetaComic.VendingKeys.cabinetOpen(entry, source) and (
+        MetaComic.VendingKeys.access(source, entry, 'service') or MetaComic.VendingLoot and MetaComic.VendingLoot.isOpen(entry)
+            and (canControl(source, entry) or isEmployee(source) and Registry.businessOwned(recordOf(entry)))) end
     if canControl(source, entry) then return true end
-    return isEmployee(source) and Registry.controller(recordOf(entry)) == nil -- employees stock the business's machines
+    return isEmployee(source) and Registry.businessOwned(recordOf(entry))
 end
 -- employees look after the business's machines, so they may check those for skimmers (Check coin panel for tampering)
 local function businessStaff(source, entry)
     local record = recordOf(entry)
-    return record ~= nil and isEmployee(source) and Registry.controller(record) == nil
+    return isEmployee(source) and Registry.businessOwned(record)
 end
 -- a machine chained shut after a break-in (server/modules/vending_keys.lua): players are told so, not "not allowed"
 local function sealedText(entry)
@@ -84,8 +92,10 @@ local function sealedText(entry)
     return keysModule and keysModule.sealText and keysModule.sealText(recordOf(entry)) or nil
 end
 local function cabinetAccess(source, entry, level, moving)
+    if MetaComic.VendingKeys and not MetaComic.VendingKeys.cabinetOpen(entry, source) then return false end
     -- a broken-open cabinet needs no key: its owner or a manager can work on it directly (thieves still can't)
-    if MetaComic.VendingKeys and MetaComic.VendingLoot and MetaComic.VendingLoot.isOpen(entry) and canControl(source, entry) then return true end
+    if MetaComic.VendingKeys and MetaComic.VendingLoot and MetaComic.VendingLoot.isOpen(entry)
+        and (canControl(source, entry) or level == 'service' and businessStaff(source, entry)) then return true end
     if MetaComic.VendingKeys then return MetaComic.VendingKeys.access(source, entry, level or 'full', moving) end
     return canControl(source, entry)
 end
@@ -145,7 +155,7 @@ local function clientEntry(entry)
     local record = recordOf(entry)
     return { id = entry.id, model = entry.model, x = entry.x, y = entry.y, z = entry.z, h = entry.h, serial = entry.serial, products = clientProducts(entry),
         systemTakenOver = Registry.systemController(record) ~= nil,
-        unlockedUntil = record and record.unlockedUntil or 0,
+        unlockedUntil = record and record.unlockedUntil or 0, bolted = not record or record.unbolted ~= true,
         lockCondition = record and record.lockCondition, securitySeal = record and record.securitySeal,
         gpsDisabled = record and record.gpsDisabled == true or false, skimmer = record and record.skimmer ~= nil or false }
 end
@@ -179,6 +189,7 @@ local function unindex(id)
 end
 local function access(player)
     local controlled = {}
+    local systemControls = {}
     local fullHack = {}
     local replaceBoard = {}
     local skimmers = {} -- machines with a skimmer this player installed: only they see its Read / Remove options
@@ -187,17 +198,18 @@ local function access(player)
     local manager = canManage(player)
     local id = playerId(player)
     for _, machineId in ipairs(order) do
-        if controlledBy(recordOf(machines[machineId]), id) then controlled[#controlled + 1] = machineId end
+        if controls(player, machines[machineId]) then controlled[#controlled + 1] = machineId end
+        if canOperateSystem(player, machines[machineId]) then systemControls[#systemControls + 1] = machineId end
         local record = recordOf(machines[machineId])
         if record and type(record.skimmer) == 'table' and id and record.skimmer.installer == id then skimmers[#skimmers + 1] = machineId end
-        if employee and record and Registry.controller(record) == nil then staffed[#staffed + 1] = machineId end
+        if employee and Registry.businessOwned(record) then staffed[#staffed + 1] = machineId end
         if record and record.owner ~= id and not Registry.systemController(record) then fullHack[#fullHack + 1] = machineId end
-        if record and Registry.systemController(record) and (manager or record.owner == id) then replaceBoard[#replaceBoard + 1] = machineId end
+        if record and Registry.systemController(record) and (manager or record.owner == id or businessStaff(player, machines[machineId])) then replaceBoard[#replaceBoard + 1] = machineId end
     end
     local ace = (cfg.Placement or {}).BypassAce
     local police = MetaComic.Police and MetaComic.Police.isPolice and MetaComic.Police.isPolice(player) == true or false
     return { manage = manager, restock = manager or isEmployee(player), controls = controlled, fullHack = fullHack, replaceBoard = replaceBoard,
-        skimmers = skimmers, police = police, staffed = staffed,
+        skimmers = skimmers, police = police, staffed = staffed, systemControls = systemControls,
         placementBypass = type(ace) == 'string' and IsPlayerAceAllowed and IsPlayerAceAllowed(player, ace) == true }
 end
 local function sendAccess(player) TriggerClientEvent('meta_comic:client:vendingAccess', player, access(player)) end
@@ -213,12 +225,22 @@ end
 local function broadcast(entry) TriggerClientEvent('meta_comic:client:vendingMachineAdded', -1, clientEntry(entry)) end
 
 -- the serial's record follows the machine: placed here, with these coordinates
-local function recordPlaced(entry, event, by)
+local function recordPlaced(entry, event, by, installer)
     local record = recordOf(entry)
+    local includeInitialKey = installer and not (record and (record.stolenAt or record.status == 'stolen'))
     local location = { x = entry.x, y = entry.y, z = entry.z }
-    Registry.update(entry.serial, { status = 'placed', machineId = entry.id, coords = location, holder = false,
-        gpsOrigin = record and record.gpsOrigin or location }, event, by)
-    if MetaComic.VendingKeys then MetaComic.VendingKeys.ensure(Registry.get(entry.serial)) end
+    local fields = { status = 'placed', machineId = entry.id, coords = location, holder = false,
+        gpsOrigin = record and record.gpsOrigin or location }
+    if installer then
+        fields.unbolted, fields.installedById = true, playerId(installer)
+        if record and record.lockCondition == 'damaged' and not record.securitySeal then fields.displacedOpen = true end
+    end
+    Registry.update(entry.serial, fields, event, by)
+    if MetaComic.VendingKeys then
+        local lockRecord = Registry.get(entry.serial)
+        MetaComic.VendingKeys.ensure(lockRecord)
+        if includeInitialKey then MetaComic.VendingKeys.initialKey(installer, lockRecord) end
+    end
 end
 
 CreateThread(function()
@@ -377,7 +399,7 @@ RegisterNetEvent('meta_comic:server:placeVendingMachine', function(x, y, z, head
     Registry.ensure(serial, {})
     local entry, err = createMachine(source, x, y, z, heading, { serial = serial })
     if not entry then return notify(source, err, 'error') end
-    recordPlaced(entry, 'Placed by the business', playerName(source))
+    recordPlaced(entry, 'Placed by the business', playerName(source), source)
     broadcast(entry)
     notify(source, ('Vending machine #%d placed (serial %s).'):format(entry.id, serial), 'success')
 end)
@@ -430,7 +452,7 @@ RegisterNetEvent('meta_comic:server:moveVendingMachine', function(id, x, y, z, h
         print('[meta-comic] vending machine move failed: ' .. tostring(err))
         return notify(source, 'Could not save the new position.', 'error')
     end
-    recordPlaced(entry, nil)
+    recordPlaced(entry, nil, playerName(source), source)
     broadcast(entry) -- clients see the new coordinates and respawn the prop there
     notify(source, ('Vending machine #%d moved.'):format(entry.id), 'success')
 end)
@@ -514,7 +536,7 @@ RegisterNetEvent('meta_comic:server:placeVendingItem', function(x, y, z, heading
         return notify(source, err, 'error')
     end
     local stolen = record and record.status == 'stolen'
-    recordPlaced(entry, stolen and ('Set up by %s (stolen machine)'):format(playerName(source)) or ('Set up by %s'):format(playerName(source)), playerName(source))
+    recordPlaced(entry, stolen and ('Set up by %s (stolen machine)'):format(playerName(source)) or ('Set up by %s'):format(playerName(source)), playerName(source), source)
     if stolen then Registry.update(serial, { stolenAt = record.stolenAt or os.time() }) end
     broadcast(entry)
     sendAccessAll()
@@ -533,7 +555,10 @@ local function pickUp(source, entry, status, event)
         if again then broadcast(again) end
         return false, 'You cannot carry the vending machine.'
     end
+    local record = recordOf(entry)
+    local forcedOpen = record and not record.securitySeal and (record.lockCondition == 'damaged' or status == 'stolen' and not record.unbolted)
     Registry.update(entry.serial, { status = status or 'item', machineId = false, coords = false, holder = { id = playerId(source), name = playerName(source) },
+        unbolted = true, displacedOpen = forcedOpen or false, lockCondition = forcedOpen and 'damaged' or record and record.lockCondition,
         stolenAt = status == 'stolen' and os.time() or false }, event or ('Picked up by %s'):format(playerName(source)), playerName(source))
     sendAccessAll()
     return true
@@ -568,7 +593,7 @@ local function manageInfo(source, entry)
     local manager = canManage(source)
     local people
     local system = Registry.systemController(record)
-    local systemAccess = system == playerId(source) or not system and (manager or record and record.owner == playerId(source))
+    local systemAccess = canOperateSystem(source, entry)
     if manager then
         people = {}
         for _, person in ipairs(Registry.people()) do people[#people + 1] = { id = person.id, name = person.name, routing = person.routing, tax = person.tax } end
@@ -578,14 +603,21 @@ local function manageInfo(source, entry)
         ownerRouting = view.ownerRouting, tampered = view.tampered, tax = view.tax, cash = entry.cash or 0, manager = manager,
         gpsDisabled = record and record.gpsDisabled == true,
         canSwitchGPS = (cfg.GPS or {}).Enabled ~= false and systemAccess and cabinetAccess(source, entry, 'full'),
+        -- the GPS switch sits in the server rack (Config.VendingMachines.Door.Rack.Required)
+        systemRackClosed = MetaComic.VendingCashbox ~= nil and MetaComic.VendingCashbox.ready ~= nil and not MetaComic.VendingCashbox.ready(entry, 'system'),
+        gpsRackClosed = MetaComic.VendingCashbox ~= nil and MetaComic.VendingCashbox.ready ~= nil
+            and not MetaComic.VendingCashbox.ready(entry, record and record.gpsDisabled and 'enablegps' or 'disablegps'),
         canSetPayments = systemAccess and cabinetAccess(source, entry, 'full'),
-        canReplaceBoard = system ~= nil and (manager or record and record.owner == playerId(source)),
+        canReplaceBoard = system ~= nil and (manager or record and record.owner == playerId(source) or businessStaff(source, entry)),
         systemTakenOver = Registry.systemController(record) ~= nil,
         keysEnabled = MetaComic.VendingKeys ~= nil,
         fullAccess = cabinetAccess(source, entry, 'full'),
+        canInspectPanel = MetaComic.VendingKeys and MetaComic.VendingKeys.access(source, entry, 'service') == true,
         lockId = record and record.lockId, lockCondition = record and record.lockCondition, securitySeal = record and record.securitySeal,
         isOwner = record and record.owner ~= nil and record.owner == playerId(source), people = people, business = Registry.businessName,
-        sales = record and (manager or record.owner == playerId(source) or controlledBy(record, playerId(source))) and MetaComic.CopyTable(record.sales or {}) or nil,
+        sales = record and (manager or record.owner == playerId(source) or Registry.osMember(record, playerId(source)))
+            and MetaComic.CopyTable((Registry.viewFor(record, source, true) or {}).sales or {}) or nil,
+        canManageOSAccess = system ~= nil and system == playerId(source),
     }
 end
 local function openManage(source, entry)
@@ -698,6 +730,11 @@ local function ownerAction(source, id, action, data, timed)
     local by = playerName(source)
     if MetaComic.VendingKeys and MetaComic.VendingKeys.busy(entry) then return end
     if not cabinetAccess(source, entry, 'full') then return notify(source, 'Unlock the cabinet with a full-access key first.', 'error') end
+    -- owner and payment changes are made on the board in the server rack (Config.VendingMachines.Door.Rack.Required 'system')
+    local rackGate = MetaComic.VendingCashbox
+    if (action == 'assign' or action == 'payments' or action == 'resetRouting') and rackGate and rackGate.ready and not rackGate.ready(entry, 'system') then
+        return notify(source, 'Open the machine and its server rack first.', 'error')
+    end
     if action == 'assign' then
         if not manager then return notify(source, 'Only the business can assign owners.', 'error') end
         local ok, err = Registry.assign(entry.serial, type(data) == 'table' and data.owner or Registry.BUSINESS, by)
@@ -708,10 +745,11 @@ local function ownerAction(source, id, action, data, timed)
         if type(data) == 'table' and data.certificate and MetaComic.VendingRecords then MetaComic.VendingRecords.giveCertificate(source, entry.serial) end
         return openManage(source, entry)
     end
-    if not MetaComic.VendingKeys and not canControl(source, entry) then return notify(source, 'You are not allowed to do that.', 'error') end
+    if not MetaComic.VendingKeys and not canControl(source, entry)
+        and not ((action == 'payments' or action == 'gps') and canOperateSystem(source, entry)) then return notify(source, 'You are not allowed to do that.', 'error') end
     if action == 'payments' then
         local system = Registry.systemController(record)
-        if system and system ~= playerId(source) or not system and not manager and not (record and record.owner == playerId(source)) then
+        if not canOperateSystem(source, entry) then
             return notify(source, 'Full operating-system access is required to change payment recipients.', 'error')
         end
         if type(data) ~= 'table' then return end
@@ -746,15 +784,21 @@ local function ownerAction(source, id, action, data, timed)
     end
     if action == 'gps' then
         local system = Registry.systemController(record)
-        if system and system ~= playerId(source) or not system and not manager and not (record and record.owner == playerId(source)) then
+        if not canOperateSystem(source, entry) then
             return notify(source, 'Full operating-system access is required to switch GPS here.', 'error')
+        end
+        local cashbox = MetaComic.VendingCashbox
+        if cashbox and cashbox.ready and not cashbox.ready(entry, record and record.gpsDisabled and 'enablegps' or 'disablegps') then
+            return notify(source, 'Open the machine and its server rack first.', 'error')
         end
         if MetaComic.VendingSecurity.gps(source, entry, record and record.gpsDisabled == true) then return openManage(source, entry) end
         return
     end
     if action == 'collect' then
+        local cashbox = MetaComic.VendingCashbox
+        if cashbox and not cashbox.allows(entry, 'cash') then return notify(source, 'Open the cabinet and cash box before collecting cash.', 'error') end
         -- the business collects from its own machines; a person's cash is theirs (or the hacker's who took it over)
-        if not MetaComic.VendingKeys and not controls(source, entry) and Registry.controller(record) ~= nil then return notify(source, 'This cash belongs to the machine\'s owner.', 'error') end
+        if not MetaComic.VendingKeys and not controls(source, entry) and not (manager and Registry.businessOwned(record)) then return notify(source, 'This cash belongs to the machine\'s owner.', 'error') end
         local amount = entry.cash or 0
         if amount <= 0 then return notify(source, 'There is no cash in this machine.', 'error') end
         -- taking the cash plays out first (Config.VendingMachines.Work); this runs again when it's done
@@ -762,7 +806,7 @@ local function ownerAction(source, id, action, data, timed)
         stockTransfers[entry.id] = true
         entry.cash = 0
         if not saveEntry(entry) then entry.cash = amount; stockTransfers[entry.id] = nil; return notify(source, 'Could not save the vending machine.', 'error') end
-        if MetaComic.VendingKeys and not cabinetAccess(source, entry, 'full') then
+        if cashbox and not cashbox.allows(entry, 'cash') or MetaComic.VendingKeys and not cabinetAccess(source, entry, 'full') then
             entry.cash = amount; saveEntry(entry); stockTransfers[entry.id] = nil
             return notify(source, 'Key access expired or changed. Cash remains in the machine.', 'error')
         end
@@ -801,13 +845,14 @@ if MetaComic.RpcHandlers then
     MetaComic.RpcHandlers.getVendingMachines = function(source)
         -- managers see every machine; owners using the portal (Config.Portal) only their own
         local ownerId = not canManage(source) and MetaComic.Portal and MetaComic.Portal.ownerScope(source, 'vending')
-        if not canManage(source) and not ownerId then return { ok = false, error = 'You are not allowed to manage vending machines.' } end
+        if not canManage(source) and not ownerId and not Registry.hasOSAccess(source) then return { ok = false, error = 'You are not allowed to manage vending machines.' } end
         local list = {}
         for _, id in ipairs(order) do
             local entry = machines[id]
             local record = recordOf(entry)
-            if not ownerId or record and record.owner == ownerId then
-                local view = Registry.view(record) or {}
+            if record and (record.systemController and Registry.osMember(record, playerId(source))
+                or not record.systemController and (canManage(source) or ownerId and record.owner == ownerId)) then
+                local view = Registry.viewFor(record, source) or {}
                 list[#list + 1] = { id = entry.id, x = entry.x, y = entry.y, z = entry.z, products = clientProducts(entry), serial = entry.serial,
                     ownerName = view.ownerName, tampered = view.tampered, cash = entry.cash or 0 }
             end
@@ -818,9 +863,10 @@ if MetaComic.RpcHandlers then
             local n = 0
             for _, record in ipairs(Registry.all()) do
                 local fix = record.status ~= 'removed' and not record.gpsDisabled and security.gpsPosition(record.serial)
-                if fix and (not ownerId or record.owner == ownerId) then
+                if fix and (record.systemController and Registry.osMember(record, playerId(source))
+                    or not record.systemController and (canManage(source) or ownerId and record.owner == ownerId)) then
                     n = n + 1
-                    local view = Registry.view(record) or {}
+                    local view = Registry.viewFor(record, source) or {}
                     list[#list + 1] = { id = -n, x = fix.x, y = fix.y, z = fix.z, serial = record.serial, ownerName = view.ownerName,
                         tampered = view.tampered, tracked = fix.how, holderName = fix.holder, seenAt = fix.at }
                 end
@@ -1052,10 +1098,12 @@ MetaComic.Vending = {
     canManage = canManage,
     isTransferringStock = function(entry) return entry and stockTransfers[entry.id] == true end,
     canControl = canControl,
+    canOperateSystem = canOperateSystem,
     openManage = openManage,
     sendAccessAll = sendAccessAll,
     sendAccess = sendAccess,
     businessStaff = businessStaff,
+    isEmployee = isEmployee,
     giveMachineItem = giveMachineItem,
     giveSealed = function(source, kind, setId, count) return MetaComic.GiveSealed(source, kind, setId, count) end,
 }

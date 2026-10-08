@@ -58,6 +58,7 @@ function service.phone(source, alert)
         local record = registry.get(alert.serial)
         local id = phone.Recipient == 'owner' and record and record.owner or nil
         if phone.Recipient ~= 'owner' then id = registry.controller(record) end
+        if record and record.systemController and not registry.osMember(record, id) then return false end
         if id and id ~= registry.BUSINESS then target = registry.onlineSource(id) or id end
     end
     if not target then return false end -- no personal chip controller (business-owned machine)

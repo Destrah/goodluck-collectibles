@@ -75,7 +75,7 @@ function KeyRecord({ record }) {
       {report ? <><dt>Registered owner</dt><dd>{printed.ownerName || '-'}</dd><dt>Printed</dt><dd>{printed.printedAt ? new Date(printed.printedAt * 1000).toLocaleString() : '-'}</dd></> : <>
         <dt>Numbered key ID</dt><dd className="mono">{printed.keyId || '-'}</dd>
         <dt>Access</dt><dd>{printed.access || '-'}</dd>
-        <dt>Cylinder match today</dt><dd>{record.currentLockId === printed.lockId ? 'Current cylinder' : 'Retired / no matching cylinder'}</dd>
+        <dt>Business record match</dt><dd>{record.currentLockId === printed.lockId ? 'Matches the registered cylinder' : 'Does not match the registered cylinder'}</dd>
       </>}
     </dl>
     {report && <VendingKeyArchive archive={printed.archive} currentLockId={printed.lockId} />}

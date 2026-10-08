@@ -56,10 +56,34 @@ local WEDGE_CHANCE = tonumber(door.WedgedPackChance) or 25
 local WEDGE_AT = door.WedgedPackOffset or vec3(-0.15, -0.37, -0.36) -- below row C, above the PUSH chute: a pack that never dropped
 local brokenBoxes = {} -- machine id -> true while its open box was broken into (cash spills onto the ground)
 local lids = {} -- machine id -> cash level while its lid is open (from the server)
+-- server rack right of the window: a lid hinged on its left edge, with status LEDs on the top unit inside
+local rack = door.Rack or {}
+local RACK_ON = rack.Enabled ~= false
+local RACKLID = joaat(rack.LidModel or 'metacomics_vending_racklid')
+local rackAt = rack.LidHinge or vec3(0.282, -0.40, -0.208)
+local RACKPOS = vector3(rackAt.x + 0.0, rackAt.y + 0.0, rackAt.z + 0.0)
+local RACKANGLE = tonumber(rack.LidAngle) or 100.0
+local RACKSIGN = (tonumber(rack.LidDirection) or -1) < 0 and -1 or 1
+local RACK_NEEDS = {}
+for _, action in ipairs(rack.Required or { 'hack', 'fullhack', 'replaceboard', 'disablegps', 'enablegps', 'system' }) do RACK_NEEDS[action] = true end
+local leds = rack.Lights or {}
+local LEDS = RACK_ON and leds.Enabled ~= false
+local LED_GPS, LED_OS = leds.Gps or vec3(0.4595, -0.363, 0.5231), leds.Os or vec3(0.4826, -0.363, 0.5231)
+local LED_SIZE, LED_RANGE = tonumber(leds.Size) or 0.012, tonumber(leds.Range) or 0.25
+local LED_INTENSITY, LED_DISTANCE = tonumber(leds.Intensity) or 3.0, tonumber(leds.Distance) or 15.0
+local racks = {} -- machine id -> true while its rack is open (from the server)
 
 local doors = {} -- machine id -> { target, angle, entity (machine prop it replaced), body, door }
 -- the hacks need the cabinet and its cash box open (client/vending_crime.lua)
 MetaComic.VendingHackReady = function(id) return box.Enabled == false or lids[tonumber(id) or 0] ~= nil end
+-- the hacks and the GPS switch in Rack.Required need the server rack open instead (the server checks again)
+MetaComic.VendingTechReady = function(id, action)
+    id = tonumber(id) or 0
+    if RACK_ON and RACK_NEEDS[action] then return racks[id] ~= nil end
+    if action == 'hack' or action == 'fullhack' then return box.Enabled == false or lids[id] ~= nil end
+    return true
+end
+MetaComic.VendingRackOpen = function(id) return racks[tonumber(id) or 0] ~= nil end
 -- the cabinet door stands open, for whatever reason: the loot option shows (client/vending_crime.lua)
 MetaComic.VendingCabinetOpen = function(id) local state = doors[tonumber(id) or 0]; return state ~= nil and (state.target or 0) > 0 end
 local available, warned
@@ -136,7 +160,8 @@ local function moveSkimmer(state, toDoor)
     if not prop or not DoesEntityExist(prop) then state.skimmer = nil; return end
     local o, r = skimmerOffset()
     if toDoor and state.door and DoesEntityExist(state.door) then
-        AttachEntityToEntity(prop, state.door, 0, o.x - HINGE.x, o.y - HINGE.y, o.z - HINGE.z, r.x, r.y, r.z, false, false, false, false, 2, true)
+        local d = (cfg.Skimmer or {}).DoorAdjust or vector3(0.0, -0.004, 0.0) -- nudge while it rides on the door prop only
+        AttachEntityToEntity(prop, state.door, 0, o.x - HINGE.x + d.x, o.y - HINGE.y + d.y, o.z - HINGE.z + d.z, r.x, r.y, r.z, false, false, false, false, 2, true)
     elseif state.entity and DoesEntityExist(state.entity) then
         AttachEntityToEntity(prop, state.entity, -1, o.x, o.y, o.z, r.x, r.y, r.z, false, false, false, false, 2, true)
     end
@@ -150,6 +175,8 @@ local function restore(state)
     state.wedge = nil
     if state.lid and DoesEntityExist(state.lid) then DeleteEntity(state.lid) end
     state.lid = nil
+    if state.rackLid and DoesEntityExist(state.rackLid) then DeleteEntity(state.rackLid) end
+    state.rackLid = nil
     if state.door and DoesEntityExist(state.door) then DeleteEntity(state.door) end
     if state.entity then TriggerEvent('meta_comic:client:vendingPackParent', state.entity, nil) end
     if state.body and DoesEntityExist(state.body) then DeleteEntity(state.body) end
@@ -174,6 +201,11 @@ local function build(state, entity)
         SetEntityCollision(state.lid, false, false)
         SetModelAsNoLongerNeeded(LID)
     end
+    if RACK_ON and IsModelInCdimage(RACKLID) and load(RACKLID) then
+        state.rackLid = CreateObjectNoOffset(RACKLID, coords.x, coords.y, coords.z, false, false, false)
+        SetEntityCollision(state.rackLid, false, false)
+        SetModelAsNoLongerNeeded(RACKLID)
+    end
     if math.random(100) <= WEDGE_CHANCE then
         local hash = joaat(PACK_MODELS[math.random(#PACK_MODELS)])
         if IsModelInCdimage(hash) and load(hash) then
@@ -194,6 +226,28 @@ local function pose(state)
     if state.lid then
         AttachEntityToEntity(state.lid, state.body, 0, LIDPOS.x, LIDPOS.y, LIDPOS.z, LIDSIGN * (state.lidAngle or 0.0), 0.0, 0.0, false, false, false, false, 2, true)
     end
+    if state.rackLid then
+        AttachEntityToEntity(state.rackLid, state.body, 0, RACKPOS.x, RACKPOS.y, RACKPOS.z, 0.0, 0.0, RACKSIGN * (state.rackAngle or 0.0), false, false, false, false, 2, true)
+    end
+end
+
+-- status LEDs on the rack's top unit: red blinks while the GPS is on; green blinks for the original board, blue once
+-- the operating system was taken over. Only with the rack lid model streamed (the new body has the rack in it).
+local function led(body, at, r, g, b, glow)
+    local p = GetOffsetFromEntityInWorldCoords(body, at.x, at.y, at.z)
+    DrawMarker(28, p.x, p.y, p.z, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, LED_SIZE, LED_SIZE, LED_SIZE, r, g, b, 255, false, false, 2, false, nil, nil, false)
+    if glow then -- only with the lid open, so the light doesn't shine through it
+        local q = GetOffsetFromEntityInWorldCoords(body, at.x, at.y - 0.03, at.z)
+        DrawLightWithRange(q.x, q.y, q.z, r, g, b, LED_RANGE, LED_INTENSITY)
+    end
+end
+local function drawLeds(state, machine, ped)
+    if not LEDS or not state.rackLid or not machine or #(GetEntityCoords(state.body) - ped) > LED_DISTANCE then return end
+    local t, glow = GetGameTimer(), (state.rackAngle or 0.0) > 10.0
+    if (cfg.GPS or {}).Enabled ~= false and not machine.gpsDisabled and t % 1000 < 450 then led(state.body, LED_GPS, 255, 0, 0, glow) end
+    if (t + 300) % 1600 < 1100 then
+        if machine.systemTakenOver then led(state.body, LED_OS, 0, 90, 255, glow) else led(state.body, LED_OS, 0, 255, 40, glow) end
+    end
 end
 
 local running = false
@@ -213,14 +267,20 @@ local function animate()
                     restore(state)
                     state.angle = state.target -- out of view: jump to the end state
                     state.lidAngle = lids[id] and state.target > 0 and LIDANGLE or 0.0
+                    state.rackAngle = racks[id] and state.target > 0 and RACKANGLE or 0.0
                     if state.target == 0 then doors[id] = nil end
                 else
                     anyNear = true
                     if state.entity ~= entity then restore(state) end
                     if (state.target > 0 or state.angle > 0) and not state.body then
-                        if build(state, entity) then state.skimmer = machine.skimmerProp; moveSkimmer(state, true) else doors[id] = nil end
+                        if build(state, entity) then pose(state); state.skimmer = machine.skimmerProp; moveSkimmer(state, true) else doors[id] = nil end -- hang the door on the body first, so the skimmer follows it
                     end
                     if state.body then
+                        -- the skimmer rides on the door; a skimmer (re)spawned while the door is open moves onto it too
+                        local sk = machine.skimmerProp
+                        if sk ~= state.skimmer or (sk and DoesEntityExist(sk) and DoesEntityExist(state.door) and GetEntityAttachedTo(sk) ~= state.door) then
+                            state.skimmer = sk; moveSkimmer(state, true) -- (re)attach until it really hangs on the door prop
+                        end
                         local step = SPEED * dt
                         if state.angle < state.target then state.angle = math.min(state.target, state.angle + step)
                         elseif state.angle > state.target then state.angle = math.max(state.target, state.angle - step) end
@@ -229,10 +289,15 @@ local function animate()
                         state.lidAngle = state.lidAngle or 0.0
                         if state.lidAngle < lidTarget then state.lidAngle = math.min(lidTarget, state.lidAngle + step)
                         elseif state.lidAngle > lidTarget then state.lidAngle = math.max(lidTarget, state.lidAngle - step) end
+                        local rackTarget = racks[id] and state.target > 0 and RACKANGLE or 0.0
+                        state.rackAngle = state.rackAngle or 0.0
+                        if state.rackAngle < rackTarget then state.rackAngle = math.min(rackTarget, state.rackAngle + step)
+                        elseif state.rackAngle > rackTarget then state.rackAngle = math.max(rackTarget, state.rackAngle - step) end
                         if level and (state.cashLevel ~= level or state.cashBroken ~= brokenBoxes[id]) then fillCash(state, level, brokenBoxes[id])
                         elseif not level and state.cash and state.lidAngle == 0 then clearCash(state) end
                         pose(state)
-                        if state.target == 0 and state.angle == 0 and state.lidAngle == 0 then restore(state); doors[id] = nil end
+                        drawLeds(state, machine, ped)
+                        if state.target == 0 and state.angle == 0 and state.lidAngle == 0 and state.rackAngle == 0 then restore(state); doors[id] = nil end
                     end
                 end
             end
@@ -275,6 +340,10 @@ RegisterNetEvent('meta_comic:client:vendingCashboxes', function(list)
         lids[id], brokenBoxes[id] = pair[2], pair[3] == true or nil
     end
 end)
+RegisterNetEvent('meta_comic:client:vendingRack', function(id, isOpen) racks[tonumber(id) or 0] = isOpen == true or nil end)
+RegisterNetEvent('meta_comic:client:vendingRacks', function(list)
+    for _, id in ipairs(list or {}) do racks[tonumber(id) or 0] = true end
+end)
 
 -- breaking the cash box padlock on a broken-in machine (the server checks everything again)
 local breaking = false
@@ -302,8 +371,34 @@ if box.Enabled ~= false and box.Lock ~= false and GetResourceState('ox_target') 
         } })
     end)
 end
-RegisterNetEvent('meta_comic:client:cashboxStart', function(data)
-    if breaking then return TriggerServerEvent('meta_comic:server:cashboxFinish', data.token, false) end
+-- picking the server rack lock on an open machine (the server checks everything again)
+if RACK_ON and rack.Lock ~= false and GetResourceState('ox_target') ~= 'missing' then
+    CreateThread(function()
+        while GetResourceState('ox_target') ~= 'started' do Wait(500) end
+        local items = {}
+        for _, item in ipairs(rack.Items or {}) do
+            items[type(item) == 'table' and item.item or item] = type(item) == 'table' and tonumber(item.count) or 1
+        end
+        exports.ox_target:addModel(cfg.Model or 'metacomics_vending_machine', { {
+            name = 'meta_comic_vending_rack', label = rack.Label or 'Pick server rack lock', icon = rack.Icon or 'fa-solid fa-server',
+            distance = rack.Distance or (cfg.Shop and cfg.Shop.TargetDistance) or 2.0,
+            items = next(items) and items or nil,
+            canInteract = function(entity)
+                local machine = MetaComic.VendingMachineOf and MetaComic.VendingMachineOf(entity)
+                local cabinetOpen = (machine and (machine.unlockedUntil or 0) > 0) or (machine and doors[machine.id] ~= nil and (doors[machine.id].target or 0) > 0)
+                return machine and not breaking and racks[machine.id] == nil and cabinetOpen and not machine.securitySeal
+            end,
+            onSelect = function(data)
+                local machine = MetaComic.VendingMachineOf and MetaComic.VendingMachineOf(data.entity)
+                if machine then TriggerServerEvent('meta_comic:server:rackStart', machine.id) end
+            end,
+        } })
+    end)
+end
+-- breaking the cash box padlock or picking the rack lock: minigame, then the rest of the time on a progress bar
+local function breakOpen(data)
+    local finish = data.finish or 'meta_comic:server:cashboxFinish'
+    if breaking then return TriggerServerEvent(finish, data.token, false) end
     breaking = true
     local ped = PlayerPedId()
     local anim = data.animation or { dict = 'mini@safe_cracking', clip = 'idle_base', flag = 1 }
@@ -319,7 +414,7 @@ RegisterNetEvent('meta_comic:client:cashboxStart', function(data)
     local rest = data.duration - (GetGameTimer() - started)
     if passed and rest > 0 then
         if GetResourceState('ox_lib') == 'started' then
-            passed = exports.ox_lib:progressBar({ duration = rest, label = 'Breaking the padlock', canCancel = true,
+            passed = exports.ox_lib:progressBar({ duration = rest, label = data.label or 'Breaking the padlock', canCancel = true,
                 disable = { move = true, car = true, combat = true } }) == true
         else
             Wait(rest)
@@ -327,8 +422,10 @@ RegisterNetEvent('meta_comic:client:cashboxStart', function(data)
     end
     if anim.dict then StopAnimTask(ped, anim.dict, anim.clip, 2.0) end
     breaking = false
-    TriggerServerEvent('meta_comic:server:cashboxFinish', data.token, passed)
-end)
+    TriggerServerEvent(finish, data.token, passed)
+end
+RegisterNetEvent('meta_comic:client:cashboxStart', breakOpen)
+RegisterNetEvent('meta_comic:client:rackStart', breakOpen)
 
 -- Loose door on a moving machine: a broken-into machine that is carried on a dolly or dragged behind a car (the
 -- networked prop vending_carry spawns, flagged with the metaComicDoorLoose state bag) shows its door hanging open
@@ -343,44 +440,46 @@ local SPRING = tonumber(LOOSE.Spring) or 6.0
 
 local function dropLoose(object, state)
     if state.door and DoesEntityExist(state.door) then DeleteEntity(state.door) end
-    if state.body and DoesEntityExist(state.body) then DeleteEntity(state.body) end
-    if DoesEntityExist(object) then ResetEntityAlpha(object); SetEntityVisible(object, true, false) end
+    -- The body is the actual shared/carry entity; this module owns only the door.
+    if state.ownsBody then
+        if DoesEntityExist(state.body) then DeleteEntity(state.body) end
+        if DoesEntityExist(object) then ResetEntityAlpha(object); SetEntityVisible(object, true, false) end
+    end
     loose[object] = nil
 end
 local function buildLoose(object)
-    local broken = Entity(object).state.metaComicDoorLoose == true
-    local visualModel = broken and BODY or joaat(cfg.Model or 'metacomics_vending_machine')
-    if not load(visualModel) or (broken and not load(DOOR)) then return nil end
+    if not load(DOOR) or not DoesEntityExist(object) then return nil end
     local coords = GetEntityCoords(object)
-    local body = CreateObjectNoOffset(visualModel, coords.x, coords.y, coords.z, false, false, false)
-    local front = broken and CreateObjectNoOffset(DOOR, coords.x, coords.y, coords.z, false, false, false) or nil
-    if not DoesEntityExist(object) or not DoesEntityExist(body) or (broken and not DoesEntityExist(front)) then
-        if DoesEntityExist(body) then DeleteEntity(body) end
+    -- Carrying keeps its existing full-machine parent and visual body swap.
+    -- Towing now uses the collision-equipped body directly, with no proxy.
+    local ownsBody = GetEntityModel(object) ~= BODY
+    if ownsBody and not load(BODY) then return nil end
+    local body = ownsBody and CreateObjectNoOffset(BODY, coords.x, coords.y, coords.z, false, false, false) or object
+    local front = CreateObjectNoOffset(DOOR, coords.x, coords.y, coords.z, false, false, false)
+    if not DoesEntityExist(object) or not DoesEntityExist(body) or not DoesEntityExist(front) then
+        if ownsBody and DoesEntityExist(body) then DeleteEntity(body) end
         if front and DoesEntityExist(front) then DeleteEntity(front) end
-        SetModelAsNoLongerNeeded(visualModel); if broken then SetModelAsNoLongerNeeded(DOOR) end
+        SetModelAsNoLongerNeeded(DOOR)
         return nil
     end
-    SetEntityCollision(body, false, false)
-    -- Match the feet, since the stock physics prop and custom meshes have
-    -- different origins. This offset then follows every tilt of the parent.
-    local parentMin = GetModelDimensions(GetEntityModel(object))
-    local visualMin = GetModelDimensions(visualModel)
-    AttachEntityToEntity(body, object, -1, 0.0, 0.0, parentMin.z - visualMin.z, 0.0, 0.0, 0.0, false, false, false, false, 2, true)
-    if front then
-        SetEntityCollision(front, false, false)
-        AttachEntityToEntity(front, body, -1, HINGE.x, HINGE.y, HINGE.z, 0.0, 0.0, SIGN * REST, false, false, false, false, 2, true)
+    if ownsBody then
+        SetEntityCollision(body, false, false)
+        local parentMin = GetModelDimensions(GetEntityModel(object))
+        local visualMin = GetModelDimensions(BODY)
+        AttachEntityToEntity(body, object, -1, 0.0, 0.0, parentMin.z - visualMin.z, 0.0, 0.0, 0.0, false, false, false, false, 2, true)
+        SetModelAsNoLongerNeeded(BODY)
+        SetEntityVisible(object, true, false)
+        SetEntityAlpha(object, 0, false)
     end
-    SetModelAsNoLongerNeeded(visualModel); if broken then SetModelAsNoLongerNeeded(DOOR) end
-    -- Keep the attachment parent visible: hiding it also hides the attached body.
-    -- Object alpha affects this mesh only, preserving the body and swinging door.
-    SetEntityVisible(object, true, false)
-    SetEntityAlpha(object, 0, false)
-    return { body = body, door = front, broken = broken, angle = REST, speed = 0.0, last = vector3(0.0, 0.0, 0.0), lastCoords = coords }
+    SetEntityCollision(front, false, false)
+    AttachEntityToEntity(front, body, -1, HINGE.x, HINGE.y, HINGE.z, 0.0, 0.0, SIGN * REST, false, false, false, false, 2, true)
+    SetModelAsNoLongerNeeded(DOOR)
+    return { body = body, ownsBody = ownsBody, door = front, angle = REST, speed = 0.0, last = vector3(0.0, 0.0, 0.0), lastCoords = coords }
 end
 
 if LOOSE.Enabled ~= false then
     CreateThread(function()
-        local hash = joaat(cfg.Model or 'metacomics_vending_machine')
+        local fullModel = joaat(cfg.Model or 'metacomics_vending_machine')
         local seen, nextScan = {}, 0
         while true do
             local near = false
@@ -391,17 +490,16 @@ if LOOSE.Enabled ~= false then
                 seen = {}
                 for _, object in ipairs(GetGamePool('CObject')) do
                     if NetworkGetEntityIsNetworked(object)
-                        and (Entity(object).state.metaComicTowId or (GetEntityModel(object) == hash and Entity(object).state.metaComicDoorLoose))
+                        and (GetEntityModel(object) == BODY or GetEntityModel(object) == fullModel) and Entity(object).state.metaComicDoorLoose
                         and #(GetEntityCoords(object) - ped) <= DISTANCE then
                         seen[object] = true
-                        if loose[object] and loose[object].broken ~= (Entity(object).state.metaComicDoorLoose == true) then dropLoose(object, loose[object]) end
                         if not loose[object] then loose[object] = buildLoose(object) end
                     end
                 end
                 end
                 local dt = GetFrameTime()
                 for object, state in pairs(loose) do
-                    if not seen[object] or not DoesEntityExist(object) or not DoesEntityExist(state.body) or (state.broken and not DoesEntityExist(state.door)) then
+                    if not seen[object] or not DoesEntityExist(object) or not DoesEntityExist(state.door) then
                         dropLoose(object, state)
                     elseif state.door then
                         near = true
@@ -417,7 +515,8 @@ if LOOSE.Enabled ~= false then
                         local side = accel.x * math.cos(heading) + accel.y * math.sin(heading)
                         local forward = -accel.x * math.sin(heading) + accel.y * math.cos(heading)
                         local rad = math.rad(state.angle)
-                        local torque = PUSH * 0.01 * (side * math.cos(rad) - forward * math.sin(rad)) * SIGN
+                        -- Inertia trails the cabinet's acceleration rather than following it.
+                        local torque = -PUSH * 0.01 * (side * math.cos(rad) - forward * math.sin(rad)) * SIGN
                         torque = torque - SPRING * math.rad(state.angle - REST) - DAMP * math.rad(state.speed)
                         state.speed = state.speed + math.deg(torque) * dt
                         state.angle = state.angle + state.speed * dt

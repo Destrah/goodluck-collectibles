@@ -450,7 +450,11 @@ Config.VendingMachines = {
         -- the pack's spot in the slot) can be tuned freely. When bought, the box slides forward to BoxDropFront while
         -- turning to BoxDropRotation (thin side towards the glass), then drops straight down to the tray.
         BoxModel = 'prop_boosterbox_01', BoxRotation = vec3(0.0, 90.0, 0.0), BoxOffset = vec3(0.0, 0.05, 0.1),
-        BoxDropRotation = vec3(0.0, 90.0, 90.0), BoxDropFront = -0.38 },
+        BoxDropRotation = vec3(0.0, 90.0, 90.0), BoxDropFront = -0.38,
+        -- spotlight from the top inside the window onto the packs (drawn by script for machines within Range metres).
+        -- Offset: x left/right, y front/back (front is -y), z up from the model origin; Direction: where it points.
+        Light = { Enabled = true, Offset = vec3(-0.15, -0.44, 0.63), Direction = vec3(0.0, 0.15, -1.0), Color = { 255, 244, 225 },
+            Distance = 1.4, Brightness = 4.0, Hardness = 0.0, Radius = 55.0, Falloff = 10.0, Range = 30.0 } },
     -- Admin UI "Vending machines" tab (/collectiblesadmin): every machine on a map with its stock. Put a square GTA V
     -- map picture at Image (a path in this resource or an https URL; without one a grid is shown). The numbers line
     -- world coordinates up with the common 8192px GTA V map tiles; adjust them if your picture is cropped differently.
@@ -508,6 +512,22 @@ Config.VendingMachines = {
             LidModel = 'metacomics_vending_cashlid', LidHinge = vec3(0.402, 0.405, -0.6395), LidAngle = 80.0, LidDirection = -1,
             CashProps = { 'prop_cash_pile_01', 'prop_anim_cash_note' }, OverflowAt = 3000, BreakInDelay = 2500, PadlockAfterBreakIn = true,
         },
+        -- Server rack in the recess right of the window (lid model metacomics_vending_racklid, hinged on its left edge).
+        -- The actions in Required (board / OS / payment hacks and the GPS switch) need the cabinet and this rack open
+        -- instead of the cash box. A full key opens it from the key menu; anyone else picks its lock (Items, Minigame,
+        -- Duration). With Enabled = false the hacks go back to needing the cash box open.
+        -- 'system' covers the Manage menu's system changes: Assign owner, card payment recipient and Reset routing.
+        -- Lights: blinking LEDs on the top unit, red while the GPS is on, green for the original board, blue once the
+        -- operating system was taken over. Drawn by script, only once the rack lid model is streamed.
+        Rack = {
+            Enabled = true, Lock = true, OpenWithKey = true, Label = 'Pick server rack lock', Icon = 'fa-solid fa-server', Duration = 10000,
+            Items = { { item = 'lockpick', label = 'lockpick', count = 1, breakChance = 25 } },
+            Minigame = 'lockpick_medium',
+            Required = { 'hack', 'fullhack', 'replaceboard', 'disablegps', 'enablegps', 'system' },
+            LidModel = 'metacomics_vending_racklid', LidHinge = vec3(0.282, -0.40, -0.208), LidAngle = 100.0, LidDirection = -1,
+            Lights = { Enabled = true, Gps = vec3(0.4595, -0.363, 0.5231), Os = vec3(0.4826, -0.363, 0.5231), Size = 0.012,
+                Range = 0.25, Intensity = 3.0, Distance = 15.0 },
+        },
     },
     -- The criminal side. Items: every entry is needed; remove = used up on success, breakChance = % lost on a failed
     -- attempt. Minigame: a preset name from Config.Minigames, a list (all must pass) or { random = { ... } } (lists can hold randoms).
@@ -518,6 +538,8 @@ Config.VendingMachines = {
         Enabled = true,
         Item = 'vending_key', ReportItem = 'vending_key_record', CylinderItem = 'vending_lock_cylinder',
         SessionSeconds = 300, ReplaceDuration = 60000,
+        ReplaceOffset = vec3(0.85, -0.15, 0.0), -- right side of the cabinet, relative to the model origin
+        ForcedReplaceDuration = 180000, ForcedReplaceMinigame = { 'lockpick_hard', 'wires_hard' }, -- non-owner/non-manager cylinder fitting
         PoliceCommand = 'vendingkeys', -- /vendingkeys SERIAL [print], police/business only
         SecureAccess = 'police_or_controllers', -- physical owners/business may secure too
         -- securing a broken-in machine chains it shut: no key access until the cylinder is repaired or replaced.
@@ -585,6 +607,17 @@ Config.VendingMachines = {
             Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
             FailMessage = 'The operating system rejected your takeover.',
         },
+        TakeMachine = {
+            Enabled = true, Label = 'Steal Machine', Icon = 'fas fa-dolly', ProgressLabel = 'Taking the unsecured machine',
+            Duration = 5000, Cooldown = 0, FailCooldown = 0, Items = {}, NeedsBreakIn = false, NeedsGPSDisabled = false,
+            Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
+        },
+        BoltMachine = {
+            Enabled = true, Label = 'Bolt machine down', Icon = 'fas fa-screwdriver-wrench', ProgressLabel = 'Bolting down the machine',
+            Duration = 10000, Cooldown = 0, FailCooldown = 0,
+            Items = { { item = 'drill', label = 'drill', count = 1 } },
+            Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
+        },
         Steal = {
             Enabled = true, Label = 'Unbolt machine', Icon = 'fas fa-dolly', ProgressLabel = 'Unbolting the machine',
             Items = { { item = 'drill', label = 'drill', count = 1, breakChance = 25 } },
@@ -643,7 +676,8 @@ Config.VendingMachines = {
     Skimmer = {
         Enabled = true, Item = 'card_skimmer',
         Model = 'metacomics_card_skimmer', -- stream your new prop before installing; no placeholder model
-        Offset = vec3(0.359, -0.4270, 0.352), Rotation = vec3(0.0, 0.0, 0.0), -- exactly over the coin panel (metacomics_card_skimmer)
+        Offset = vec3(0.359, -0.4310, 0.352), Rotation = vec3(0.0, 0.0, 0.0), -- exactly over the coin panel (rounded metacomics_card_skimmer, 2026-10-08)
+        DoorAdjust = vec3(0.0, -0.2000, 0.0), -- extra nudge while it rides on the open door (negative y = further out)
         -- the skimmer copies the card of every card purchase (cash purchases are unaffected). The installer reads it
         -- (or removes it and uses the item) for a card data item, and sells that to a buyer below.
         -- whoever fits it picks the cut (0 - MaxPercent, default Percent): that share of each card payment never reaches the

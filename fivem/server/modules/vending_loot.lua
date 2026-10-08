@@ -11,20 +11,22 @@ local function setting(name, fallback) return math.max(1, math.floor(tonumber(lo
 local function record(entry) return entry and Registry.get(entry.serial) end
 function service.isOpen(entry)
     local r = record(entry)
-    return r ~= nil and not r.securitySeal and (tonumber(r.unlockedUntil) or 0) > os.time()
+    return r ~= nil and not r.securitySeal and (r.displacedOpen == true or (tonumber(r.unlockedUntil) or 0) > os.time())
 end
 function service.busy(entry) return entry and (sessions[entry.serial] ~= nil or locks[entry.serial] == true) end
 -- broken into, or its door stands open for any other reason (unlocked with a key, being serviced): anyone there can
 -- take the stock, and the cash too once the cash box is open (a padlocked box gives the same choices as a break-in)
 function service.lootable(entry)
-    if service.isOpen(entry) then return true end
     local r = record(entry)
     local cashbox = MetaComic.VendingCashbox
-    return r ~= nil and not r.securitySeal and cashbox ~= nil and cashbox.cabinetOpen ~= nil and cashbox.cabinetOpen(entry.id) == true
+    if not r or r.securitySeal then return false end
+    if cashbox and cashbox.cabinetOpen then return cashbox.cabinetOpen(entry.id) == true end
+    -- When visual doors are disabled, the broken-open state represents cabinet access.
+    return (cfg.Door or {}).Enabled == false and service.isOpen(entry)
 end
 local function permitted(source, entry)
     if not service.lootable(entry) or not Vending.near(source, entry, Vending.reach()) then return false end
-    return crime.OwnersCanRob or Registry.controller(record(entry)) ~= Registry.identifierOf(source)
+    return crime.OwnersCanRob or not Registry.ownedBy(record(entry), Registry.identifierOf(source))
 end
 local function stock(entry)
     local total = 0
@@ -55,6 +57,7 @@ local function active(job)
     if job.health and GetEntityHealth and GetEntityHealth(ped) < job.health then job.interrupted = true; return false end
     return not job.canceled and sessions[job.serial] == job and entry and entry.serial == job.serial
         and Registry.identifierOf(job.source) == job.identifier and permitted(job.source, entry)
+        and (not job.currentKind or not MetaComic.VendingCashbox or MetaComic.VendingCashbox.allows(entry, job.currentKind))
 end
 function service.inspect(source, entry)
     if loot.Enabled == false then return end
@@ -91,7 +94,6 @@ function service.unlock(source, entry)
     entry.openedBy = opened
     locks[entry.serial] = nil
     Vending.broadcast(entry)
-    service.inspect(source, entry)
     return true
 end
 function service.canSecure(source, entry)
@@ -103,6 +105,8 @@ function service.canSecure(source, entry)
     local access = MetaComic.VendingKeys and (cfg.Keys or {}).SecureAccess or s.Access or 'anyone'
     local police = MetaComic.Police and MetaComic.Police.isPolice and MetaComic.Police.isPolice(source)
     local controller = MetaComic.VendingKeys and MetaComic.VendingKeys.authority(source, r) or not MetaComic.VendingKeys and Vending.canControl(source, entry)
+    controller = controller or Vending.businessStaff and Vending.businessStaff(source, entry)
+        or Registry.osMember(r, Registry.identifierOf(source))
     return access == 'anyone' or access == 'police' and police or access == 'controllers' and controller
         or access == 'police_or_controllers' and (police or controller)
 end
@@ -117,8 +121,9 @@ function service.secure(source, entry)
     local old = MetaComic.CopyTable(r)
     -- who chained it shows on the machine ("secured with a chain and padlock by the police")
     local police = MetaComic.Police and MetaComic.Police.isPolice and MetaComic.Police.isPolice(source)
-    local kind = police and 'police' or (r.owner and r.owner == Registry.identifierOf(source)) and 'owner' or Vending.canManage(source) and 'business' or nil
-    local fields = MetaComic.VendingKeys and MetaComic.VendingKeys.sealFields(r, Registry.nameOf(source), kind) or { unlockedUntil = false, unlockedBy = false }
+    local kind = police and 'police' or (r.owner and r.owner == Registry.identifierOf(source)) and 'owner'
+        or (Vending.canManage(source) or Vending.isEmployee and Vending.isEmployee(source)) and 'business' or nil
+    local fields = MetaComic.VendingKeys and MetaComic.VendingKeys.sealFields(r, Registry.nameOf(source), kind) or { unlockedUntil = false, unlockedBy = false, displacedOpen = false }
     Registry.update(entry.serial, fields, MetaComic.VendingKeys and 'Chain and padlock fitted; cylinder still damaged' or 'Cabinet secured', Registry.nameOf(source))
     if not Registry.save() then
         for key in pairs(r) do r[key] = nil end
@@ -175,6 +180,8 @@ RegisterNetEvent('meta_comic:server:lootStart', function(id, mode)
                 kind = math.random(100) <= (job.lastKind and 65 or 50) and (job.lastKind or 'cash') or (job.lastKind == 'cash' and 'stock' or 'cash')
             else kind = hasCash and 'cash' or 'stock' end
             job.lastKind = kind
+            job.currentKind = kind
+            if not active(job) then break end
             local duration = kind == 'cash' and setting('CashBatchMs', 4000) or setting('StockBatchMs', 5000)
             local deadline = GetGameTimer() + duration
             local productKind
@@ -227,12 +234,14 @@ CreateThread(function()
     while true do
         Wait(2000)
         for _, r in ipairs(Registry.all()) do
-            if r.unlockedUntil and r.unlockedUntil <= os.time() then
+            local keys = MetaComic.VendingKeys
+            local servicing = keys and keys.busy(Vending.bySerial(r.serial))
+            if not servicing and not r.displacedOpen and r.unlockedUntil and r.unlockedUntil <= os.time() then
                 local job = sessions[r.serial]
                 if job then service.stop(job.source, MetaComic.VendingKeys and 'The automatic security seal closed the cabinet.' or 'The vending machine locked again.') end
                 while locks[r.serial] do Wait(0) end
                 -- Recheck after a yielding loot transaction; a fresh break-in may have extended the deadline.
-                if r.unlockedUntil and r.unlockedUntil <= os.time() then
+                if not (keys and keys.busy(Vending.bySerial(r.serial))) and not r.displacedOpen and r.unlockedUntil and r.unlockedUntil <= os.time() then
                     locks[r.serial] = true
                     local old = MetaComic.CopyTable(r)
                     local fields = MetaComic.VendingKeys and MetaComic.VendingKeys.sealFields(r) or { unlockedUntil = false, unlockedBy = false }

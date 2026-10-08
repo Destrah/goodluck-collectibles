@@ -18,6 +18,7 @@ class SecurityTests(unittest.TestCase):
           local mt={__sub=function(a,b) return vector3(a.x-b.x,a.y-b.y,a.z-b.z) end,
             __len=function(a) return math.sqrt(a.x*a.x+a.y*a.y+a.z*a.z) end}
           function vector3(x,y,z) return setmetatable({x=x,y=y,z=z},mt) end
+          function vec4(x,y,z,w) return {x=x,y=y,z=z,w=w} end
           Config={VendingMachines={GPS={Enabled=true},Skimmer={Enabled=true,Mode='record',Percent=15}}}
           record={serial='VM-1',status='placed',owner='owner',gpsOrigin={x=0,y=0,z=0}}
           records={serials={['VM-1']=record}}
@@ -30,10 +31,14 @@ class SecurityTests(unittest.TestCase):
             Police={alert=function(_,data) alarms[#alarms+1]=data end},Inventory={},Money={}}
           function MetaComic.CopyTable(v) if type(v)~='table' then return v end;local t={};for k,x in pairs(v) do t[k]=MetaComic.CopyTable(x) end;return t end
           MetaComic.Inventory.remove=function() removed=removed+1;return true end
-          MetaComic.Inventory.add=function() returned=returned+1;return true end
+          MetaComic.Inventory.add=function(src,name,count,metadata) returned=returned+1;lastDelivery={src=src,name=name,count=count,metadata=metadata};return true end
           MetaComic.Money.add=function(_,_,amount) if payFail then return false end;paid=paid+amount;return true end
           function GetPlayerName() return 'Player' end
           function GetPlayers() return {'11','22'} end
+          function RegisterNetEvent() end
+          function AddEventHandler() end
+          function TriggerClientEvent() end
+          function TriggerEvent() end
           function CreateThread(fn) threads[#threads+1]=coroutine.create(fn) end
           function Wait() coroutine.yield() end
           function tick(time) now=time;local ok,err=coroutine.resume(threads[2]);assert(ok,err) end
@@ -48,15 +53,16 @@ class SecurityTests(unittest.TestCase):
     def install(self):
         self.assertTrue(self.lua.execute('return Security.install(22,entry)'))
 
-    def test_record_cut_divert_conserve_payment(self):
+    def test_configured_cuts_conserve_payment(self):
         self.install()
-        for mode, retained in [('record', 0), ('cut', 75), ('divert', 500)]:
-            self.lua.execute(f"Config.VendingMachines.Skimmer.Mode='{mode}'")
-            before = self.lua.eval('record.skimmer.balance')
+        self.lua.execute('Config.VendingMachines.Skimmer.MaxPercent=100')
+        for percent, retained in [(0, 0), (15, 75), (100, 500)]:
+            self.lua.execute(f'assert(Security.adjust(22,entry,{percent}))')
+            before = self.lua.eval('record.skimmer.skimmed')
             remaining = self.lua.execute('return Security.cardSale(entry,99,500)')
-            self.assertEqual(remaining + self.lua.eval('record.skimmer.balance') - before, 500)
+            self.assertEqual(remaining + self.lua.eval('record.skimmer.skimmed') - before, 500)
             self.assertEqual(500 - remaining, retained)
-        self.assertEqual(self.lua.eval('#record.skimmer.transactions'), 3)
+        self.assertEqual(self.lua.eval('record.skimmer.cards'), 3)
 
     def test_installer_collects_once_and_others_cannot_collect(self):
         self.install()
@@ -64,13 +70,15 @@ class SecurityTests(unittest.TestCase):
         self.assertFalse(self.lua.execute('return Security.collect(11,entry)'))
         self.assertTrue(self.lua.execute('return Security.collect(22,entry)'))
         self.assertTrue(self.lua.execute('return Security.collect(22,entry)'))
-        self.assertEqual(self.lua.eval('paid'), 75)
+        self.assertEqual(self.lua.eval('paid'), 0)  # Collection prints data; the buyer pays it out later.
+        self.assertEqual(self.lua.eval('returned'), 1)
+        self.assertEqual(self.lua.eval('lastDelivery.metadata.skimmed'), 75)
 
     def test_failed_save_does_not_remove_sale_revenue(self):
         self.install()
         self.lua.execute("Config.VendingMachines.Skimmer.Mode='divert';saveOK=false")
         self.assertEqual(self.lua.execute('return Security.cardSale(entry,99,500)'), 500)
-        self.assertEqual(self.lua.eval('record.skimmer.balance'), 0)
+        self.assertEqual(self.lua.eval('record.skimmer.skimmed'), 0)
 
     def test_failed_install_refunds_item_and_removal_is_authorized(self):
         self.lua.execute('saveOK=false')
@@ -80,7 +88,8 @@ class SecurityTests(unittest.TestCase):
         self.lua.execute('saveOK=true')
         self.install()
         self.assertFalse(self.lua.execute('return Security.remove(33,entry)'))
-        self.assertTrue(self.lua.execute('return Security.remove(11,entry)'))
+        self.assertFalse(self.lua.execute('return Security.remove(11,entry)'))
+        self.assertTrue(self.lua.execute('return Security.inspect(11,entry)'))
 
     def test_gps_threshold_disabled_state_and_rearm_baseline(self):
         self.lua.execute('tick(1000);entry.x=1;tick(1001)')
@@ -98,10 +107,14 @@ class SecurityTests(unittest.TestCase):
         self.assertEqual(self.lua.eval('#alarms'), 1)
 
     def test_gps_follows_towed_entity_and_current_chip_controller(self):
-        self.lua.execute("record.tampered=true;record.routing={id='hacker'};record.routingUntil=1100;Security.track('VM-1',100);movingCoords=vector3(8,0,0);tick(1000);tick(1001)")
+        self.lua.execute("record.systemController='hacker';Security.track('VM-1',100);movingCoords=vector3(8,0,0);tick(1000);tick(1001)")
         self.assertEqual(self.lua.eval('messages[1].src'), 22)
-        self.lua.execute('tick(1200)')
+        self.lua.execute('record.systemController=nil;tick(1200)')
         self.assertEqual(self.lua.eval('messages[2].src'), 11)
+
+    def test_payment_diversion_does_not_transfer_gps_notifications(self):
+        self.lua.execute("record.tampered=true;record.routing={id='hacker'};record.routingUntil=1100;Security.track('VM-1',100);movingCoords=vector3(8,0,0);tick(1000);tick(1001)")
+        self.assertEqual(self.lua.eval('messages[1].src'), 11)
 
     def test_gps_follows_inventory_holder(self):
         self.lua.execute("MetaComic.Vending.bySerial=function() return nil end;record.status='stolen';record.holder={id='hacker'};movingCoords=vector3(8,0,0);tick(1000);tick(1001)")

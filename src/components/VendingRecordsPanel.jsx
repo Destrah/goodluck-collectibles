@@ -26,6 +26,7 @@ export default function VendingRecordsPanel() {
   const [open, setOpen] = useState('')
   const [form, setForm] = useState({ serverId: '', id: '', name: '', tax: '' })
   const [keyForm, setKeyForm] = useState({ serial: '', serverId: '', access: 'full' })
+  const [osPlayers, setOSPlayers] = useState({})
   const [report, setReport] = useState(null)
 
   const apply = result => { setState(result); setTaxes(taxMap(result.people)) }
@@ -34,6 +35,11 @@ export default function VendingRecordsPanel() {
     try { apply(await bridge.getVendingRecords()) } catch (error) { setMessage(error?.message || String(error)) } finally { setBusy(false) }
   }
   useEffect(() => { load() }, [])
+  useEffect(() => {
+    const refresh = event => { if (event.data?.type === 'metaComic:vendingRemoteAccessChanged') load() }
+    window.addEventListener('message', refresh)
+    return () => window.removeEventListener('message', refresh)
+  }, [])
 
   const act = async (payload, done) => {
     setBusy(true); setMessage('')
@@ -48,7 +54,7 @@ export default function VendingRecordsPanel() {
   const taxesValid = Object.values(dirtyTaxes).every(value => value !== '' && Number(value) >= 0 && Number(value) <= 100)
   const saveTaxes = () => act({ action: 'tax', taxes: Object.fromEntries(Object.entries(dirtyTaxes).map(([id, value]) => [id, Number(value)])) }, 'Tax rates saved.')
 
-  const ownerView = state?.scope === 'owner'
+  const ownerView = state?.scope === 'owner' || state?.scope === 'os'
   const people = state?.people || []
   const owners = [{ id: 'business', name: state?.business || 'The business' }, ...people]
   const machines = (state?.machines || []).filter(machine => !filter || `${machine.serial} ${machine.ownerName} ${machine.routing} ${machine.status} ${machine.holder?.name || ''} ${JSON.stringify(machine.keyArchive || {})}`.toLowerCase().includes(filter.toLowerCase()))
@@ -90,7 +96,7 @@ export default function VendingRecordsPanel() {
       {report && <VendingRecordView record={report} onClose={() => setReport(null)} />}
       <div className="management-heading">
         {ownerView
-          ? <div><span className="eyebrow">Your vending machines</span><h2>Machine records</h2><p>Your machines, where their card payments go, what happened to them and their recent sales.</p></div>
+          ? <div><span className="eyebrow">Your accessible vending machines</span><h2>Machine records</h2><p>Registered history and authorized OS records. Taken-over OS logs start at takeover and contain no previous business records.</p></div>
           : <div><span className="eyebrow">Restricted FiveM tools</span><h2>Machine records</h2><p>Who owns each vending machine, where its card payments go and what happened to it. Owners must be registered before machines can be assigned to them.</p></div>}
         <button onClick={load} disabled={busy}>Refresh</button>
         {!ownerView && <button disabled={busy || !state} onClick={() => act({ action: 'ledger' }, 'Ledger given to you.')}>Give me a ledger</button>}
@@ -169,6 +175,8 @@ export default function VendingRecordsPanel() {
                   <button className="records-serial" onClick={() => setOpen(current => current === machine.serial ? '' : machine.serial)}>{machine.serial}</button>
                   <span className={`records-pill ${machine.status}`}>{STATUS[machine.status] || machine.status}</span>
                   {machine.tampered && <span className="records-pill rerouted">Rerouted</span>}
+                  {machine.remoteOffline && <span className="records-pill">OS offline · historical records only</span>}
+                  {machine.osView && <span className="records-pill">Private OS records</span>}
                   {ownerView ? <span className="records-owner-name">{machine.ownerName}</span> : <select value={machine.owner || 'business'} disabled={busy || machine.status === 'removed'} onChange={event => assign(machine, event.target.value)}>
                     {owners.map(owner => <option key={owner.id} value={owner.id}>{owner.name}</option>)}
                   </select>}
@@ -183,7 +191,13 @@ export default function VendingRecordsPanel() {
                 </div>
                 <div className="records-machine-actions">
                   {machine.tampered && !ownerView && <button className="ghost" disabled={busy} onClick={() => resetRouting(machine)}>Reset routing</button>}
-                  <button className="ghost" disabled={busy} onClick={() => act({ action: 'certificate', serial: machine.serial }, `Certificate for ${machine.serial} given to you.`)}>Print certificate</button>
+                  {!machine.osView && <button className="ghost" disabled={busy} onClick={() => act({ action: 'certificate', serial: machine.serial }, `Certificate for ${machine.serial} given to you.`)}>Print certificate</button>}
+                  {machine.canManageOSAccess && <>
+                    {(machine.osOperators || []).map(id => <button key={id} className="ghost" disabled={busy} onClick={() => act({ action: 'osAccess', serial: machine.serial, serverId: id, allowed: false }, 'OS operating access revoked.')}>Revoke {id}</button>)}
+                    <input type="number" min="1" step="1" aria-label={`Online player ID for ${machine.serial} OS access`} placeholder="Player ID" value={osPlayers[machine.serial] || ''} onChange={event => setOSPlayers(current => ({ ...current, [machine.serial]: event.target.value }))} />
+                    <button className="ghost" disabled={busy || !Number.isInteger(Number(osPlayers[machine.serial])) || Number(osPlayers[machine.serial]) < 1} onClick={() => act({ action: 'osAccess', serial: machine.serial, serverId: Number(osPlayers[machine.serial]), allowed: true }, 'OS operating access granted.')}>Grant OS access</button>
+                    <button className="ghost" disabled={busy || !Number.isInteger(Number(osPlayers[machine.serial])) || Number(osPlayers[machine.serial]) < 1} onClick={() => act({ action: 'osAccess', serial: machine.serial, serverId: Number(osPlayers[machine.serial]), allowed: false }, 'OS operating access revoked.')}>Revoke OS access</button>
+                  </>}
                   {state.keysEnabled && <button className="ghost" disabled={busy} onClick={() => act({ action: 'keyReport', serial: machine.serial }, `Permanent key records for ${machine.serial} printed.`)}>Print key records</button>}
                   <button className="ghost" onClick={() => setOpen(current => current === machine.serial ? '' : machine.serial)}>{open === machine.serial ? 'Hide history & sales' : 'History & sales'}</button>
                 </div>

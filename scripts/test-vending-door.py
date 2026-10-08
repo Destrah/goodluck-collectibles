@@ -64,11 +64,22 @@ class MovingDoorTests(unittest.TestCase):
             self.assertTrue(self.lua.eval('not entities[1] and not entities[2]'))
             self.assertTrue(self.lua.eval('visible[100]==nil and alpha[100]==nil'))
 
-    def test_intact_world_machine_uses_complete_custom_mesh(self):
-        self.lua.execute('broken=false;state=Build(100)')
-        self.assertTrue(self.lua.eval('state.body~=nil and state.door==nil and not state.broken'))
+    def test_tow_body_is_used_directly_without_hiding_or_deleting_it(self):
+        self.lua.execute('function GetEntityModel() return BODY end;state=Build(100)')
+        self.assertEqual(self.lua.eval('state.body'), 100)
+        self.assertFalse(self.lua.eval('state.ownsBody'))
         self.assertEqual(self.lua.eval('count'), 1)
-        self.assertTrue(self.lua.eval('visible[100] and alpha[100]==0'))
+        self.assertTrue(self.lua.eval('visible[100]==nil and alpha[100]==nil'))
+        self.lua.execute('Drop(100,state)')
+        self.assertTrue(self.lua.eval('entities[100] and not entities[1]'))
+
+    def test_turn_response_opposes_acceleration_for_both_hinge_directions(self):
+        source = (ROOT / 'fivem/client/vending_door.lua').read_text(encoding='utf-8')
+        equation = next(line.strip() for line in source.splitlines() if 'local torque =' in line)
+        for direction in (-1, 1):
+            for sideways in (-1, 1):
+                self.lua.execute(f'SIGN={direction};side={sideways};forward=0;rad=0;PUSH=260;{equation};response=SIGN*torque')
+                self.assertLess(self.lua.eval('response') * sideways, 0)
 
 
 if __name__ == '__main__':

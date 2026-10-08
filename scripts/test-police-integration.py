@@ -66,16 +66,21 @@ class PoliceIntegrationTests(unittest.TestCase):
         self.assertEqual(self.lua.eval('custom.offset'), 'false')
         self.assertAlmostEqual(self.lua.eval('custom.length*128'), 90)
 
-    def test_phone_goes_to_owner_then_active_hacker_then_owner_after_expiry(self):
+    def test_phone_goes_to_owner_then_os_controller_then_owner_after_recovery(self):
         self.send()
         self.assertEqual(self.lua.eval('lookups[1]'), 11)
-        self.lua.execute("records.serials['VM-1'].tampered=true;records.serials['VM-1'].routing={id='hacker'};records.serials['VM-1'].routingUntil=1100")
+        self.lua.execute("records.serials['VM-1'].systemController='hacker'")
         self.send()
         self.assertEqual(self.lua.eval('lookups[2]'), 22)
-        self.lua.execute('now=1200')
+        self.lua.execute("records.serials['VM-1'].systemController=nil;now=1200")
         self.send()
         self.assertEqual(self.lua.eval('lookups[3]'), 11)
         self.assertEqual(self.lua.eval('notifications[2].target'), '5550022')
+
+    def test_owner_phone_recipient_cannot_bypass_os_telemetry_blackout(self):
+        self.lua.execute("records.serials['VM-1'].systemController='hacker';Config.Police.Phone.Recipient='owner'")
+        self.send()
+        self.assertEqual(self.lua.eval('#notifications'), 0)
 
     def test_phone_independent_of_police_roll_and_cooldown_stages(self):
         self.lua.execute('Config.Police.Alerts.breakin.chance.start=0')
