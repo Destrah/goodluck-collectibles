@@ -429,9 +429,36 @@ end)
 RegisterNUICallback('createSealed', function(data, cb)
     cb(serverRpc('createSealed', data or {}, 20000))
 end)
+RegisterNUICallback('getShippingCrates', function(_, cb)
+    cb(serverRpc('getShippingCrates', {}))
+end)
+RegisterNUICallback('createShippingCrate', function(data, cb)
+    cb(serverRpc('createShippingCrate', data or {}, 20000))
+end)
 
 RegisterNUICallback('getCollection', function(_, cb)
     cb(serverRpc('getCollection', {}))
+end)
+
+RegisterNetEvent('meta_comic:client:openCardBuyer',function(index)
+    local data=serverRpc('getCardBuyerUI',{index=index},120000)
+    if not data or data.ok==false then TriggerEvent('meta_comic:client:notify',data and data.error or 'Could not open the buyer.','error');return end
+    openNui('pack',nil,true,'cardBuyer')
+    SendNUIMessage({type='metaComic:open',view='pack',overlay=true,mode='cardBuyer',buyer=data})
+end)
+RegisterNUICallback('getCardBuyerUI',function(data,cb) cb(serverRpc('getCardBuyerUI',data or {},120000)) end)
+RegisterNUICallback('getCardMarketOptions',function(data,cb) cb(serverRpc('getCardMarketOptions',data or {},120000)) end)
+RegisterNUICallback('getCardMarketAnalysis',function(data,cb) cb(serverRpc('getCardMarketAnalysis',data or {},120000)) end)
+RegisterNUICallback('sellCardBuyerCart',function(data,cb)
+    local checked=serverRpc('checkCardBuyerCart',data or {},120000)
+    if not checked or checked.ok==false then cb(checked or {ok=false,error='Could not check the sale.'});return end
+    if checked.sellArea and MetaComic.CardBuyerDeal then
+        SetNuiFocus(false,false)
+        local done=MetaComic.CardBuyerDeal(checked.sellArea,checked.count)
+        SetNuiFocus(true,true)
+        if not done then cb({ok=false,error='Handover interrupted. No cards were sold.'});return end
+    end
+    cb(serverRpc('sellCardBuyerCart',data or {},120000))
 end)
 
 for _,action in ipairs({'getCollectibles','saveCollectible','openCollectibleContainer','createCollectibleContainer','claimCollectibles','printCollectible',
@@ -558,9 +585,15 @@ end)
 
 -- A booster box item was used: the server already handed out Config.Items.PacksPerBox packs.
 -- (Hook for a future box-opening animation; for now just the hand prop.)
-RegisterNetEvent('meta_comic:client:boxOpened', function(packs)
+-- booster box item: the 3D box opening plays centre screen; the server swaps the box for its packs when it ends
+RegisterNetEvent('meta_comic:client:boxOpened', function(packs, setId, setName)
     CreateThread(function() playPropSequence('box') end)
+    nuiOpen = true
+    SetNuiFocus(true, true)
+    SetNuiFocusKeepInput(false)
+    SendNUIMessage({ type = 'metaComic:open', view = 'pack', overlay = true, mode = 'boxOpening', box = { packs = packs, set = setId, setName = setName } })
 end)
+RegisterNUICallback('claimBox', function(_, cb) TriggerServerEvent('meta_comic:server:boxClaim'); cb({ ok = true }) end)
 
 -- ox_inventory item exports. ox calls these with the used item's data; we only forward the slot to the server,
 -- which checks the player's own inventory and removes the item itself.
@@ -777,3 +810,5 @@ AddEventHandler('onResourceStop', function(resource)
     stopHeld()
     if nuiOpen then closeNui() end
 end)
+
+RegisterNUICallback('saveCardSetPayout',function(data,cb) cb(serverRpc('saveCardSetPayout',data or {},20000)) end)

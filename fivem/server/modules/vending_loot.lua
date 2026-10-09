@@ -11,7 +11,7 @@ local function setting(name, fallback) return math.max(1, math.floor(tonumber(lo
 local function record(entry) return entry and Registry.get(entry.serial) end
 function service.isOpen(entry)
     local r = record(entry)
-    return r ~= nil and not r.securitySeal and (r.displacedOpen == true or (tonumber(r.unlockedUntil) or 0) > os.time())
+    return r ~= nil and not r.securitySeal and not r.padlock and (r.displacedOpen == true or (tonumber(r.unlockedUntil) or 0) > os.time())
 end
 function service.busy(entry) return entry and (sessions[entry.serial] ~= nil or locks[entry.serial] == true) end
 -- broken into, or its door stands open for any other reason (unlocked with a key, being serviced): anyone there can
@@ -19,7 +19,7 @@ function service.busy(entry) return entry and (sessions[entry.serial] ~= nil or 
 function service.lootable(entry)
     local r = record(entry)
     local cashbox = MetaComic.VendingCashbox
-    if not r or r.securitySeal then return false end
+    if not r or r.securitySeal or r.padlock then return false end
     if cashbox and cashbox.cabinetOpen then return cashbox.cabinetOpen(entry.id) == true end
     -- When visual doors are disabled, the broken-open state represents cabinet access.
     return (cfg.Door or {}).Enabled == false and service.isOpen(entry)
@@ -32,6 +32,13 @@ local function stock(entry)
     local total = 0
     for _, product in ipairs(entry.products or {}) do total = total + math.max(0, tonumber(product.stock) or 0) end
     return total
+end
+local function lootProduct(entry, selection)
+    for _, product in ipairs(entry.products or {}) do
+        if (tonumber(product.stock) or 0) > 0 and (not selection or product.set == selection.set and product.kind == selection.kind) then
+            return product
+        end
+    end
 end
 local function level(amount, thresholds)
     if amount <= 0 then return 'empty' end
@@ -63,12 +70,20 @@ function service.inspect(source, entry)
     if loot.Enabled == false then return end
     if not permitted(source, entry) then return end
     local cash, quantity = math.max(0, entry.cash or 0), stock(entry)
-    local stockMs = 0
+    local stockMs, products = 0, {}
     for _, product in ipairs(entry.products or {}) do stockMs = stockMs + math.ceil(product.stock / setting('StockBatch', 1)) * setting('StockBatchMs', 5000) end
-    TriggerClientEvent('meta_comic:client:lootInspect', source, {
+    for _, product in ipairs(entry.products or {}) do
+        if (tonumber(product.stock) or 0) > 0 then
+            local set = MetaComic.Sets and MetaComic.Sets.get(product.set)
+            products[#products + 1] = { set = product.set, kind = product.kind, setName = set and (set.name or set.id) or product.set,
+                level = level(product.stock, loot.StockLevels),
+                stockMs = math.ceil(product.stock / setting('StockBatch', 1)) * setting('StockBatchMs', 5000) }
+        end
+    end
+    TriggerLatentClientEvent('meta_comic:client:lootInspect', source, 512 * 1024, {
         id = entry.id, cash = level(cash, loot.CashLevels or { 500, 2000 }), stock = level(quantity, loot.StockLevels),
         cashMs = math.ceil(cash / setting('CashBatch', 100)) * setting('CashBatchMs', 4000),
-        stockMs = stockMs,
+        stockMs = stockMs, products = products,
         unlockedUntil = record(entry).unlockedUntil,
         -- padlocked cash box (server/modules/vending_door.lua): the menu explains it and offers to break the padlock
         cashLocked = MetaComic.VendingCashbox ~= nil and not MetaComic.VendingCashbox.allows(entry, 'cash') or nil,
@@ -78,7 +93,7 @@ function service.unlock(source, entry)
     if service.isOpen(entry) then service.inspect(source, entry); return true end
     local r = record(entry)
     if MetaComic.VendingKeys and (not MetaComic.VendingKeys.ensure(r) or MetaComic.VendingKeys.busy(entry)) then return false end
-    if not r or locks[entry.serial] then return false end
+    if not r or r.padlock or locks[entry.serial] then return false end
     locks[entry.serial] = true
     local old = MetaComic.CopyTable(r)
     local opened = { id = Registry.identifierOf(source), at = os.time() }
@@ -133,6 +148,7 @@ function service.secure(source, entry)
     end
     entry.openedBy = nil
     locks[entry.serial] = nil
+    TriggerEvent('meta_comic:server:vendingSecured', source, entry.id)
     Vending.broadcast(entry)
     return true
 end
@@ -149,7 +165,7 @@ AddEventHandler('playerDropped', function() service.stop(source) end)
 AddEventHandler('onResourceStop', function(name)
     if name == GetCurrentResourceName() then for source in pairs(players) do service.stop(source) end end
 end)
-RegisterNetEvent('meta_comic:server:lootStart', function(id, mode)
+RegisterNetEvent('meta_comic:server:lootStart', function(id, mode, selection)
     if loot.Enabled == false then return end
     local source = source
     local entry = Vending.get(id)
@@ -161,9 +177,16 @@ RegisterNetEvent('meta_comic:server:lootStart', function(id, mode)
     if not entry or not permitted(source, entry) or players[source] or service.busy(entry)
         or Vending.isTransferringStock and Vending.isTransferringStock(entry)
         or MetaComic.VendingCrimeBusy and MetaComic.VendingCrimeBusy(source) then return end
+    if mode ~= 'cash' and selection ~= nil then
+        if type(selection) ~= 'table' or type(selection.set) ~= 'string' or (selection.kind ~= 'pack' and selection.kind ~= 'box') then
+            return notify(source, 'Choose a valid stock product.', 'error')
+        end
+        selection = { set = selection.set, kind = selection.kind }
+        if not lootProduct(entry, selection) then return notify(source, 'That product is no longer stocked. Inspect the machine again.', 'error') end
+    else selection = nil end
     local ped = GetPlayerPed(source)
     local job = { source = source, id = entry.id, serial = entry.serial, identifier = Registry.identifierOf(source), mode = mode, nextKind = 'cash',
-        health = ped ~= 0 and GetEntityHealth and GetEntityHealth(ped) or nil }
+        selection = selection, health = ped ~= 0 and GetEntityHealth and GetEntityHealth(ped) or nil }
     sessions[entry.serial], players[source] = job, job
     if MetaComic.CrimeEvidence then MetaComic.CrimeEvidence.start(source, entry, 'loot') end
     TriggerEvent('meta_comic:server:vendingDoorSuccess', source, entry.id, 'loot')
@@ -172,7 +195,7 @@ RegisterNetEvent('meta_comic:server:lootStart', function(id, mode)
         while active(job) do
             local entry = Vending.get(job.id)
             local hasCash = (entry.cash or 0) > 0 and mode ~= 'stock'
-            local hasStock = stock(entry) > 0 and mode ~= 'cash'
+            local hasStock = lootProduct(entry, job.selection) ~= nil and mode ~= 'cash'
             if not hasCash and not hasStock then break end
             -- taking both: pick cash or stock at random each batch (with a lean towards repeating the last one)
             local kind
@@ -186,9 +209,8 @@ RegisterNetEvent('meta_comic:server:lootStart', function(id, mode)
             local deadline = GetGameTimer() + duration
             local productKind
             if kind == 'stock' then
-                for _, product in ipairs(entry.products or {}) do
-                    if product.stock > 0 then productKind = product.kind; break end
-                end
+                local product = lootProduct(entry, job.selection)
+                productKind = product and product.kind
             end
             TriggerClientEvent('meta_comic:client:lootBatch', source, { duration = duration, kind = kind, productKind = productKind })
             repeat Wait(math.min(200, duration)) until not active(job) or GetGameTimer() >= deadline
@@ -200,7 +222,7 @@ RegisterNetEvent('meta_comic:server:lootStart', function(id, mode)
                 amount = math.min(old, setting('CashBatch', 100))
                 entry.cash = old - amount
             else
-                for _, candidate in ipairs(entry.products or {}) do if candidate.stock > 0 then product = candidate; break end end
+                product = lootProduct(entry, job.selection)
                 if product then old = product.stock; amount = math.min(old, setting('StockBatch', 1)); product.stock = old - amount end
             end
             local saveOk, saveResult = false, false
@@ -254,7 +276,10 @@ CreateThread(function()
                 end
                 local entry = Vending.bySerial(r.serial)
                 if entry then
-                    if not r.unlockedUntil then entry.openedBy = nil end
+                    if not r.unlockedUntil then
+                        entry.openedBy = nil
+                        TriggerEvent('meta_comic:server:vendingSecured', nil, entry.id)
+                    end
                     Vending.broadcast(entry)
                 end
             end

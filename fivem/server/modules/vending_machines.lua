@@ -173,10 +173,16 @@ local function list()
 end
 local function clientEntry(entry)
     local record = recordOf(entry)
+    local displayStock = {}
+    for _, product in ipairs(entry.products or {}) do
+        displayStock[product.set .. ':' .. product.kind] = math.max(0, tonumber(product.stock) or 0)
+    end
     return { id = entry.id, model = entry.model, x = entry.x, y = entry.y, z = entry.z, h = entry.h, serial = entry.serial, products = clientProducts(entry),
+        displayStock = displayStock, -- physical window only; menus/portals continue using recorded product totals
         systemTakenOver = Registry.systemController(record) ~= nil,
         unlockedUntil = record and record.unlockedUntil or 0, bolted = not record or record.unbolted ~= true,
-        lockCondition = record and record.lockCondition, securitySeal = record and record.securitySeal,
+        lockCondition = record and record.lockCondition, securitySeal = record and record.securitySeal, padlock = record and record.padlock ~= nil or false,
+        lockRevision = record and record.lockRevision,
         gpsDisabled = record and record.gpsDisabled == true or false, skimmer = record and record.skimmer ~= nil or false }
 end
 local function saveJson()
@@ -186,6 +192,10 @@ local function metaOf(entry) return json.encode({ serial = entry.serial, cash = 
 -- saves one machine's products, serial and cash; returns true or false
 local function saveEntry(entry)
     accounting(entry) -- establish a baseline before physical changes are persisted
+    if MetaComic.RuntimeSaves then
+        return MetaComic.RuntimeSaves.mark('vending', entry.id, { id = entry.id, serial = entry.serial,
+            products = entry.products, cash = entry.cash, x = entry.x, y = entry.y, z = entry.z, h = entry.h })
+    end
     local ok, err = pcall(function()
         if useMysql then
             assert(db():query_async(('UPDATE `%s` SET products_json = ?, meta_json = ? WHERE id = ?'):format(tableName), { json.encode(entry.products), metaOf(entry), entry.id }), 'database update failed')
@@ -197,6 +207,18 @@ local function saveEntry(entry)
     return ok
 end
 local saveProducts = saveEntry
+if MetaComic.RuntimeSaves then
+    MetaComic.RuntimeSaves.register('vending', function(key, saved)
+        if not ready then return false end
+        local live = machines[tonumber(key)]
+        if not live or live.serial ~= saved.serial then return true end
+        if useMysql then
+            assert(db():query_async(('UPDATE `%s` SET products_json = ?, meta_json = ?, x = ?, y = ?, z = ?, heading = ? WHERE id = ?'):format(tableName),
+                { json.encode(saved.products), metaOf(saved), saved.x, saved.y, saved.z, saved.h, tonumber(key) }), 'database update failed')
+        else saveJson() end
+        return true
+    end)
+end
 local function index(entry)
     if type(entry.products) ~= 'table' then entry.products = defaultProducts() end
     entry.cash = math.max(0, math.floor(tonumber(entry.cash) or 0))
@@ -207,6 +229,7 @@ local function index(entry)
 end
 local function unindex(id)
     machines[id] = nil
+    if MetaComic.RuntimeSaves then MetaComic.RuntimeSaves.discard('vending', id) end
     for i, value in ipairs(order) do if value == id then table.remove(order, i); break end end
 end
 local function access(player)
@@ -255,7 +278,7 @@ local function recordPlaced(entry, event, by, installer)
         gpsOrigin = record and record.gpsOrigin or location }
     if installer then
         fields.unbolted, fields.installedById = true, playerId(installer)
-        if record and record.lockCondition == 'damaged' and not record.securitySeal then fields.displacedOpen = true end
+        if record and record.lockCondition == 'damaged' and not record.securitySeal and not record.padlock then fields.displacedOpen = true end
     end
     Registry.update(entry.serial, fields, event, by)
     if MetaComic.VendingKeys then
@@ -266,6 +289,7 @@ local function recordPlaced(entry, event, by, installer)
 end
 
 CreateThread(function()
+    local recovered = MetaComic.RuntimeSaves and MetaComic.RuntimeSaves.pending('vending') or {}
     if useMysql then
         if Config.Database.AutoCreateSchema then
             db():query_async(([[CREATE TABLE IF NOT EXISTS `%s` (
@@ -324,6 +348,13 @@ CreateThread(function()
     local function setsLoaded() return MetaComic.Sets and #MetaComic.Sets.getAll() > 0 end
     local waitUntil = GetGameTimer() + 15000
     while not setsLoaded() and GetGameTimer() < waitUntil do Wait(250) end
+    for id, saved in pairs(recovered) do
+        local entry = machines[tonumber(id)]
+        if entry and entry.serial == saved.serial then
+            entry.products, entry.cash = saved.products, saved.cash
+            entry.x, entry.y, entry.z, entry.h = saved.x, saved.y, saved.z, saved.h
+        elseif MetaComic.RuntimeSaves then MetaComic.RuntimeSaves.discard('vending', id) end
+    end
     ready = true
     print(('[meta-comic] %d vending machine%s loaded (%s)'):format(#order, #order == 1 and '' or 's', useMysql and 'mysql' or fileName))
     sendAll(-1) -- players already online (resource restart) get the list now
@@ -462,7 +493,9 @@ RegisterNetEvent('meta_comic:server:moveVendingMachine', function(id, x, y, z, h
     local old = { x = entry.x, y = entry.y, z = entry.z, h = entry.h }
     entry.x, entry.y, entry.z, entry.h = target.x, target.y, target.z, target.h
     local ok, err = pcall(function()
-        if useMysql then
+        if MetaComic.RuntimeSaves then
+            assert(saveEntry(entry), 'Could not stage machine position')
+        elseif useMysql then
             assert(db():query_async(('UPDATE `%s` SET x = ?, y = ?, z = ?, heading = ? WHERE id = ?'):format(tableName),
                 { entry.x, entry.y, entry.z, entry.h, entry.id }), 'database update failed')
         else
@@ -487,7 +520,7 @@ local function itemMetadata(serial, products, cash)
     return {
         serial = serial, products = products, cash = cash or 0,
         label = ('Vending Machine %s'):format(serial),
-        description = ('Serial %s Â· owner %s%s'):format(serial, Registry.ownerName(record), stock > 0 and (' Â· %d in stock'):format(stock) or ''),
+        description = ('Serial %s | owner %s%s'):format(serial, Registry.ownerName(record), stock > 0 and (' | %d in stock'):format(stock) or ''),
     }
 end
 local function giveMachineItem(source, serial, products, cash)
@@ -620,6 +653,16 @@ local function manageInfo(source, entry)
     local people
     local system = Registry.systemController(record)
     local systemAccess = canOperateSystem(source, entry)
+    local function missingTools(items)
+        for _, item in ipairs(items or {}) do
+            local name = type(item) == 'table' and item.item or item
+            local quantity = type(item) == 'table' and tonumber(item.count) or 1
+            quantity = quantity or 1
+            if (MetaComic.Inventory.count(source, name) or 0) < quantity then
+                return ('%dx %s'):format(quantity, type(item) == 'table' and (item.label or name) or name)
+            end
+        end
+    end
     if manager then
         people = {}
         for _, person in ipairs(Registry.people()) do people[#people + 1] = { id = person.id, name = person.name, routing = person.routing, tax = person.tax } end
@@ -638,6 +681,10 @@ local function manageInfo(source, entry)
         canReplaceBoard = system ~= nil and (manager or record and record.owner == playerId(source) or businessStaff(source, entry)),
         systemTakenOver = Registry.systemController(record) ~= nil,
         keysEnabled = MetaComic.VendingKeys ~= nil,
+        busy = MetaComic.VendingKeys and MetaComic.VendingKeys.busy(entry) or stockTransfers[entry.id] or MetaComic.VendingLoot and MetaComic.VendingLoot.busy(entry) or false,
+        canCollect = cabinetAccess(source, entry, 'full') and (not MetaComic.VendingCashbox or MetaComic.VendingCashbox.allows(entry, 'cash')),
+        falsifyMissing = missingTools(((cfg.Crime or {}).FalsifyLogs or {}).Items),
+        boardMissing = missingTools(((cfg.Crime or {}).ReplaceBoard or {}).Items),
         fullAccess = cabinetAccess(source, entry, 'full'),
         canInspectPanel = MetaComic.VendingKeys and MetaComic.VendingKeys.access(source, entry, 'service') == true,
         lockId = record and record.lockId, lockCondition = record and record.lockCondition, securitySeal = record and record.securitySeal,
@@ -700,7 +747,7 @@ RegisterNetEvent('meta_comic:server:vendingProduct', function(id, action, data)
     local entry = ready and machines[tonumber(id) or 0]
     if entry and (stockTransfers[entry.id] or MetaComic.VendingLoot and MetaComic.VendingLoot.busy(entry)) then return notify(source, 'The machine is busy. Wait for the current action to finish.', 'error') end
     if not entry or type(data) ~= 'table' then return end
-    if MetaComic.VendingKeys and MetaComic.VendingKeys.busy(entry) then return end
+    if MetaComic.VendingKeys and MetaComic.VendingKeys.busy(entry) then return notify(source, 'The machine is being serviced. Wait for the current action to finish.', 'error') end
     if not cabinetAccess(source, entry, action == 'price' and 'service' or 'full') then return notify(source, 'Unlock with a current key with sufficient access.', 'error') end
     if not near(source, entry, 15.0) then return notify(source, 'That vending machine is too far away from you.', 'error') end
     local setId, kind = tostring(data.set or ''), kindOf(data.kind)
@@ -749,6 +796,15 @@ RegisterNetEvent('meta_comic:server:vendingProduct', function(id, action, data)
 end)
 
 local startWork -- timed restocking / cash collection, below
+local working = {} -- source -> current progress batch
+local function workBusy(entry, exceptSource)
+    if not entry then return false end
+    for player, job in pairs(working) do
+        if player ~= exceptSource and tonumber(job.args[1]) == entry.id
+            and GetGameTimer() - job.at < job.duration + 10000 then return true end
+    end
+    return false
+end
 -- Owner actions: 'collect' (cash), 'pickup', 'resetRouting', 'assign' { owner }, 'certificate'
 local function ownerAction(source, id, action, data, timed)
     local entry = ready and machines[tonumber(id) or 0]
@@ -758,7 +814,7 @@ local function ownerAction(source, id, action, data, timed)
     local record = recordOf(entry)
     local manager = canManage(source)
     local by = playerName(source)
-    if MetaComic.VendingKeys and MetaComic.VendingKeys.busy(entry) then return end
+    if MetaComic.VendingKeys and MetaComic.VendingKeys.busy(entry) then return notify(source, 'The machine is being serviced. Wait for the current action to finish.', 'error') end
     if not cabinetAccess(source, entry, 'full') then return notify(source, 'Unlock the cabinet with a full-access key first.', 'error') end
     -- owner and payment changes are made on the board in the server rack (Config.VendingMachines.Door.Rack.Required 'system')
     local rackGate = MetaComic.VendingCashbox
@@ -960,9 +1016,9 @@ local function takeSealed(source, kind, setId, wanted)
     return true, total
 end
 
-local function restock(source, id, setId, kind, amount, timed)
+local function restock(source, id, setId, kind, amount, timed, progress)
     local entry = ready and machines[tonumber(id) or 0]
-    if entry and (stockTransfers[entry.id] or MetaComic.VendingLoot and MetaComic.VendingLoot.busy(entry)) then return notify(source, 'The machine is busy. Wait for the current action to finish.', 'error') end
+    if entry and (stockTransfers[entry.id] or workBusy(entry, timed and source or nil) or MetaComic.VendingLoot and MetaComic.VendingLoot.busy(entry)) then return notify(source, 'The machine is busy. Wait for the current action to finish.', 'error') end
     if not entry then return end
     if MetaComic.VendingKeys and MetaComic.VendingKeys.busy(entry) then return end
     if sealedText(entry) then return notify(source, sealedText(entry), 'error') end
@@ -974,8 +1030,14 @@ local function restock(source, id, setId, kind, amount, timed)
     local room = maxStockOf(product.kind) - product.stock
     amount = whole(amount, 1, math.max(1, room))
     if room <= 0 or not amount then return notify(source, ('This product is full (%d).'):format(maxStockOf(product.kind)), 'error') end
-    -- loading the packs plays out first (Config.VendingMachines.Work); this runs again when it's done
-    if not timed and startWork then return startWork(source, entry, 'restock', amount, { id, setId, kind, amount }, product.kind) end
+    -- Check the whole requested amount before any animation, then check again
+    -- before each batch starts and commits. No inventory is consumed by a quote.
+    local _, _, held = sealedSlots(source, kind, setId)
+    if held < amount then
+        local set = getSet(setId)
+        return notify(source, ('You need %d %s %s%s in your inventory (you have %d).'):format(amount, set and set.name or setId, kindLabel(kind), amount == 1 and '' or (kind == 'box' and 'es' or 's'), held), 'error')
+    end
+    if not timed and startWork then return startWork(source, entry, 'restock', amount, { id, setId, kind, amount }, product.kind, progress) end
     stockTransfers[entry.id] = true
     -- everyone restocks with the real items: that many sealed packs / boxes of this set from their inventory
     local taken, held = takeSealed(source, kind, setId, amount)
@@ -1002,13 +1064,13 @@ local function restock(source, id, setId, kind, amount, timed)
     TriggerEvent('meta_comic:server:vendingDoorSuccess', source, entry.id, 'restock')
     notify(source, ('Restocked %d (now %d).'):format(amount, product.stock), 'success')
     stockTransfers[entry.id] = nil
+    return true
 end
 RegisterNetEvent('meta_comic:server:vendingRestock', function(id, setId, kind, amount) restock(source, id, setId, kind, amount, false) end)
 
 -- Timed restocking and cash collection (Config.VendingMachines.Work): the player plays it out (loading packs / taking
 -- the cash) behind a progress bar, and the server only applies it once that time has really passed.
 local work = cfg.Work or {}
-local working = {} -- source -> job
 local function workSettings(kind) return (kind == 'cash' and work.Cash or work.Restock) or {} end
 local function workTime(kind, units)
     local s = workSettings(kind)
@@ -1018,29 +1080,50 @@ local function workTime(kind, units)
 end
 local function finishWork(source, job)
     if job.kind == 'cash' then return ownerAction(source, job.args[1], job.args[2], job.args[3], true) end
-    restock(source, job.args[1], job.args[2], job.args[3], job.args[4], true)
+    return restock(source, job.args[1], job.args[2], job.args[3], job.args[4], true)
 end
-startWork = function(source, entry, kind, units, args, productKind)
+startWork = function(source, entry, kind, units, args, productKind, progress)
     if work.Enabled == false then return finishWork(source, { kind = kind, args = args }) end
     local job = working[source]
     if job and GetGameTimer() - job.at < job.duration + 10000 then return notify(source, 'Finish what you are doing first.', 'error') end
     local s = workSettings(kind)
+    local batch = kind == 'restock' and math.min(units, math.max(1, math.floor(tonumber(productKind == 'box' and s.BoxBatch or s.PackBatch) or (productKind == 'box' and 1 or 2)))) or units
+    args = MetaComic.CopyTable(args)
+    if kind == 'restock' then args[4] = batch end
+    local duration = MetaComic.VendingProgressDuration(workTime(kind, batch))
+    if kind == 'restock' and (tonumber(s.FullStockMs) or 30000) > 0 then
+        -- Allocate the total cap by product capacity, so subsequent batches cannot restart the budget.
+        local capacity = math.max(1, maxStockOf(productKind))
+        duration = math.max(1, math.min(duration, math.floor((tonumber(s.FullStockMs) or 30000) * batch / capacity)))
+    end
     job = { token = ('%d:%d:%d'):format(source, GetGameTimer(), math.random(1, 1000000000)), kind = kind, args = args,
-        at = GetGameTimer(), duration = workTime(kind, units) }
+        at = GetGameTimer(), duration = duration, remaining = units - batch,
+        loaded = progress and progress.loaded or 0, total = progress and progress.total or units }
+    job.run = progress and progress.run or job.token
     working[source] = job
     if kind == 'restock' then TriggerEvent('meta_comic:server:vendingDoorSuccess', source, entry.id, 'restock') end
     TriggerClientEvent('meta_comic:client:vendingWork', source, { token = job.token, id = entry.id, kind = kind, productKind = productKind,
+        more = job.remaining > 0, run = job.run,
         duration = job.duration, cycle = tonumber(s.CycleMs) or (kind == 'cash' and 2500 or 2000),
-        label = kind == 'cash' and 'Taking the cash' or ('Loading %d %s'):format(units, productKind == 'box' and 'card boxes' or 'card packs') })
+        label = kind == 'cash' and 'Taking the cash' or ('Loading %d %s · %d/%d loaded'):format(batch, productKind == 'box' and 'card boxes' or 'card packs', job.loaded, job.total) })
 end
 RegisterNetEvent('meta_comic:server:vendingWorkFinish', function(token)
     local source, job = source, working[source]
-    working[source] = nil
     if not job or job.token ~= token then return end
-    if GetGameTimer() - job.at < job.duration * 0.9 then return notify(source, 'You stopped too early.', 'error') end
-    finishWork(source, job)
+    if GetGameTimer() - job.at >= job.duration + 10000 then working[source] = nil;return notify(source, 'The action expired. Please try again.', 'error') end
+    if GetGameTimer() - job.at < job.duration then working[source] = nil;return notify(source, 'You stopped too early.', 'error') end
+    local success = finishWork(source, job)
+    if working[source] == job then working[source] = nil end
+    if success == true and not job.canceled and job.kind == 'restock' and job.remaining > 0 then
+        restock(source, job.args[1], job.args[2], job.args[3], job.remaining, false,
+            { loaded = job.loaded + job.args[4], total = job.total, run = job.run })
+    end
+    if not working[source] then TriggerClientEvent('meta_comic:client:vendingWorkStop', source, job.token) end
 end)
-RegisterNetEvent('meta_comic:server:vendingWorkCancel', function() working[source] = nil end)
+RegisterNetEvent('meta_comic:server:vendingWorkCancel', function(token)
+    local job = working[source]
+    if job and job.token == token then job.canceled = true;working[source] = nil end
+end)
 AddEventHandler('playerDropped', function() working[source] = nil end)
 
 -- Buying ------------------------------------------------------------------------------------------------------------
@@ -1154,7 +1237,7 @@ MetaComic.Vending = {
     reach = interactReach,
     pickUp = pickUp,
     canManage = canManage,
-    isTransferringStock = function(entry) return entry and stockTransfers[entry.id] == true end,
+    isTransferringStock = function(entry) return entry and (stockTransfers[entry.id] == true or workBusy(entry)) end,
     canControl = canControl,
     canOperateSystem = canOperateSystem,
     openManage = openManage,

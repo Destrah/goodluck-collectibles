@@ -287,6 +287,15 @@ ensure meta-comic
 
 For Qbox use `ensure qbx_core` instead of `qb-core`. Omit dependencies for features/adapters you do not use. Ensure your administrators belong to the granted ACE group, or configure framework/job/identifier permissions under `Config.Management`.
 
+For local vending development/testing, add these server-only settings before `ensure meta-comic`:
+
+```cfg
+set metacomic_dev_testing 1
+set metacomic_dev_progress_ms 15000 # Use 10000 for a 10-second cap instead.
+```
+
+This caps vending crime, hacking, cylinder repair/replacement, and cash box/server rack lock progress at 15 seconds (the optional cap is limited to 10–15 seconds). Already shorter actions keep their configured duration. The server captures the duration when each action starts and validates completion against it. Minigames, loot payouts/batch timings, cooldowns, and the ten-minute automatic security deadline are unchanged. Set `metacomic_dev_testing` to `0` or omit it on production servers to use the original `config.lua` durations. These settings do not depend on `/vendingtestrole`.
+
 API keys belong in **server.cfg**, because `config.lua` is shared with clients. Optional per-type convars are `metacomic_fivemanage_key_cards`, `metacomic_fivemanage_key_coins`, `metacomic_fivemanage_key_plushies`, and `metacomic_fivemanage_key_artwork`. Folder/key selection is configured in `Config.FivemanageFolders`.
 
 Use `Config.CardIcons.Mode = 'rarity'` for local rarity pictures without icon uploads, or `'upload'` for generated per-look icons. The checked-in config uses `'upload'`.
@@ -323,6 +332,8 @@ Main command names are configurable. Legacy `/cards`, `/cardpack`, `/cardbox`, `
 Start ox_target and ox_lib, enable `Config.VendingMachines`, and use `/placevending`. Aim to position the preview, rotate with the mouse wheel or Q/E (Shift for fine steps), and confirm with left click/Enter. Cancel with right click, Backspace, or Esc.
 
 Use **Manage** to choose card sets, packs/boxes, and prices. Use **Restock** with matching physical sealed products. New machines use `Shop.Items`; additional restock jobs and the stock cap are configured under `Restock`. `Shop.Account` selects payment through the configured inventory/framework. The shop currently sells card packs/boxes.
+
+Restocking checks that you hold the full requested quantity before starting. `Work.Restock.PackBatch` (default 2) and `BoxBatch` (default 1) set the units loaded per progress bar. `FullStockMs` defaults to 30000: filling one product to its configured pack or box capacity uses at most 30 seconds of progress time, allocated across its batches. Smaller loads take proportionally less time; network round trips add a little overhead. Set `FullStockMs = 0` to use only `BaseMs`, `PerUnitMs` and the per-batch `MaxMs`. The animation continues across progress bars. Each completed batch consumes inventory and updates machine stock. Interrupting stops the remaining batches and keeps completed ones. Key authentication survives walking away or client prop unloading, but still expires after `Keys.SessionSeconds` (default 300), and every action requires proximity and the current physical key.
 
 The admin **Vending machines** tab shows locations and stock. Configure `Config.VendingMachines.Map.Image` and coordinate alignment for a custom map; a grid is used without an image.
 

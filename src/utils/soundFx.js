@@ -274,6 +274,29 @@ export const soundFx = {
     cardboardRip(0.3)
     knock({ pitch: 170, gain: 0.04, delay: 0.5 })
   },
+  // booster box item opening (BoosterBox3D): drop | tear | open | emerge | land
+  boosterBox(event) {
+    try {
+      if (event === 'drop') { thud({ pitch: 95, gain: 0.07, body: 700 }); knock({ pitch: 190, gain: 0.025, delay: 0.02 }) }
+      if (event === 'tear') { // shrink-wrap: a nail punctures it, it rips round the box, then gets scrunched up
+        crackle({ duration: 0.12, density: 120, low: 2500, high: 9000, gain: 0.05 })
+        plasticRip({ duration: 0.45, gain: 0.075, delay: 0.08 })
+        plasticRip({ duration: 0.25, gain: 0.05, delay: 0.42 })
+        crackle({ duration: 0.5, density: 100, low: 2000, high: 9000, gain: 0.04, delay: 0.6 })
+      }
+      if (event === 'open') { // cardboard lid: slides off the tight box with a little suction pop, then flaps back
+        noise({ duration: 0.32, gain: 0.05, bandpass: 900, sweepTo: 1500, q: 0.8, attack: 0.12 })
+        tone({ frequency: 140, endFrequency: 70, duration: 0.12, type: 'sine', gain: 0.04, delay: 0.28 })
+        noise({ duration: 0.06, gain: 0.03, lowpass: 600, delay: 0.29 })
+        knock({ pitch: 160, gain: 0.045, delay: 0.62 })
+      }
+      if (event === 'emerge') { sparkle({ gain: 0.025 }); noise({ duration: 0.35, gain: 0.025, bandpass: 2400, sweepTo: 4200, q: 0.7, attack: 0.15 }) }
+      if (event === 'land') { // a foil pack set down on the table
+        crackle({ duration: 0.08, density: 90, low: 2400, high: 8000, gain: 0.022 })
+        noise({ duration: 0.05, gain: 0.02, lowpass: 1400, highpass: 300 })
+      }
+    } catch (error) { console.warn('[sound] booster box effect failed', error) }
+  },
   boxReveal() {
     tone({ frequency: 180, endFrequency: 120, duration: 0.18, type: 'triangle', gain: 0.03 })
     noise({ duration: 0.08, gain: 0.022, lowpass: 1800, highpass: 180, delay: 0.04 })

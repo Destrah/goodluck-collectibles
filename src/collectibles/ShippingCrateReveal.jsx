@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { bridge } from '../runtime'
 import './shippingCrate.css'
 
 // FiveM shipping crate item: the crate breaks open in 3D and its contents come out one by one.
@@ -10,6 +11,11 @@ export default function ShippingCrateReveal({ crate, onClose }) {
   const [finished, setFinished] = useState(false)
   const [failed, setFailed] = useState(false)
   const contents = Array.isArray(crate?.contents) ? crate.contents : []
+  // the server hands the contents over once the reveal has finished (or the page closes), not before
+  const claimed = useRef(false)
+  const claim = () => { if (!claimed.current) { claimed.current = true; bridge.claimCrate?.().catch?.(() => {}) } }
+  useEffect(() => { if (finished) claim() }, [finished])
+  useEffect(() => () => claim(), [])
 
   useEffect(() => {
     let cancelled = false

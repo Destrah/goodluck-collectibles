@@ -126,6 +126,24 @@ MetaComic.InventoryAdapters.ox_inventory = function()
             local success = exports.ox_inventory:RemoveItem(source, item, count or 1, metadata, slot, false, false)
             return success == true
         end,
+        -- Card snapshots contain nested metadata. ox_lib's partial matcher only
+        -- handles flat values; use deep matching after checking the exact slot.
+        removeExact = function(source, item, count, metadata, slot)
+            slot = tonumber(slot)
+            if not slot or type(metadata) ~= 'table' then return false end
+            local live = exports.ox_inventory:GetSlot(source, slot)
+            local function same(a, b)
+                if type(a) ~= type(b) then return false end
+                if type(a) ~= 'table' then return a == b end
+                for k, v in pairs(a) do if not same(v, b[k]) then return false end end
+                for k in pairs(b) do if a[k] == nil then return false end end
+                return true
+            end
+            if not live or live.name ~= item or (tonumber(live.count) or 0) < (count or 1)
+                or not same(live.metadata or {}, metadata) then return false end
+            local success = exports.ox_inventory:RemoveItem(source, item, count or 1, metadata, slot, false, true)
+            return success == true
+        end,
         add = function(source, item, count, metadata)
             local success = exports.ox_inventory:AddItem(source, item, count or 1, metadata)
             return success == true

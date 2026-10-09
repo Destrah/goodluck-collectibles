@@ -10,6 +10,7 @@ import ManagementPanel from './components/ManagementPanel'
 import VendingMapPanel from './components/VendingMapPanel'
 import CraftingPanel from './components/CraftingPanel'
 import ShippingCrateReveal from './collectibles/ShippingCrateReveal'
+import { BoosterBoxOverlay } from './components/BoosterBoxOpening3D'
 import VendingRecordsPanel from './components/VendingRecordsPanel'
 import VendingRecordView from './components/VendingRecordView'
 import Minigame from './minigames/Minigame'
@@ -19,6 +20,8 @@ import useConfirm from './components/useConfirm'
 import CardViewer from './components/CardViewer'
 import BinderView from './components/BinderView'
 import CardCaseView from './components/CardCaseView'
+import CardBuyerView, { cardBuyerDemo } from './components/CardBuyerView'
+import PackPricingPanel from './components/PackPricingPanel'
 import { renderCardIcon } from './utils/cardIcon'
 import { downscaleImageUrl } from './utils/compressImage'
 import GradingStation from './grading/GradingStation.jsx'
@@ -72,6 +75,8 @@ export default function App() {
   const [gradeRecordView, setGradeRecordView] = useState(null) // FiveM: /gradecheck cert lookup
   // FiveM binder item "View Binder" / standalone binder preview
   const [binderView, setBinderView] = useState(null)
+  const [cardBuyerView, setCardBuyerView] = useState(null)
+  const [boxView, setBoxView] = useState(null) // FiveM booster box item: its 3D opening
   const [crateView, setCrateView] = useState(null) // FiveM shipping crate item: the 3D unpacking of what came out
   const [recordView, setRecordView] = useState(null) // FiveM vending registration certificate / ledger item
   const [minigameView, setMinigameView] = useState(null) // FiveM built-in skill check (client/minigames.lua)
@@ -83,7 +88,7 @@ export default function App() {
   const [saveState, setSaveState] = useState({ saving: false, error: '' })
   const [unsavedPrompt, setUnsavedPrompt] = useState(false)
   const pendingActionRef = useRef(null)
-  const performCloseNui = () => (isEmbedded ? Promise.resolve(notifyEmbedHost('metaComic:embedClose')) : bridge.close()).catch(() => {}).finally(() => { setNuiVisible(false); setEmbedTest(null); setOverlayRun(0); setObjectOpenRequest(null); setCardView(null); setBinderView(null); setPackOptionsView(false) })
+  const performCloseNui = () => (isEmbedded ? Promise.resolve(notifyEmbedHost('metaComic:embedClose')) : bridge.close()).catch(() => {}).finally(() => { setNuiVisible(false); setEmbedTest(null); setOverlayRun(0); setObjectOpenRequest(null); setCardView(null); setBinderView(null); setCardBuyerView(null); setPackOptionsView(false) })
   const [previewViewer, setPreviewViewer] = useState(null)
   const importRef = useRef(null)
   const previewRef = useRef(null)
@@ -146,7 +151,7 @@ export default function App() {
       // FiveM: the server's print odds for the card stars (refreshed at most once a minute, whenever the UI opens)
       if (isFiveM && message.type === 'metaComic:open' && Date.now() - oddsFetchedAt.current > 60000) {
         oddsFetchedAt.current = Date.now()
-        bridge.getPrintOdds?.().then(result => setServerOdds(result?.odds)).catch(() => {})
+        bridge.getPrintOdds?.().then(result => setServerOdds(result?.odds,result?.bySet)).catch(() => {})
       }
       if (message.type === 'metaComic:embedTest' && !isEmbedded) { setNuiVisible(true); setEmbedTest({ query: String(message.query || ''), key: Date.now() }); return }
       if (message.type === 'metaComic:embedClose' && !isEmbedded) { setEmbedTest(null); setNuiVisible(false); bridge.close().catch(() => {}); return }
@@ -197,9 +202,11 @@ export default function App() {
         }
         setObjectOpenRequest(null)
         setNuiVisible(true)
+        setCardBuyerView(message.mode === 'cardBuyer' && message.buyer ? message.buyer : null)
         setGradingView(message.overlay && message.mode === 'grading' && message.grading ? message.grading : null)
         setGradeRecordView(message.overlay && message.mode === 'gradeRecord' ? { key: Date.now(), cert: message.cert || '', found: message.found || null } : null)
         setCrateView(message.overlay && message.mode === 'crate' && message.crate ? { ...message.crate, key: Date.now() } : null)
+        setBoxView(message.overlay && message.mode === 'boxOpening' && message.box ? { ...message.box, key: Date.now() } : null)
         setRecordView(message.overlay && message.mode === 'vendingRecord' && message.record ? { ...message.record, key: Date.now() } : null)
         setMinigameView(message.overlay && message.mode === 'minigame' && message.minigame ? message.minigame : null)
         if (message.mode === 'admin') {
@@ -256,7 +263,7 @@ export default function App() {
           setOverlayRun(0)
           setCardView(null)
           setBinderView(message.binder)
-        } else if (message.overlay && (message.mode === 'grading' || message.mode === 'gradeRecord' || message.mode === 'crate' || message.mode === 'vendingRecord' || message.mode === 'minigame')) {
+        } else if (message.overlay && (message.mode === 'grading' || message.mode === 'gradeRecord' || message.mode === 'crate' || message.mode === 'boxOpening' || message.mode === 'vendingRecord' || message.mode === 'minigame')) {
           setPackOptionsView(false)
           setOverlayRun(0)
           setCardView(null)
@@ -279,7 +286,7 @@ export default function App() {
           if (message.view) setTab(message.view)
         }
       }
-      if (message?.type === 'metaComic:close') { setNuiVisible(false); setOverlayRun(0); setObjectOpenRequest(null); setCardView(null); setBinderView(null); setPackOptionsView(false); setGradingView(null); setGradeRecordView(null); setCrateView(null); setRecordView(null); setMinigameView(null) }
+      if (message?.type === 'metaComic:close') { setNuiVisible(false); setOverlayRun(0); setObjectOpenRequest(null); setCardView(null); setBinderView(null); setPackOptionsView(false); setGradingView(null); setGradeRecordView(null); setCrateView(null); setBoxView(null); setRecordView(null); setMinigameView(null) }
     })
     bridge.uiReady?.().catch?.(() => {}) // FiveM only: listening now, so the server can send icon work
     return () => {
@@ -307,6 +314,7 @@ export default function App() {
   const portalTabs = runtimeInfo.capabilities?.portal?.tabs || []
   const vendingAllowed = managementAllowed || portalTabs.includes('vending')
   const recordsAllowed = managementAllowed || portalTabs.includes('records')
+  const pricingAllowed = !isFiveM || managementAllowed || portalTabs.includes('pricing')
   // embedded with a list of tabs (GetEmbedUrl): only those
   const onlyTabs = isEmbedded && embedTabs.length ? embedTabs : null
   const shown = id => !onlyTabs || onlyTabs.includes(id)
@@ -521,6 +529,7 @@ export default function App() {
   })
 
   if (isFiveM && !nuiVisible) return null
+  if (cardBuyerView) return <CardBuyerView key={cardBuyerView.token} buyer={cardBuyerView} demo={!isFiveM} onClose={isFiveM ? performCloseNui : () => setCardBuyerView(null)} />
 
   if (embedTest) return (
     <div className="embed-test" style={{ position: 'fixed', inset: '4vh 4vw', display: 'flex', flexDirection: 'column', background: '#111', borderRadius: 12, overflow: 'hidden', boxShadow: '0 20px 60px #000a' }}>
@@ -532,6 +541,7 @@ export default function App() {
     </div>
   )
   if (objectOpenRequest) return <CollectibleOpeningOverlay key={objectOpenRequest.id} request={objectOpenRequest} onClose={performCloseNui} />
+  if (boxView) return <BoosterBoxOverlay key={boxView.key} box={boxView} onClose={performCloseNui} />
   if (crateView) return <ShippingCrateReveal key={crateView.key} crate={crateView} onClose={performCloseNui} />
   // skill check: hidden straight away on a result (the game script then closes the page, or opens the next game)
   if (minigameView) return <Minigame key={minigameView.id} config={minigameView} onResult={success => { bridge.minigameResult?.({ id: minigameView.id, success }).catch?.(() => {}); setMinigameView(null); if (isFiveM) setNuiVisible(false) }} />
@@ -579,7 +589,7 @@ export default function App() {
     <main className={`app-shell ${isFiveM ? 'runtime-fivem' : 'runtime-standalone'}`}>
       <nav className="topbar">
         <div className="brand"><div className="brand-mark">M</div><div><strong>Meta Comic Collectibles</strong><span>{isFiveM ? `FiveM NUI · ${runtimeInfo.framework}` : 'Standalone React App'}</span></div></div>
-        <div className="top-actions">
+        {!isEmbedded && <div className="top-actions">
           {editorAllowed && system === 'trading_card' && <>
             <button className="ghost" onClick={requestImport} disabled={isFiveM && !catalogReady}>Import JSON</button>
             <input ref={importRef} hidden type="file" accept="application/json" onChange={e => importJson(e.target.files?.[0]).catch(err => alert(err.message))} />
@@ -591,7 +601,7 @@ export default function App() {
             <button className="primary" onClick={add} disabled={isFiveM && !catalogReady}>+ New card</button>
           </>}
           {isFiveM && <button className="ghost" onClick={requestCloseNui}>Close</button>}
-        </div>
+        </div>}
       </nav>
 
       {shown('editor') && <label className="collectible-system-selector">Collectible system<select aria-label="Collectible system" disabled={collectibleBusy} value={system} onChange={event => chooseSystem(event.target.value)}>{listCollectibleTypes().map(module => <option key={module.id} value={module.id} disabled={isFiveM && module.id !== 'trading_card' && !runtimeInfo.capabilities?.collectibles}>{module.label}</option>)}</select></label>}
@@ -610,6 +620,7 @@ export default function App() {
         {managementAllowed && shown('management') && <button className={tab === 'management' ? 'active' : ''} onClick={() => changeTab('management')}>Sets & containers</button>}
         {vendingAllowed && shown('vending') && system === 'trading_card' && <button className={tab === 'vending' ? 'active' : ''} onClick={() => changeTab('vending')}>Vending machines</button>}
         {recordsAllowed && shown('records') && system === 'trading_card' && <button className={tab === 'records' ? 'active' : ''} onClick={() => changeTab('records')}>Machine records</button>}
+        {pricingAllowed && shown('pricing') && system === 'trading_card' && <button className={tab === 'pricing' ? 'active' : ''} onClick={() => changeTab('pricing')}>Pack pricing</button>}
         {managementAllowed && shown('crafting') && <button className={tab === 'crafting' ? 'active' : ''} onClick={() => changeTab('crafting')}>Crafting</button>}
         {managementAllowed && shown('minigames') && <button className={tab === 'minigames' ? 'active' : ''} onClick={() => changeTab('minigames')}>Minigames</button>}
         {shown('gallery') && <button className={tab === 'gallery' ? 'active' : ''} onClick={() => changeTab('gallery')}>Collection</button>}
@@ -619,7 +630,7 @@ export default function App() {
       </div>
 
       {system === 'trading_card' && <>
-      {catalogError && <div className="management-message" role="alert">{catalogError} Reopen /cardadmin to retry.</div>}
+      {catalogError && tab !== 'pricing' && <div className="management-message" role="alert">{catalogError} Reopen /cardadmin to retry.</div>}
       {tab === 'editor' && catalogReady && !selected && <div className="management-message">No cards are saved in the server catalog. Add a new card or import a catalog.</div>}
       {tab === 'editor' && (!isFiveM || catalogReady) && selected && selectedPrint && (
         <section className="workspace">
@@ -677,6 +688,7 @@ export default function App() {
       )}
 
       {tab === 'management' && managementAllowed && <ManagementPanel cards={cards} sets={sets} onSetsChange={setSets} />}
+      {tab === 'pricing' && pricingAllowed && <PackPricingPanel cards={savedCards} sets={sets} />}
       {tab === 'vending' && vendingAllowed && <VendingMapPanel />}
       {tab === 'records' && recordsAllowed && <VendingRecordsPanel />}
       {tab === 'crafting' && managementAllowed && <CraftingPanel sets={sets} />}
@@ -686,6 +698,7 @@ export default function App() {
         <div className="binder-preview-bar">
           <span>Binder preview: every print in collection order, 9 per sleeve page (in FiveM the order comes from the binder item's slots).</span>
           <button className="ghost" onClick={() => setBinderPreview({ label: 'Binder preview', slots: Math.max(18, Math.ceil(allPrints.length / 18) * 18), pockets: allPrints.slice(8).map((card, i) => ({ slot: i + 1, card })), hand: [...loadCopies().map(copy => copyCard(copy, cards)).filter(Boolean).slice(0, 8), ...allPrints.slice(0, 4)].map((card, i) => ({ slot: i + 1, card })) })}>View binder</button>
+          {!isFiveM && <button className="ghost" onClick={() => setCardBuyerView(cardBuyerDemo(allPrints))}>Preview selling counter</button>}
           <button className="ghost" onClick={() => setBinderPreview({ kind: 'case', label: 'Card case preview', slots: 48, pockets: allPrints.slice(4, 34).map((card, i) => ({ slot: i + 1 + Math.floor(i / 4) * 2, card })), hand: [...loadCopies().map(copy => copyCard(copy, cards)).filter(Boolean).slice(0, 8), ...allPrints.slice(0, 4)].map((card, i) => ({ slot: i + 1, card })) })}>View card case</button>
         </div>
       )}

@@ -21,6 +21,8 @@ Config.Money = {
 
 -- Persistence: none | json | mysql | custom
 Config.Persistence = 'mysql'
+-- Server-owned runtime state: coalesce writes and flush/checkpoint on resource shutdown.
+Config.RuntimeSaves = { IntervalSeconds = 30 }
 
 
 
@@ -332,7 +334,7 @@ Config.Crafting = {
 -- Shipping crates: one big crate item ('shipping_crate') that a player pries open to get the large collectible containers
 -- inside (booster boxes, plushie / coin boxes and cases). Using the item puts the crate prop on the ground in front of the
 -- player, plays the prying animation, opens the lid in game and then shows a 3D reveal of the contents.
--- The props are from the 2024 "Bottom Dollar Bounties" update: add `set sv_enforceGameBuild 3258` (or newer) to server.cfg.
+-- The default crate uses a separate matching lid. Alternate DLC shells need a compatible enforced game build.
 -- Contents use the same result list as crafting (type 'sealed' / 'container' / 'item'); chance = % (default 100).
 -- ox_inventory item: ['shipping_crate'] = { label = 'Shipping Crate', weight = 25000, stack = false, close = true,
 --   client = { image = 'shipping_crate.png' } }
@@ -342,11 +344,18 @@ Config.ShippingCrates = {
     Default = 'mixed',          -- crate id when the item has none
     GiveCommand = 'givecrate',  -- managers: /givecrate [crate id] ('' to disable)
     OpenTime = 6000,            -- ms prying it open (per crate: openTime)
-    Tool = { item = 'crowbar', label = 'crowbar' }, -- needed to open (not used up). false: no tool
+    Tool = { item = 'weapon_crowbar', label = 'crowbar' }, -- configurable inventory item; not consumed. false: no tool required
     Models = {
-        Closed = 'm24_2_prop_m42_upgradecrate_01a', -- hash 3839926505
-        Open = 'm24_2_prop_m42_crate_open',
-        Lid = 'm24_2_prop_m42_crate_lid',
+        Closed = 'prop_ld_crate_01', -- crate base; the matching lid is attached while sealed
+        Open = 'prop_ld_crate_01',
+        Lid = 'prop_ld_crate_lid_01',
+        SeparateLid = true,
+        -- Alternative shell pair: Closed='xm3_prop_xm3_crate_01c', Open='m23_1_prop_m31_crate_03b', Lid=false, SeparateLid=false.
+    },
+    Carry = {
+        Enabled = true, TrunkEnabled = true, MoveRate = 0.85,
+        -- Uses the vending dolly/animation by default; offsets place the crate base on the dolly.
+        Prop = { offset = vec3(0.0, -0.35, 0.05), rotation = vec3(0.0, 0.0, 0.0) }, -- farther forward over the dolly platform
     },
     Animation = { dict = 'missheistfbi3b_ig7', clip = 'lift_fibagent_loop', flag = 1,
         prop = 'w_me_crowbar', bone = 57005, pos = vec3(0.10, 0.02, -0.02), rot = vec3(-90.0, 0.0, 0.0) },
@@ -362,21 +371,21 @@ Config.ShippingCrates = {
     Animation3D = 'random',    -- 3D reveal: 'lid' | 'panels' | 'pry' | 'straps' | 'random' (per crate: animation)
     Crates = {
         mixed = { label = 'Mixed Shipping Crate', contents = {
-            { type = 'sealed', kind = 'box', count = 2 },
+            { type = 'sealed', kind = 'box', count = 85 },
             { type = 'container', collectible = 'plushie', outer = false, count = 1 },
             { type = 'container', collectible = 'challenge_coin', outer = false, count = 1 },
             { type = 'container', collectible = 'plushie', outer = true, count = 1, chance = 15 },
         } },
         cards = { label = 'Card Shipping Crate', animation = 'straps', contents = {
-            { type = 'sealed', kind = 'box', count = 4 },
+            { type = 'sealed', kind = 'box', count = 85 },
             { type = 'item', item = 'card_sleeve', count = 50, chance = 50 },
         } },
         plushies = { label = 'Plushie Shipping Crate', animation = 'panels', contents = {
-            { type = 'container', collectible = 'plushie', outer = true, count = 1 },
+            { type = 'container', collectible = 'plushie', outer = true, count = 85 },
             { type = 'container', collectible = 'plushie', outer = false, count = 2 },
         } },
         coins = { label = 'Coin Shipping Crate', animation = 'pry', contents = {
-            { type = 'container', collectible = 'challenge_coin', outer = true, count = 1 },
+            { type = 'container', collectible = 'challenge_coin', outer = true, count = 85 },
             { type = 'container', collectible = 'challenge_coin', outer = false, count = 2 },
         } },
     },
@@ -440,7 +449,8 @@ Config.VendingMachines = {
     -- taken, capped at MaxMs. CycleMs = one load / grab motion.
     Work = {
         Enabled = true,
-        Restock = { BaseMs = 2000, PerUnitMs = 1500, MaxMs = 45000, CycleMs = 2000 },
+        Restock = { BaseMs = 2000, PerUnitMs = 750, MaxMs = 30000, CycleMs = 2000,
+            PackBatch = 2, BoxBatch = 1, FullStockMs = 30000 }, -- full product capacity takes at most this much progress time; 0 disables the total cap
         Cash = { BaseMs = 2000, PerUnitMs = 1000, Unit = 100, MaxMs = 45000, CycleMs = 2500 },
     },
     -- pack props standing in the window's 15 slots to show stock (client/vending_machines.lua has the slot positions)
@@ -453,7 +463,7 @@ Config.VendingMachines = {
         BoxDropRotation = vec3(0.0, 90.0, 90.0), BoxDropFront = -0.38,
         -- spotlight from the top inside the window onto the packs (drawn by script for machines within Range metres).
         -- Offset: x left/right, y front/back (front is -y), z up from the model origin; Direction: where it points.
-        Light = { Enabled = true, Offset = vec3(-0.15, -0.44, 0.63), Direction = vec3(0.0, 0.15, -1.0), Color = { 255, 244, 225 },
+        Light = { Enabled = true, Offset = vec3(-0.15, -0.420, 0.720), Direction = vec3(0.0, 0.15, -1.0), Color = { 255, 244, 225 },
             Distance = 1.4, Brightness = 4.0, Hardness = 0.0, Radius = 55.0, Falloff = 10.0, Range = 30.0 } },
     -- Admin UI "Vending machines" tab (/collectiblesadmin): every machine on a map with its stock. Put a square GTA V
     -- map picture at Image (a path in this resource or an https URL; without one a grid is shown). The numbers line
@@ -540,10 +550,33 @@ Config.VendingMachines = {
         Enabled = true,
         Item = 'vending_key', ReportItem = 'vending_key_record', CylinderItem = 'vending_lock_cylinder',
         SessionSeconds = 300, ReplaceDuration = 60000,
+        UseAnimation = { Enabled = true, Model = 'tr_prop_tr_car_keys_01a', CabinetModel = 'h4_prop_h4_key_desk_01', Duration = 1800, ApproachMs = 1000,
+            CylinderSpot = vec3(0.49, -0.98, -0.95), PadlockSpot = vec3(0.58, -0.98, -0.95),
+            CashboxSpot = vec3(0.40, -1.05, -0.95), RackSpot = vec3(0.35, -0.95, -0.95),
+            Animation = { dict = 'anim@scripted@heist@ig13_jailor_key_turn@generic@male@', clip = 'action', flag = 0 },
+            -- Hand targets are model-local lock coordinates; IK corrects the clip's reach for each lock.
+            Profiles = {
+                InstallPadlock = { Spot = vec3(0.48, -0.94, -0.95), Target = vec3(0.58, -0.48, 0.14), Duration = 2000,
+                    Bone = 64096, Offset = vec3(0.0, 0.0, -0.035), Rotation = vec3(0.0, 90.0, 0.0), ReachStart = 0.20, ReachEnd = 0.85 },
+                Padlock = { Spot = vec3(0.48, -0.94, -0.95), Target = vec3(0.58, -0.48, 0.14), Duration = 2000,
+                    Bone = 64096, Offset = vec3(0.015, 0.060, 0.020), Rotation = vec3(188.0, 0.0, -90.0), ReachStart = 0.20, ReachEnd = 0.80 },
+                Cylinder = { Spot = vec3(0.39, -0.94, -0.95), Target = vec3(0.49, -0.48, 0.24), Duration = 2000,
+                    Bone = 64096, Offset = vec3(0.010, 0.025, 0.015), Rotation = vec3(10.0, -116.0, 192.0), ReachStart = 0.20, ReachEnd = 0.80 },
+                Rack = { Spot = vec3(0.40, -0.92, -0.95), Target = vec3(0.50, -0.43, -0.05), Duration = 2000,
+                    Animation = { dict = 'missheistfbisetup1', clip = 'unlock_loop_janitor', flag = 1 },
+                    Bone = 64096, Offset = vec3(0.015, 0.060, 0.020), Rotation = vec3(188.0, 0.0, -90.0), ReachStart = 0.15, ReachEnd = 0.85 },
+                Cashbox = { Spot = vec3(0.30, -0.64, -0.95), Target = vec3(0.402, 0.35, -0.60), Duration = 2000,
+                    Animation = { dict = 'anim@amb@clubhouse@tutorial@bkr_tut_ig3@', clip = 'machinic_loop_mechandplayer', flag = 1 },
+                    Bone = 64096, Offset = vec3(0.015, 0.060, 0.020), Rotation = vec3(188.0, 0.0, -90.0), ReachStart = 0.25, ReachEnd = 0.85 },
+            },
+            OpenAnimation = { dict = 'mp_common', clip = 'givetake1_a', flag = 1, Duration = 650 },
+            Bone = 57005, Offset = vec3(0.10, 0.02, -0.02), Rotation = vec3(0.0, 90.0, 0.0) },
         ReplaceOffset = vec3(0.85, -0.15, 0.0), -- right side of the cabinet, relative to the model origin
         ForcedReplaceDuration = 180000, ForcedReplaceMinigame = { 'lockpick_hard', 'wires_hard' }, -- non-owner/non-manager cylinder fitting
         PoliceCommand = 'vendingkeys', -- /vendingkeys SERIAL [print], police/business only
         SecureAccess = 'police_or_controllers', -- physical owners/business may secure too
+        Padlock = { Enabled = true, Item = 'vending_padlock', Model = 'prop_cs_padlock',
+            Offset = vec3(0.58, -0.44, 0.14), Rotation = vec3(-30.0, 0.0, 0.0) }, -- right front, between coin insert and buttons
         -- securing a broken-in machine chains it shut: no key access until the cylinder is repaired or replaced.
         -- Model: long base game chain round each face in Faces (its padlocks hidden inside); Lock: short chain lock on the front in Faces; padlock out on the front, hidden inside elsewhere.
         -- Padlock on the wrong side? flip LockSide (1 / -1). Height = chain height on the machine. FallbackModel if the chain isn't in the game build.
@@ -561,12 +594,30 @@ Config.VendingMachines = {
         Enabled = true,
         MinPolice = 0,
         OwnersCanRob = false, -- owners (and hackers who took a machine over) can't rob their own machines
-        BreakIn = {
-            Enabled = true, Label = 'Break in', Icon = 'fas fa-screwdriver-wrench', ProgressLabel = 'Lockpicking and opening the machine',
+        BreakSeal = {
+            Enabled = true, Label = 'Lockpick security seal', Icon = 'fas fa-lock', ProgressLabel = 'Lockpicking the security device',
             Items = { { item = 'lockpick', label = 'lockpick', count = 1, breakChance = 30 } },
-            Minigame = { 'lockpick_hard', 'safe_hard' },
+            -- Uses Keys.Seal.BreakDuration and Minigame; the cylinder is already damaged.
+            Animation = { dict = 'missheistfbi3b_ig7', clip = 'lift_fibagent_loop', flag = 49, prop = 'prop_tool_screwdvr01',
+                bone = 57005, pos = vec3(0.10, 0.02, -0.02), rot = vec3(-90.0, 0.0, 0.0) },
+            Cooldown = 0, FailCooldown = 30, FailMessage = 'The security seal held.',
+        },
+        PickPadlock = {
+            Enabled = true, Label = 'Lockpick padlock', Icon = 'fas fa-lock', ProgressLabel = 'Lockpicking the padlock',
+            Items = { { item = 'lockpick', label = 'lockpick', count = 1, breakChance = 30 } },
+            Minigame = 'lockpick_medium', Duration = 15000, Cooldown = 0, FailCooldown = 30,
+            Interaction = { Spot = vec3(0.58, -1.02, -0.95), Target = vec3(0.58, -0.44, 0.14), WalkMs = 1000 },
+            Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 1, prop = 'prop_tool_screwdvr01',
+                bone = 57005, pos = vec3(0.10, 0.02, -0.02), rot = vec3(-90.0, 0.0, 0.0) },
+            FailMessage = 'The padlock held.',
+        },
+        BreakIn = {
+            Enabled = true, Label = 'Drill cabinet cylinder', Icon = 'fas fa-screwdriver-wrench', ProgressLabel = 'Drilling out the cabinet cylinder',
+            Items = { { item = 'drill', label = 'drill', count = 1, breakChance = 30 } },
+            Minigame = 'drill_hard',
             Duration = 45000,
-            Animation = { dict = 'missheistfbi3b_ig7', clip = 'lift_fibagent_loop', flag = 49, prop = 'prop_tool_screwdvr01', bone = 57005, pos = vec3(0.10, 0.02, -0.02), rot = vec3(-90.0, 0.0, 0.0) },
+            Interaction = { Spot = vec3(0.49, -1.04, -0.95), Target = vec3(0.49, -0.44, 0.24), WalkMs = 1000 },
+            Animation = { dict = 'anim@heists@fleeca_bank@drilling', clip = 'drill_straight_idle', flag = 1, prop = 'hei_prop_heist_drill', bone = 57005, pos = vec3(0.14, 0.0, -0.01), rot = vec3(90.0, -90.0, 180.0) },
             Cooldown = 900, FailCooldown = 30,
             TakePercent = 100,       -- % of the cash stored in the machine
             RewardAccount = 'cash',  -- or RewardItem = 'black_money' / 'markedbills' (count = the amount)
@@ -717,6 +768,57 @@ Config.VendingMachines = {
 -- behind it) and dragged; untie it (ox_target on the machine) to load it back on the dolly. Offsets: Dolly from the ped,
 -- Machine base from the dolly (model-origin height is compensated automatically). Tweak them in game if the model sits wrong.
 -- Evidence adapters receive one payload table. Configure server exports or a custom function to map your resource's API.
+-- Trading card buyback. Example location: replace with your shop's coordinates.
+Config.CardBuyers = {
+    Enabled = true, Account = 'cash', Distance = 2.0, SpawnDistance = 60.0,
+    ZoneAdapter = 'builtin', -- or a registered adapter name / { Resource='resource', Contains='exportName' }
+    MaxCartCards = 60, QuoteSeconds = 300,
+    Stock = { Enabled = true, Command = 'cardbuyerstock', ManagementMinGrade = 2, PageSize = 20 },
+    -- Population = unique graded copies previously bought by these businesses, across all buyers.
+    GradedPopulation = { Enabled = true, ReferenceCount = 4, Exponent = 0.35, MinMultiplier = 0.75, MaxMultiplier = 1.25 },
+    Analysis = { Enabled = true, SamplePacks = 2000, CacheSeconds = 120, RequireDuty = true },
+    ZoneTool = { Command = 'cardzone', RayDistance = 30.0, DefaultSize = vec3(4.0, 4.0, 3.0) },
+    CheckInterval = 3000, Command = 'sellcards', FundCommand = 'fundcardbuyer',
+    MinPrice = 1, MaxPrice = 1000,
+    Pricing = 'combined', -- 'rarity', 'odds', or 'combined' (higher multiplier, based on the $1 common baseline)
+    RarityMultipliers = { common = 1, uncommon = 2, rare = 5, ultra_rare = 15, legendary = 50 },
+    OddsExponent = 1.0, -- price multiplier = (commonest print / this print's expected copies per set pack)^exponent
+    RarityScores = { common = 0, uncommon = 0.25, rare = 0.5, ultra_rare = 0.75, legendary = 1 },
+    -- RarityScores is retained for older configurations without RarityMultipliers.
+    OddsMaxRatio = 300, -- legacy setting; baseline pricing now uses OddsExponent instead
+    ConditionPricing = {
+        Enabled = true, DiscountPerGradePoint = 0.08, MaxDiscount = 0.80,
+        -- Stricter than grading tolerances: only defects obvious without a grading bench lower raw-card offers.
+        Obvious = { centeringFront = 0.20, centeringBack = 0.70, art = 1.5, text = 1.2,
+            foil = 3.0, foilHue = 30, mask = 1.6, wear = 0.40 },
+        MarkSeverity = { scratch = 0.50, dent = 0.70, crease = 0.20, bend = 0.40, tear = 0.15,
+            roller = 0.70, printline = 0.50, inkspot = 0.70, stain = 0.50 },
+        MinMarkLength = { scratch = 12, crease = 8, bend = 10, tear = 2, printline = 20, roller = 15 },
+        GradeMultipliers = { [1]=0.15,[2]=0.25,[3]=0.35,[4]=0.45,[5]=0.55,[6]=0.65,[7]=0.80,
+            [8]=1.0,[8.5]=1.15,[9]=1.40,[9.5]=1.75,[10]=2.50 },
+    },
+    AcceptManualPrints = false,
+    RequireBusinessFunds = false, -- true: employees must deposit money; insufficient funds refuse the sale
+    FundingAccount = 'bank', FundingMinGrade = 0,
+    FixedPricesEnabled = false, FixedPricesIgnoreMaximum = false,
+    -- Exact baseCardId::variantId overrides baseCardId. Prices are dollars per card.
+    FixedPrices = { -- ['sample-card::standard'] = 1500, ['sample-card'] = 100,
+    },
+    Peds = {
+        { id = 'cardshop', label = 'Trading card buyer', model = 's_m_m_highsec_01',
+          coords = vec4(112.0, -1938.0, 20.8, 45.0), scenario = 'WORLD_HUMAN_CLIPBOARD',
+          EmployeeJobs = { cardshop = 0 }, HideWhenEmployeesPresent = true,
+          -- On-duty employees must be in Store and/or Bounds. 'any' = either; 'all' = both.
+          PresenceMode = 'any', Store = { coords = vec3(112.0, -1938.0, 20.8), radius = 20.0 },
+          -- Bounds = { coords = vec3(112.0, -1938.0, 20.8), size = vec3(12.0, 10.0, 6.0), heading = 45.0 },
+          -- Optional counter handover: actor stands at Spot inside Bounds and deals once per selected card.
+          -- SellArea = { Bounds = { coords=vec3(112.0,-1938.0,20.8),size=vec3(4.0,4.0,3.0),heading=45.0 },
+          --   Spot=vec4(112.0,-1938.0,20.8,45.0), Animation={ dict='mp_common',clip='givetake1_a',Duration=850,flag=49 } },
+          -- Optional overrides: MinPrice, MaxPrice, RequireBusinessFunds, FixedPrices, etc.
+        },
+    },
+}
+
 Config.CrimeEvidence = {
     Enabled = true,
     Fingerprints = { Enabled = true, Chance = 75,
@@ -736,10 +838,40 @@ Config.CrimeEvidence = {
     },
 }
 
+-- Upright truck cargo, turned sideways. Three columns need about 2.7 m clear width.
+-- Edit columns/rows at the calls below; offsets refer to the vending model's centre, not its feet.
+local function vendingTruckSlots(columns, rows, centerY, centerZ, columnSpacing, rowSpacing)
+    local slots = {}
+    -- Load from the front of the cargo bay toward the rear doors.
+    for row = 1, rows do
+        for column = 1, columns do
+            slots[#slots + 1] = {
+                offset = vec3((column-(columns+1)/2)*columnSpacing, centerY+((rows+1)/2-row)*rowSpacing, centerZ),
+                rotation = vec3(0.0, 0.0, 90.0),
+            }
+        end
+    end
+    return slots
+end
+local function collectibleCrateSlots(rows, centerY, floorZ)
+    local slots = {}
+    for row = 1, rows do
+        slots[row] = { offset = vec3(0.0, centerY+((rows+1)/2-row)*1.30, floorZ), rotation = vec3(0.0,0.0,0.0), alignBottom = true }
+    end
+    return slots
+end
+local function bensonMachineSlots()
+    local slots = vendingTruckSlots(2, 4, -1.65, 1.05, 0.92, 1.20)
+    slots[#slots+1] = { offset = vec3(0.0, -4.55, 1.05), rotation = vec3(0.0, 0.0, 0.0) } -- centred rear machine, front faces out (-Y)
+    return slots
+end
+
 Config.VendingCarry = {
     Enabled = true,
     TrunkRestrictions = {
         Enabled = true,
+        Mode = 'allowlist', -- 'allowlist', 'blacklist', or 'both'; blacklist mode preserves the old rules
+        AllowedModels = { 'speedo', 'speedo2', 'speedo4', 'rumpo', 'rumpo2', 'rumpo3', 'pony', 'pony2', 'burrito', 'burrito2', 'burrito3', 'burrito4', 'burrito5', 'mule', 'mule2', 'mule3', 'mule4', 'mule5', 'benson', 'trflat', 'trailers', 'trailers2', 'trailers3', 'trailers4' },
         BlockedModels = {}, -- model names or hashes: { 'adder', `zentorno` }
         BlockedClasses = {}, -- names or IDs: { 'sedans', 'sports', 7 }; see README
         BlockedTypes = {}, -- server vehicle types: { 'bike', 'boat', 'heli', 'plane' }
@@ -747,6 +879,40 @@ Config.VendingCarry = {
         ModelClasses = {}, -- { sultan = 'sports', adder = 7, speedo = 'vans' }
         BlockUnknownClass = true, -- when class rules exist, deny models missing from ModelClasses
         Message = 'This vehicle cannot store a vending machine in its trunk.',
+    },
+    TrunkCargo = {
+        Enabled = true, Inventory = 'ox_inventory', CheckInterval = 1000,
+        SpawnPerTick = 2, -- stagger cargo visual creation across client ticks to avoid truck-load spawn spikes
+        DoorMinimum = 3, -- server-synchronized open position, 0 closed .. 7 fully open
+        DoorStopAngle = 0.25, -- obstructed doors can move freely above this fraction of their open angle
+        CollisionClearance = 0.005, -- metres added to door/cargo bounds (previous hardcoded margin was 0.02)
+        -- Explicit cargo profiles: vehicle exterior dimensions do not describe usable cargo space.
+        -- offsets are relative to vehicle origin; add Slots to carry more machines.
+        Profiles = {
+            speedo4 = { Doors = {}, CollisionDoors = { 2, 3 }, Slots = { { offset = vec3(0.0, -1.25, 0.25), rotation = vec3(0.0, 90.0, 90.0) } }, CrateSlots = collectibleCrateSlots(1,-1.25,-0.45) }, -- on its side; rear doors close if the load clears them
+            speedo = 'speedo4', -- default vans carry on their side and do not require open doors
+            speedo2 = 'speedo', rumpo = 'speedo4', rumpo2 = 'rumpo',
+            rumpo3 = {
+                Doors = {}, CollisionDoors = { 2, 3 }, CollisionClearance = -0.015, -- tolerate 1.5 cm of conservative bounds overlap
+                Slots = { { offset = vec3(0.0, -1.25, 0.25), rotation = vec3(0.0, 90.0, 90.0) } },
+                CrateSlots = collectibleCrateSlots(1,-1.25,-0.45),
+                -- Approximate closed side-door panels in vehicle space; tune for replacement vehicles.
+                SlidingDoors = {
+                    [2] = { center = vec3(-1.10, -0.75, 0.35), halfSize = vec3(0.025, 0.70, 0.80), travel = vec3(-0.12, -1.10, 0.0) },
+                    [3] = { center = vec3(1.10, -0.75, 0.35), halfSize = vec3(0.025, 0.70, 0.80), travel = vec3(0.12, -1.10, 0.0) },
+                },
+            },
+            pony = 'speedo', pony2 = 'speedo', burrito = 'speedo', burrito2 = 'speedo', burrito3 = 'speedo', burrito4 = 'speedo', burrito5 = 'speedo',
+            -- Starting truck layouts; verify floor/roof/arches in game for each vehicle variant.
+            -- arguments: columns, rows, bay centre Y, machine centre Z, column spacing, row spacing (metres).
+            mule = { Doors = {}, CollisionDoors = { 2, 3 }, Slots = vendingTruckSlots(2, 3, -1.60, 1.05, 0.92, 1.20), CrateSlots = collectibleCrateSlots(3,-1.60,0.10) },
+            mule2 = 'mule', mule3 = 'mule', mule4 = 'mule', mule5 = 'mule',
+            benson = { Doors = {}, CollisionDoors = { 2, 3 }, Slots = bensonMachineSlots(), CrateSlots = collectibleCrateSlots(4,-1.65,0.10) },
+            trflat = { Doors = {}, Slots = { { offset = vec3(0.0, 0.0, 0.60), rotation = vec3(0.0, 0.0, 0.0) } }, CrateSlots = collectibleCrateSlots(1,0.0,0.60) },
+            trailers = 'trflat', trailers2 = 'trflat', trailers3 = 'trflat', trailers4 = 'trflat',
+        },
+        -- Other resources: server-only GetInventory(id), LoadedTrunks(), RegisterHook(callback), RemoveHook(handle).
+        Adapter = nil,
     },
     -- offset = vec3(left/right, forward/back, height), in metres; rotation is in degrees.
     -- Dolly height raises the whole assembly. Machine height adjusts only the cabinet.
@@ -809,6 +975,7 @@ Config.Minigames = {
     sequence_easy = { type = 'builtin', game = 'sequence', level = 'easy', keys = 6, perKey = 1.6, rounds = 1 },
     sequence_medium = { type = 'builtin', game = 'sequence', level = 'medium', keys = 8, perKey = 1.2, rounds = 2 },
     sequence_hard = { type = 'builtin', game = 'sequence', level = 'hard', keys = 10, perKey = 0.9, rounds = 2 },
+    drill_hard = { type = 'builtin', game = 'sequence', level = 'hard', keys = 10, perKey = 0.9, rounds = 2 },
     skill_easy = { type = 'ox_skillcheck', level = 'easy', difficulty = { 'easy', 'easy' }, inputs = { 'e' } },
     skill_medium = { type = 'ox_skillcheck', level = 'medium', difficulty = { 'easy', 'medium', 'medium' }, inputs = { 'w', 'a', 's', 'd' } },
     skill_hard = { type = 'ox_skillcheck', level = 'hard', difficulty = { 'medium', 'hard', { areaSize = 30, speedMultiplier = 2 } }, inputs = { 'w', 'a', 's', 'd' } },

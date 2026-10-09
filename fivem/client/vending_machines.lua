@@ -26,6 +26,9 @@ local function loadModel(hash)
 end
 
 local function despawn(machine)
+    machine.padlockGeneration = (machine.padlockGeneration or 0) + 1
+    if machine.padlockProp and DoesEntityExist(machine.padlockProp) then DeleteEntity(machine.padlockProp) end
+    machine.padlockProp = nil
     if machine.skimmerProp and DoesEntityExist(machine.skimmerProp) then DeleteEntity(machine.skimmerProp) end
     machine.skimmerProp = nil
     for _, prop in ipairs(machine.sealProps or {}) do if DoesEntityExist(prop) then DeleteEntity(prop) end end
@@ -39,6 +42,27 @@ local function despawn(machine)
         byEntity[machine.entity] = nil
         machine.entity = nil
     end
+end
+
+local function syncPadlock(machine)
+    machine.padlockGeneration = (machine.padlockGeneration or 0) + 1
+    local generation = machine.padlockGeneration
+    if machine.padlockProp and DoesEntityExist(machine.padlockProp) then DeleteEntity(machine.padlockProp) end
+    machine.padlockProp = nil
+    local settings = (cfg.Keys or {}).Padlock or {}
+    if not machine.padlock or not machine.entity then return end
+    local parent = machine.entity
+    local hash = loadModel(joaat(settings.Model or 'prop_cs_padlock'))
+    if not hash then return end
+    if machines[machine.id] ~= machine or machine.entity ~= parent or not DoesEntityExist(parent)
+        or generation ~= machine.padlockGeneration or not machine.padlock then return SetModelAsNoLongerNeeded(hash) end
+    local coords = GetEntityCoords(parent)
+    local prop = CreateObjectNoOffset(hash, coords.x, coords.y, coords.z, false, false, false)
+    SetEntityCollision(prop, false, false)
+    local offset, rotation = settings.Offset or vector3(0.54, -0.46, 0.32), settings.Rotation or vector3(0.0, 0.0, 0.0)
+    AttachEntityToEntity(prop, parent, -1, offset.x, offset.y, offset.z, rotation.x, rotation.y, rotation.z, false, false, false, false, 2, true)
+    machine.padlockProp = prop
+    SetModelAsNoLongerNeeded(hash)
 end
 
 local syncSkimmer
@@ -266,13 +290,20 @@ local function syncPacks(machine)
     local slotCount = #SLOT_ROWS * #SLOT_COLUMNS
     local products = {}
     for _, product in ipairs(machine.products or {}) do if #products < slotCount then products[#products + 1] = product end end
+    local function physicalStock(product)
+        local amount = machine.displayStock and machine.displayStock[product.set .. ':' .. product.kind]
+        if amount == nil then amount = product.stock end
+        return math.max(0, tonumber(amount) or 0)
+    end
     -- which slots each product uses (kept on the product, which is replaced on every stock update)
     for i, product in ipairs(products) do
         local per = slotCount // #products
         product.packFirst, product.packLast = (i - 1) * per + 1, i * per
     end
     local key = {}
-    for _, product in ipairs(products) do key[#key + 1] = tostring(product.kind) .. ':' .. tostring(product.stock or 0) end
+    for _, product in ipairs(products) do
+        key[#key + 1] = product.set .. ':' .. tostring(product.kind) .. ':' .. tostring(physicalStock(product)) .. ':' .. tostring(product.maxStock or MAX_STOCK)
+    end
     key = table.concat(key, ',')
     if machine.packKey == key and machine.packProps then return end
     clearPacks(machine)
@@ -288,8 +319,8 @@ local function syncPacks(machine)
         local model = isBox and (slotPacks.BoxModel or 'prop_boosterbox_01') or slotPacks.Model or 'prop_boosterpack_01'
         local shift = isBox and BOX_OFFSET or vector3(0.0, 0.0, 0.0)
         local hash = loadModel(joaat(model))
-        if not hash and (tonumber(product.stock) or 0) > 0 then missing = model end
-        local stock = math.max(0, tonumber(product.stock) or 0)
+        local stock = physicalStock(product)
+        if not hash and stock > 0 then missing = model end
         local shown = stock > 0 and math.max(1, math.ceil(math.min(1, stock / (tonumber(product.maxStock) or MAX_STOCK)) * perProduct)) or 0
         for j = 1, perProduct do
             slot = slot + 1
@@ -345,6 +376,7 @@ local function spawn(machine)
     machine.packKey, machine.packRetries = nil, 0 -- fresh prop: always rebuild the window, retries start over
     syncSkimmer(machine)
     syncSeal(machine)
+    syncPadlock(machine)
     syncPacks(machine)
 end
 
@@ -355,10 +387,16 @@ local function add(entry)
     local existing = machines[id]
     if existing and existing.model == entry.model and existing.coords == coords and existing.heading == heading then
         existing.products = entry.products or {} -- stock / price update: keep the spawned prop
+        existing.displayStock = entry.displayStock
         if existing.entity then CreateThread(function() syncPacks(existing) end) end
         existing.systemTakenOver = entry.systemTakenOver == true
         existing.unlockedUntil = entry.unlockedUntil or 0
         existing.bolted = entry.bolted ~= false
+        existing.serial, existing.lockRevision = entry.serial, entry.lockRevision
+        if existing.padlock ~= (entry.padlock == true) then
+            existing.padlock = entry.padlock == true
+            if existing.entity then CreateThread(function() syncPadlock(existing) end) end
+        end
         local wasSealed = existing.securitySeal ~= nil
         existing.lockCondition, existing.securitySeal = entry.lockCondition, entry.securitySeal
         if existing.entity and wasSealed ~= (existing.securitySeal ~= nil) then CreateThread(function() syncSeal(existing) end) end
@@ -372,14 +410,17 @@ local function add(entry)
     if existing then despawn(existing) else count = count + 1 end
     machines[id] = {
         id = id,
+        serial = entry.serial, lockRevision = entry.lockRevision,
         model = entry.model,
         hash = joaat(entry.model),
         coords = coords,
         heading = heading,
         products = entry.products or {},
+        displayStock = entry.displayStock,
         systemTakenOver = entry.systemTakenOver == true,
         unlockedUntil = entry.unlockedUntil or 0,
         bolted = entry.bolted ~= false,
+        padlock = entry.padlock == true,
         lockCondition = entry.lockCondition, securitySeal = entry.securitySeal,
         gpsDisabled = entry.gpsDisabled == true,
         skimmer = entry.skimmer == true,
@@ -730,7 +771,7 @@ local function placeGhost(modelName, startHeading)
         end
 
         BeginTextCommandDisplayHelp('STRING')
-        AddTextComponentSubstringPlayerName(HELP .. ('~n~Heading: %dÂ°'):format(math.floor(heading + 0.5) % 360)
+        AddTextComponentSubstringPlayerName(HELP .. ('~n~Heading: %d deg'):format(math.floor(heading + 0.5) % 360)
             .. (placementReason and ('~n~' .. placementReason) or ''))
         EndTextCommandDisplayHelp(0, false, false, -1)
 
@@ -807,13 +848,32 @@ local function controls(machine) return machine ~= nil and access.controls[machi
 -- for client/vending_crime.lua
 MetaComic.VendingMachineOf = machineOf
 MetaComic.VendingMachineById = function(id) return machines[tonumber(id)] end
+MetaComic.VendingNearestMachine = function(radius)
+    local nearest, distance = nil, tonumber(radius) or 3.0
+    local here = GetEntityCoords(PlayerPedId())
+    for _, machine in pairs(machines) do
+        if machine.entity and DoesEntityExist(machine.entity) then
+            local gap = #(GetEntityCoords(machine.entity) - here)
+            if gap <= distance then nearest, distance = machine, gap end
+        end
+    end
+    return nearest
+end
 MetaComic.VendingControls = function(id) return access.controls[tonumber(id)] == true end
+MetaComic.VendingCanSecure = function(id)
+    id = tonumber(id)
+    local permission = (cfg.Keys or {}).Enabled == true and (cfg.Keys or {}).SecureAccess or ((cfg.Crime or {}).Secure or {}).Access or 'anyone'
+    local controller = access.manage or access.controls[id] or access.staffed and access.staffed[id]
+    return permission == 'anyone' or permission == 'police' and access.police or permission == 'controllers' and controller
+        or permission == 'police_or_controllers' and (access.police or controller)
+end
 MetaComic.VendingCanOperateSystem = function(id) return access.systemControls ~= nil and access.systemControls[tonumber(id)] == true end
 MetaComic.VendingMySkimmer = function(id) return access.skimmers ~= nil and access.skimmers[tonumber(id)] == true end
 -- may check the coin panel for a skimmer: controls the machine, manages them, police, or an employee at a business machine
 MetaComic.VendingCanInspectPanel = function(id)
     id = tonumber(id)
     return access.manage == true or access.police == true or access.controls[id] == true or (access.staffed ~= nil and access.staffed[id] == true)
+        or MetaComic.VendingHasKeyAccess and MetaComic.VendingHasKeyAccess(id)
 end
 MetaComic.VendingCanFullHack = function(id) return access.fullHack and access.fullHack[tonumber(id)] == true end
 MetaComic.VendingCanReplaceBoard = function(id) return access.replaceBoard and access.replaceBoard[tonumber(id)] == true end
@@ -850,14 +910,14 @@ local function openBuy(machine, methods)
         local function buy(method) TriggerServerEvent('meta_comic:server:vendingBuy', machine.id, product.set, product.kind, method) end
         options[#options + 1] = {
             title = productTitle(product),
-            description = soldOut and 'Sold out' or ('%s Â· %d left'):format(money(product.price), product.stock),
+            description = soldOut and 'Sold out' or ('%s | %d left'):format(money(product.price), product.stock),
             icon = productIcon(product, product.kind == 'box' and 'boxes-stacked' or 'box-open'),
             image = productImage(product),
-            disabled = soldOut,
+            disabled = soldOut or MetaComic.VendingDoorOpen and MetaComic.VendingDoorOpen(machine.id),
             arrow = methods.cash and methods.card,
             onSelect = function()
                 if not (methods.cash and methods.card) then return buy(methods.cash and 'cash' or 'card') end
-                menu('meta_comic_vending_pay', ('Pay %s'):format(money(product.price)), {
+                menu('meta_comic_vending_pay', ('%s | %s'):format(productTitle(product), money(product.price)), {
                     { title = 'Pay with card', description = 'Charged to your bank account', icon = 'credit-card', onSelect = function() buy('card') end },
                     { title = 'Pay with cash', description = 'Cash goes into the machine', icon = 'money-bill-wave', onSelect = function() buy('cash') end },
                 }, 'meta_comic_vending_buy')
@@ -913,8 +973,9 @@ end
 local function ownerOptions(id, info)
     local options = {}
     if type(info) ~= 'table' or not info.serial then return options end
-    if not info.systemRackClosed then
-        options[#options + 1] = { title = 'Falsify sensor log identities', icon = 'laptop-code',
+    if not info.systemRackClosed and (((cfg.Crime or {}).FalsifyLogs or {}).Enabled ~= false) and (cfg.Crime or {}).Enabled ~= false then
+        options[#options + 1] = { title = 'Falsify sensor log identities', icon = 'laptop-code', disabled = info.falsifyMissing ~= nil,
+            description = info.falsifyMissing and ('Requires ' .. info.falsifyMissing) or nil,
             onSelect = function()
                 local result = exports.ox_lib:inputDialog('Falsify sensor records', {
                     { type = 'input', label = 'Registered employee name or identifier', required = true },
@@ -927,7 +988,7 @@ local function ownerOptions(id, info)
         onSelect = function() ownerAction(id, 'resync') end }
     options[#options + 1] = {
         title = ('Serial %s'):format(info.serial),
-        description = ('Owner: %s%s'):format(info.ownerName or '?', info.owner ~= 'business' and (' Â· tax %s%%'):format(info.tax or 0) or ''),
+        description = ('Owner: %s%s'):format(info.ownerName or '?', info.owner ~= 'business' and (' | tax %s%%'):format(info.tax or 0) or ''),
         icon = 'id-card', readOnly = true,
     }
     options[#options + 1] = {
@@ -961,8 +1022,8 @@ local function ownerOptions(id, info)
         }
     end
     options[#options + 1] = {
-        title = ('Collect cash (%s)'):format(money(info.cash)), description = 'Cash payments are kept in the machine until collected',
-        icon = 'sack-dollar', disabled = (info.cash or 0) <= 0 or info.keysEnabled and not info.fullAccess, onSelect = function() ownerAction(id, 'collect') end,
+        title = ('Collect cash (%s)'):format(money(info.cash)), description = info.canCollect == false and 'Open the cabinet and cash box with full access first.' or 'Cash payments are kept in the machine until collected',
+        icon = 'sack-dollar', disabled = info.canCollect == false or (info.cash or 0) <= 0 or info.keysEnabled and not info.fullAccess, onSelect = function() ownerAction(id, 'collect') end,
     }
     if info.canSetPayments then
         options[#options + 1] = {
@@ -1005,7 +1066,8 @@ local function ownerOptions(id, info)
     if info.canReplaceBoard and (cfg.Crime or {}).ReplaceBoard and cfg.Crime.ReplaceBoard.Enabled ~= false then
         options[#options + 1] = {
             title = 'Replace machine control board', icon = 'microchip',
-            description = 'Requires a replacement board; restores the ownerâ€™s system and payment routing',
+            disabled = info.boardMissing ~= nil or info.systemRackClosed == true,
+            description = info.boardMissing and ('Requires ' .. info.boardMissing) or info.systemRackClosed and 'Open the machine and server rack first.' or 'Restores the owner system and payment routing.',
             onSelect = function() TriggerServerEvent('meta_comic:server:crimeStart', id, 'replaceboard') end,
         }
     end
@@ -1045,7 +1107,9 @@ RegisterNetEvent('meta_comic:client:vendingManage', function(id, products, sets,
     local options = ownerOptions(id, info)
     local fullAccess = not (info and info.keysEnabled) or info.fullAccess == true
     if info and info.keysEnabled then
-        options[#options + 1] = { title = 'Lock cabinet', description = 'Closes all key access sessions', icon = 'lock', onSelect = function() TriggerServerEvent('meta_comic:server:vendingKeyLock', id) end }
+        options[#options + 1] = { title = 'Lock cabinet', description = 'Closes all key access sessions', icon = 'lock', onSelect = function()
+            if MetaComic.VendingUseKeyAtLock then MetaComic.VendingUseKeyAtLock(id, 'cylinder', 'lock') end
+        end }
     end
     local inspect = ((cfg.Crime or {}).InspectPanel or {})
     if info and info.canInspectPanel and inspect.Enabled ~= false and (cfg.Crime or {}).Enabled ~= false then
@@ -1057,7 +1121,7 @@ RegisterNetEvent('meta_comic:client:vendingManage', function(id, products, sets,
         local subId = ('meta_comic_vending_product_%s_%s'):format(product.set, product.kind)
         options[#options + 1] = {
             title = productTitle(product),
-            description = ('%s Â· stock %d / %d'):format(money(product.price), product.stock or 0, tonumber(product.maxStock) or maxStock),
+            description = ('%s | stock %d / %d'):format(money(product.price), product.stock or 0, tonumber(product.maxStock) or maxStock),
             icon = productIcon(product, product.kind == 'box' and 'boxes-stacked' or 'box-open'),
             image = productImage(product),
             arrow = true,
@@ -1113,6 +1177,11 @@ RegisterNetEvent('meta_comic:client:vendingManage', function(id, products, sets,
             end
         end,
     }
+    if info and info.busy then
+        for _, option in ipairs(options) do
+            if option.onSelect then option.disabled, option.description = true, 'The machine is busy. Wait for the current action to finish.' end
+        end
+    end
     menu('meta_comic_vending_manage', ('Manage Vending Machine #%d'):format(id), options)
 end)
 
@@ -1146,7 +1215,14 @@ CreateThread(function()
         },
         {
             name = 'meta_comic_vending_restock', label = 'Restock', icon = 'fas fa-truck-ramp-box', distance = distance,
-            canInteract = function(entity) local machine = machineOf(entity); return machine ~= nil and ((cfg.Keys or {}).Enabled == true or access.restock == true or controls(machine)) end,
+            canInteract = function(entity)
+                local machine = machineOf(entity)
+                if not machine or machine.securitySeal or machine.padlock then return false end
+                if (cfg.Keys or {}).Enabled ~= true then return access.restock == true or controls(machine) end
+                local open = (cfg.Door or {}).Enabled == false or MetaComic.VendingCabinetOpen and MetaComic.VendingCabinetOpen(machine.id)
+                return open and (MetaComic.VendingHasKeyAccess and MetaComic.VendingHasKeyAccess(machine.id)
+                    or machine.lockCondition == 'damaged' and (controls(machine) or access.staffed and access.staffed[machine.id]))
+            end,
             onSelect = function(data)
                 local machine = machineOf(data.entity)
                 if machine then TriggerServerEvent('meta_comic:server:vendingOpen', machine.id, 'restock') end
@@ -1154,7 +1230,12 @@ CreateThread(function()
         },
         {
             name = 'meta_comic_vending_manage', label = 'Manage', icon = 'fas fa-gear', distance = distance,
-            canInteract = function(entity) local machine = machineOf(entity); return machine ~= nil and ((cfg.Keys or {}).Enabled == true or access.manage == true or controls(machine)) end,
+            canInteract = function(entity)
+                local machine = machineOf(entity)
+                if not machine or machine.securitySeal or machine.padlock then return false end
+                if (cfg.Keys or {}).Enabled ~= true then return access.manage == true or controls(machine) end
+                return MetaComic.VendingHasKeyAccess and MetaComic.VendingHasKeyAccess(machine.id)
+            end,
             onSelect = function(data)
                 local machine = machineOf(data.entity)
                 if machine then TriggerServerEvent('meta_comic:server:vendingManage', machine.id) end

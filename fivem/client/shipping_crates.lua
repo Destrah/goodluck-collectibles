@@ -6,6 +6,7 @@ if cfg.Enabled == false then return end
 
 local scene = { objects = {} }
 local busy = false
+local openingRun = 0
 
 local function notify(message, notifyType) TriggerEvent('meta_comic:client:notify', message, notifyType) end
 local function loadModel(model)
@@ -60,6 +61,9 @@ exports('UseShippingCrate', useCrate) -- ox_inventory item: client = { export = 
 RegisterNetEvent('meta_comic:client:crateStart', function(data)
     if busy then return end
     busy = true
+    openingRun = openingRun + 1
+    local run = openingRun
+    TriggerEvent('meta_comic:client:crateCarryPause', true)
     clearScene()
     local models = data.models or cfg.Models or {}
     local closedHash = loadModel(models.Closed)
@@ -67,6 +71,19 @@ RegisterNetEvent('meta_comic:client:crateStart', function(data)
     scene.coords, scene.heading = spot, heading
     scene.crate = closedHash and spawn(models.Closed, spot, heading, cfg.Scene and cfg.Scene.Networked ~= false) or nil
     if scene.crate then PlaceObjectOnGroundProperly(scene.crate); scene.coords = GetEntityCoords(scene.crate) end
+    if scene.crate and models.SeparateLid and models.Lid then
+        local lidHash = loadModel(models.Lid)
+        if lidHash then
+            local minimum,maximum = GetModelDimensions(closedHash)
+            local lidMin,lidMax = GetModelDimensions(lidHash)
+            local o = MetaComic.VendingCargoGeometry.topAttachment(minimum,maximum,lidMin,lidMax)
+            scene.lid = spawn(models.Lid,scene.coords,heading,cfg.Scene and cfg.Scene.Networked ~= false)
+            if scene.lid then
+                SetEntityCollision(scene.lid,false,false)
+                AttachEntityToEntity(scene.lid,scene.crate,-1,o.x,o.y,o.z,0.0,0.0,0.0,false,false,false,false,2,true)
+            end
+        end
+    end
 
     local ped = PlayerPedId()
     TaskTurnPedToFaceCoord(ped, spot.x, spot.y, spot.z, 800)
@@ -88,11 +105,15 @@ RegisterNetEvent('meta_comic:client:crateStart', function(data)
     end
     if finished then
         TriggerServerEvent('meta_comic:server:crateFinish')
-        SetTimeout(10000, function() busy = false end) -- the server answers with crateOpened (or an error message)
+        SetTimeout(10000, function()
+            if openingRun ~= run then return end
+            busy = false;TriggerEvent('meta_comic:client:crateCarryPause', false)
+        end) -- server answers or opening failed
     else
         TriggerServerEvent('meta_comic:server:crateCancel')
         clearScene()
         busy = false
+        TriggerEvent('meta_comic:client:crateCarryPause', false)
         notify('Stopped opening the crate.', 'info')
     end
 end)
@@ -115,13 +136,23 @@ local function animateLid(lid, from, heading)
     end
 end
 
+RegisterNUICallback('claimCrate', function(_, cb) TriggerServerEvent('meta_comic:server:crateClaim'); cb({ ok = true }) end)
+
 RegisterNetEvent('meta_comic:client:crateOpened', function(result)
     local models = cfg.Models or {}
     local coords, heading = scene.coords, scene.heading
+    local sealedLid = scene.lid and DoesEntityExist(scene.lid) and scene.lid or nil
+    if sealedLid then DetachEntity(sealedLid,true,false);FreezeEntityPosition(sealedLid,true) end
     if coords and models.Open and loadModel(models.Open) then
-        if scene.crate and DoesEntityExist(scene.crate) then DeleteEntity(scene.crate) end
-        scene.crate = spawn(models.Open, coords, heading, cfg.Scene and cfg.Scene.Networked ~= false)
-        if models.Lid and loadModel(models.Lid) then
+        if models.Open ~= models.Closed then
+            if scene.crate and DoesEntityExist(scene.crate) then DeleteEntity(scene.crate) end
+            scene.crate = spawn(models.Open, coords, heading, cfg.Scene and cfg.Scene.Networked ~= false)
+            if scene.crate then PlaceObjectOnGroundProperly(scene.crate) end
+        end
+        if sealedLid then
+            local from = GetEntityCoords(sealedLid)
+            CreateThread(function() animateLid(sealedLid,from,heading) end)
+        elseif scene.crate and models.Lid and loadModel(models.Lid) then
             local lidOffset = (cfg.Scene and cfg.Scene.LidOffset) or vector3(0.0, 0.0, 0.0)
             local lidAt = GetOffsetFromEntityInWorldCoords(scene.crate, lidOffset.x, lidOffset.y, lidOffset.z)
             local lid = spawn(models.Lid, lidAt, heading, cfg.Scene and cfg.Scene.Networked ~= false)
@@ -139,6 +170,7 @@ RegisterNetEvent('meta_comic:client:crateOpened', function(result)
         notify('Crate contents: ' .. table.concat(lines, ', '), 'success')
     end
     busy = false
+    TriggerEvent('meta_comic:client:crateCarryPause', false)
     local keep = (cfg.Scene and cfg.Scene.KeepSeconds) or 20
     SetTimeout(keep * 1000, function() if not busy then clearScene() end end)
 end)

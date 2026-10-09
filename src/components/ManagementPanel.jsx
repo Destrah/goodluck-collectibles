@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { resolveCardVariant } from '../cardData'
 import { bridge, isFiveM } from '../runtime'
 import ArtworkFileInput from './ArtworkFileInput'
+import { MixedCrateCreator, cratesFor, createCrates, useShippingCrates } from './ShippingCrateTools'
 import './vendingMap.css'
 
 const slug = value => String(value || 'set')
@@ -22,6 +23,9 @@ export default function ManagementPanel({ cards, sets, onSetsChange }) {
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [containers,setContainers] = useState({count:5,outerCount:12})
+  const crateInfo = useShippingCrates()
+  const cardCrates = cratesFor(crateInfo.crates, 'trading_card')
+  useEffect(() => { if (crateInfo.error) setMessage(crateInfo.error) }, [crateInfo.error])
   useEffect(() => {if(!isFiveM) bridge.getCardContainers().then(setContainers)},[])
 
   useEffect(() => {
@@ -111,6 +115,16 @@ export default function ManagementPanel({ cards, sets, onSetsChange }) {
       setMessage(error?.message || String(error))
     } finally { setBusy(false) }
   }
+  const runCrate = async make => {
+    setBusy(true); setMessage('')
+    try { setMessage(await make()) } catch (error) { setMessage(error?.message || String(error)) }
+    finally { setBusy(false) }
+  }
+  // a card crate from this tab's set
+  const createCardCrate = crate => runCrate(async () => {
+    await bridge.saveSets(clone(sets))
+    return createCrates(crate, amount, { trading_card: [selectedSet.id] })
+  })
 
   return (
     <section className="management-page">
@@ -167,9 +181,13 @@ export default function ManagementPanel({ cards, sets, onSetsChange }) {
                 <label className="field amount-field"><span>Amount</span><input type="number" min="1" max="100" value={amount} onChange={e => setAmount(Math.max(1, Number(e.target.value) || 1))} /></label>
                 <button className="primary" disabled={busy || assigned.size === 0} onClick={() => createSealed('pack')}>Create pack</button>
                 <button className="primary" disabled={busy || assigned.size === 0} onClick={() => createSealed('box')}>Create box</button>
+                {cardCrates.map(crate => <button key={crate.id} className="primary" disabled={busy || assigned.size === 0} onClick={() => createCardCrate(crate)}>Create {crate.label}</button>)}
               </div>
               {assigned.size === 0 && <small className="warning-copy">Assign at least one card before producing this set.</small>}
+              {cardCrates.length > 0 && <small>Crates hold {selectedSet.name} booster boxes / packs (up to 20 per click).</small>}
             </div>
+
+            {isFiveM && <MixedCrateCreator crates={crateInfo.crates} sets={crateInfo.sets} busy={busy} onCreate={runCrate} />}
 
             <div className="management-card production-card">
               <div className="management-panel-title"><div><strong>Manual card print</strong><span>Creates one physical card item with MANUAL PRINT metadata, printer name, and timestamp. It is separate from normal pack pulls.</span></div></div>

@@ -42,7 +42,7 @@ local function loadCatalog()
         end
         card.imagePositionX, card.imagePositionY, card.imageZoom = nil, nil, nil
     end
-    MetaComic.Cards.oddsCache, MetaComic.Cards.oddsBest = nil, nil -- the catalogue changed: pull odds are worked out again on next use
+    MetaComic.Cards.oddsCache, MetaComic.Cards.oddsBest, MetaComic.Cards.oddsBySet = nil, nil, nil
     return catalog
 end
 
@@ -98,9 +98,15 @@ local function mergeCard(card, variant)
     return resolved
 end
 
+local PACK_CHAINS = {
+    common = { 'common', 'uncommon', 'rare', 'ultra_rare', 'legendary' },
+    uncommon = { 'uncommon', 'rare', 'ultra_rare', 'legendary', 'common' },
+    rare = { 'rare', 'ultra_rare', 'legendary', 'uncommon', 'common' },
+    ultra_rare = { 'ultra_rare', 'rare', 'legendary', 'uncommon', 'common' },
+    legendary = { 'legendary', 'ultra_rare', 'rare', 'uncommon', 'common' },
+}
 local function pullFromTier(tier, fallbacks, sourceCatalog)
-    local tiers = { tier }
-    for _, value in ipairs(fallbacks or {}) do tiers[#tiers + 1] = value end
+    local tiers = PACK_CHAINS[tier] or { tier }
     sourceCatalog = sourceCatalog or catalog
 
     for _, candidate in ipairs(tiers) do
@@ -189,21 +195,41 @@ function MetaComic.Cards.iconPrints()
             for _, variant in ipairs(card.variants or {}) do list[#list + 1] = mergeCard(card, variant) end
         end
     end
+    -- Stars use set-specific odds. A pulled print can have a different icon signature
+    -- from its global-catalog look even when its artwork was never edited. Include
+    -- those looks so rendering accepts them and pruning does not delete their icons.
+    for _, set in ipairs(MetaComic.Sets and MetaComic.Sets.getAll() or {}) do
+        local members = catalogForSet(set.id)
+        for _, card in ipairs(members or {}) do
+            for _, variant in ipairs(card.variants or {}) do
+                local print = mergeCard(card, variant)
+                print.setId = set.id
+                list[#list + 1] = print
+            end
+        end
+    end
     return list
 end
 
 -- How rare each print really is: expected copies per booster pack over the whole catalogue (mirrors
 -- src/utils/printOdds.js computePrintOdds). Used for the colour of the rarity stars on inventory icons.
 local PACK_SLOTS = {
-    { 1, { 'common' } }, { 1, { 'common' } }, { 1, { 'common' } },
-    { 1, { 'uncommon', 'common' } },
-    { 0.75, { 'rare', 'uncommon', 'common' } }, { 0.2, { 'ultra_rare', 'rare', 'uncommon', 'common' } }, { 0.05, { 'legendary', 'rare', 'uncommon', 'common' } },
+    { 3, PACK_CHAINS.common }, { 1, PACK_CHAINS.uncommon },
+    { 0.75, PACK_CHAINS.rare }, { 0.2, PACK_CHAINS.ultra_rare }, { 0.05, PACK_CHAINS.legendary },
 }
 local function oddsWeight(value) return math.max(1, tonumber(value) or 1) end
-function MetaComic.Cards.printOdds()
-    if MetaComic.Cards.oddsCache then return MetaComic.Cards.oddsCache end
+function MetaComic.Cards.printOdds(setId)
+    local sourceCatalog, signature, setKey = catalog, nil, nil
+    local set = setId and MetaComic.Sets and MetaComic.Sets.get(setId)
+    if set then
+        setKey=tostring(setId);signature=table.concat(set.cardIds or {},'\0')
+        MetaComic.Cards.oddsBySet=MetaComic.Cards.oddsBySet or {}
+        local cached=MetaComic.Cards.oddsBySet[setKey]
+        if cached and cached.signature==signature then return cached.odds end
+        sourceCatalog=catalogForSet(setId)
+    elseif MetaComic.Cards.oddsCache then return MetaComic.Cards.oddsCache end
     local pools, order = {}, {} -- tier -> { [cardId] = { card = card, variants = { ... } } }
-    for _, card in ipairs(catalog or {}) do
+    for _, card in ipairs(sourceCatalog or {}) do
         for _, variant in ipairs(card.variants or {}) do
             local tier = variant.rarityKey or 'common'
             pools[tier] = pools[tier] or {}
@@ -232,21 +258,62 @@ function MetaComic.Cards.printOdds()
             end
         end
     end
-    MetaComic.Cards.oddsCache = odds
+    if setKey then MetaComic.Cards.oddsBySet[setKey]={signature=signature,odds=odds}
+    else MetaComic.Cards.oddsCache = odds end
     return odds
+end
+-- Slot distributions use the same tier fallbacks and weighted base/variant picks as openPack.
+function MetaComic.Cards.packDistribution(setId)
+    local sourceCatalog,set=catalogForSet(setId)
+    if not set or not sourceCatalog or #sourceCatalog==0 then return nil end
+    local function tierDistribution(chain)
+        for _,tier in ipairs(chain) do
+            local bases,total={},0
+            for _,card in ipairs(sourceCatalog) do
+                local variants=variantsForTier(card,tier)
+                if #variants>0 then bases[#bases+1]={card=card,variants=variants};total=total+weightOf(card) end
+            end
+            if #bases>0 then
+                local result={}
+                for _,base in ipairs(bases) do
+                    local variantTotal=0;for _,v in ipairs(base.variants) do variantTotal=variantTotal+weightOf(v) end
+                    for _,v in ipairs(base.variants) do
+                        local card=mergeCard(base.card,v);card.setId=set.id
+                        result[#result+1]={card=card,chance=weightOf(base.card)/total*weightOf(v)/variantTotal}
+                    end
+                end
+                return result,tier
+            end
+        end
+        return {},nil
+    end
+    local common,commonTier=tierDistribution(PACK_CHAINS.common)
+    local uncommon,uncommonTier=tierDistribution(PACK_CHAINS.uncommon)
+    local rare,seen={},{}
+    for _,entry in ipairs({{.75,'rare'},{.2,'ultra_rare'},{.05,'legendary'}}) do
+        local pool=tierDistribution(PACK_CHAINS[entry[2]])
+        for _,outcome in ipairs(pool) do
+            local key=outcome.card.cardKey
+            if not seen[key] then seen[key]={card=outcome.card,chance=0};rare[#rare+1]=seen[key] end
+            seen[key].chance=seen[key].chance+entry[1]*outcome.chance
+        end
+    end
+    return {{count=3,label='Common slots',tier=commonTier,outcomes=common},{count=1,label='Uncommon-or-higher slot',tier=uncommonTier,outcomes=uncommon},
+        {count=1,label='Rare-or-higher slot',outcomes=rare}}
 end
 -- star colour by how many times rarer than the catalogue's commonest print this one is (same bands as
 -- printOdds.js ODDS_COLOURS: relative, since a big catalogue makes every print rare in absolute terms)
 local ODDS_COLOURS = { { 2, '#d6dde8' }, { 6, '#4ade80' }, { 20, '#38bdf8' }, { 80, '#a78bfa' }, { 300, '#fbbf24' }, { math.huge, '#ff4d6d' } }
-function MetaComic.Cards.starColour(baseCardId, variantId)
-    local all = MetaComic.Cards.printOdds()
+local bestByOdds = setmetatable({}, { __mode = 'k' })
+function MetaComic.Cards.starColour(baseCardId, variantId, setId)
+    local all = MetaComic.Cards.printOdds(setId)
     local odds = all[('%s::%s'):format(tostring(baseCardId), tostring(variantId))]
     if not odds or odds <= 0 then return nil end
-    local best = MetaComic.Cards.oddsBest
+    local best = bestByOdds[all]
     if not best then
         best = 0
         for _, value in pairs(all) do if value > best then best = value end end
-        MetaComic.Cards.oddsBest = best
+        bestByOdds[all] = best
     end
     for _, band in ipairs(ODDS_COLOURS) do if best / odds <= band[1] then return band[2] end end
 end

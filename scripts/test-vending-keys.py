@@ -68,6 +68,8 @@ class KeyTests(unittest.TestCase):
         ''')
         for name in ('vending_keys', 'vending_records', 'vending_loot', 'vending_crime'):
             self.lua.execute((ROOT / f'fivem/server/modules/{name}.lua').read_text(encoding='utf-8'))
+            if name == 'vending_keys':
+                self.lua.execute('keySessionThread=threads[#threads]')
         self.lua.execute('Keys=MetaComic.VendingKeys;assert(Keys.ensure(record))')
 
     def issue(self, target=11, access='full'):
@@ -145,6 +147,13 @@ class KeyTests(unittest.TestCase):
     def test_owner_can_break_into_machine_to_recover_cylinder_without_robbery_enabled(self):
         self.lua.execute("Config.VendingMachines.Crime.OwnersCanRob=false;cabinetOpen=false;handlers['meta_comic:server:crimeStart'](1,'breakin')")
         self.assertEqual(self.lua.eval('startData.action'), 'breakin')
+
+    def test_closed_unsealed_damaged_cylinder_cannot_be_drilled_again(self):
+        self.lua.execute("record.lockCondition='damaged';cabinetOpen=false;source=22;handlers['meta_comic:server:crimeStart'](1,'breakin')")
+        self.assertIsNone(self.lua.eval('startData'))
+        self.lua.execute("handlers['meta_comic:server:vendingKeyMenu'](1)")
+        self.assertTrue(self.lua.eval('events[#events].data.damagedUnsealed'))
+        self.assertFalse(self.lua.eval('events[#events].data.cabinetOpen'))
 
     def load_server_door(self):
         self.lua.execute('''
@@ -393,7 +402,28 @@ class KeyTests(unittest.TestCase):
         self.assertIsNone(self.lua.eval('bags[22]'))
         self.assertIsNone(self.lua.eval('record.replacementKeyDue'))
 
-    def test_expiry_distance_and_manual_lock_revoke_sessions(self):
+    def test_distance_blocks_actions_but_return_keeps_session_until_expiry(self):
+        self.issue(); self.unlock()
+        self.lua.execute('''
+            farAway=true
+            for i=1,3 do local ok,err=coroutine.resume(keySessionThread);assert(ok,err) end
+        ''')
+        self.assertFalse(self.lua.eval("Keys.access(11,entry,'full')"))
+        self.lua.execute('farAway=false')
+        self.assertTrue(self.lua.eval("Keys.access(11,entry,'full')"))
+        self.lua.execute('now=1301;local ok,err=coroutine.resume(keySessionThread);assert(ok,err)')
+        self.assertFalse(self.lua.eval("Keys.access(11,entry,'full')"))
+
+    def test_cleanup_while_away_still_revokes_lost_key_and_changed_cylinder(self):
+        for invalidate in ('bags[11]={}', 'Keys.invalidate(record)'):
+            self.setUp(); self.issue(); self.unlock()
+            self.lua.execute('farAway=true;' + invalidate)
+            self.lua.execute('for i=1,3 do local ok,err=coroutine.resume(keySessionThread);assert(ok,err) end')
+            self.assertTrue(self.lua.eval("events[#events].name=='meta_comic:client:vendingKeyAccess' and events[#events].data.seconds==0"))
+            self.lua.execute('farAway=false')
+            self.assertFalse(self.lua.eval("Keys.access(11,entry,'full')"))
+
+    def test_expiry_distance_and_manual_lock_block_access(self):
         self.issue(); self.unlock()
         self.lua.execute('farAway=true')
         self.assertFalse(self.lua.eval("Keys.access(11,entry,'full')"))
@@ -752,12 +782,40 @@ class KeyTests(unittest.TestCase):
         self.assertEqual(self.lua.eval('record.lockCondition'), 'damaged')
         self.assertEqual(self.lua.eval('record.securitySeal.by'), 'Automatic security timer')
 
-    def test_seal_adds_time_and_minigame_and_old_attempt_cannot_reopen(self):
+    def test_seal_uses_lockpick_only_and_old_attempt_cannot_reopen(self):
         self.lua.execute("record.lockCondition='damaged';record.securitySeal={at=now};source=22;handlers['meta_comic:server:crimeStart'](1,'breakin')")
-        self.assertEqual(self.lua.eval('startData.duration'), 65000)
-        self.assertEqual(self.lua.eval('#startData.minigame'), 3)
-        self.lua.execute("Keys.invalidate(record);timer=65000;handlers['meta_comic:server:crimeFinish'](startData.token,true)")
+        self.assertIsNone(self.lua.eval('startData'))
+        self.lua.execute("handlers['meta_comic:server:crimeStart'](1,'pickseal')")
+        self.assertEqual(self.lua.eval('startData.duration'), 20000)
+        self.assertEqual(self.lua.eval('startData.minigame'), 'lockpick_medium')
+        self.lua.execute("Keys.invalidate(record);timer=20000;handlers['meta_comic:server:crimeFinish'](startData.token,true)")
         self.assertFalse(self.lua.eval('MetaComic.VendingLoot.isOpen(entry)'))
+
+    def test_lockpicking_seal_requires_lockpick_not_drill_and_keeps_cylinder_damaged(self):
+        self.lua.execute('''
+            record.lockCondition='damaged';record.securitySeal={kind='police',at=now};source=22
+            MetaComic.Inventory.count=function(src,name) return name=='lockpick' and 1 or 0 end
+            handlers['meta_comic:server:crimeStart'](1,'pickseal')
+            timer=startData.duration;handlers['meta_comic:server:crimeFinish'](startData.token,true)
+        ''')
+        self.assertIsNone(self.lua.eval('record.securitySeal'))
+        self.assertEqual(self.lua.eval('record.lockCondition'), 'damaged')
+        self.assertTrue(self.lua.eval('MetaComic.VendingLoot.isOpen(entry)'))
+        self.assertEqual(self.lua.eval('entry.cash'), 300)
+
+    def test_lockpicking_seal_fails_without_tool_or_on_early_completion(self):
+        self.lua.execute('''
+            record.lockCondition='damaged';record.securitySeal={kind='police',at=now};source=22
+            MetaComic.Inventory.count=function() return 0 end
+            handlers['meta_comic:server:crimeStart'](1,'pickseal')
+        ''')
+        self.assertIsNone(self.lua.eval('startData'))
+        self.lua.execute('''
+            MetaComic.Inventory.count=function() return 1 end
+            handlers['meta_comic:server:crimeStart'](1,'pickseal')
+            timer=1000;handlers['meta_comic:server:crimeFinish'](startData.token,true)
+        ''')
+        self.assertIsNotNone(self.lua.eval('record.securitySeal'))
 
     def test_key_reports_are_authorized_latent_and_immutable_after_rotation(self):
         self.issue(); self.replace()
@@ -792,6 +850,264 @@ class KeyTests(unittest.TestCase):
         self.assertEqual(self.lua.eval('paid'), 300)
         self.lua.execute('assert(MetaComic.VendingLoot.secure(55,entry))')
         self.assertIsNotNone(self.lua.eval('record.securitySeal'))
+
+
+class PadlockTests(unittest.TestCase):
+    setUp = KeyTests.setUp
+    issue = KeyTests.issue
+    provide_issuer_key = KeyTests.provide_issuer_key
+    unlock = KeyTests.unlock
+
+    def install_padlock(self):
+        self.issue()
+        self.lua.execute('''
+            cabinetOpen=false;padlockItems=1;padlockReturns=0
+            local originalRemove,originalAdd=MetaComic.Inventory.remove,MetaComic.Inventory.add
+            MetaComic.Inventory.remove=function(src,name,count)
+                if name=='vending_padlock' then
+                    if padlockItems<count then return false end;padlockItems=padlockItems-count;return true
+                end
+                return originalRemove(src,name,count)
+            end
+            MetaComic.Inventory.add=function(src,name,count,metadata)
+                if name=='vending_padlock' and not addFail then padlockReturns=padlockReturns+count end
+                return originalAdd(src,name,count,metadata)
+            end
+            source=11;handlers['meta_comic:server:vendingPadlock'](1,'install')
+        ''')
+
+    def test_padlock_consumed_and_matching_key_returns_it_without_opening(self):
+        self.install_padlock()
+        self.assertEqual(self.lua.eval('padlockItems'), 0)
+        self.assertIsNotNone(self.lua.eval('record.padlock'))
+        self.unlock()
+        self.assertFalse(self.lua.eval("Keys.access(11,entry,'full')"))
+        self.lua.execute("handlers['meta_comic:server:vendingPadlock'](1,'remove');handlers['meta_comic:server:vendingPadlock'](1,'remove')")
+        self.assertIsNone(self.lua.eval('record.padlock'))
+        self.assertEqual(self.lua.eval('padlockReturns'), 1)
+        self.assertFalse(self.lua.eval('cabinetOpen'))
+        self.unlock()
+        self.assertTrue(self.lua.eval("Keys.access(11,entry,'full')"))
+
+    def test_non_key_holder_cannot_remove_or_install(self):
+        self.install_padlock()
+        self.lua.execute("source=22;handlers['meta_comic:server:vendingPadlock'](1,'remove')")
+        self.assertIsNotNone(self.lua.eval('record.padlock'))
+        self.lua.execute("source=11;handlers['meta_comic:server:vendingPadlock'](1,'remove');source=22;padlockItems=1;handlers['meta_comic:server:vendingPadlock'](1,'install')")
+        self.assertIsNone(self.lua.eval('record.padlock'))
+        self.assertEqual(self.lua.eval('padlockItems'), 1)
+
+    def test_missing_item_and_open_door_prevent_installation(self):
+        self.install_padlock()
+        self.lua.execute("handlers['meta_comic:server:vendingPadlock'](1,'remove');padlockItems=0;handlers['meta_comic:server:vendingPadlock'](1,'install')")
+        self.assertIsNone(self.lua.eval('record.padlock'))
+        self.lua.execute("padlockItems=1;cabinetOpen=true;handlers['meta_comic:server:vendingPadlock'](1,'install')")
+        self.assertIsNone(self.lua.eval('record.padlock'))
+        self.assertEqual(self.lua.eval('padlockItems'), 1)
+
+    def test_retired_key_cannot_remove_padlock(self):
+        self.install_padlock()
+        self.lua.execute("bags[11][1].metadata.lockId='VM-1-C0000';handlers['meta_comic:server:vendingPadlock'](1,'remove')")
+        self.assertIsNotNone(self.lua.eval('record.padlock'))
+
+    def test_failed_removal_save_keeps_lock_and_returns_no_item(self):
+        self.install_padlock()
+        self.lua.execute("saveOK=false;handlers['meta_comic:server:vendingPadlock'](1,'remove')")
+        self.assertIsNotNone(self.lua.eval('record.padlock'))
+        self.assertEqual(self.lua.eval('padlockReturns'), 0)
+
+    def test_full_inventory_keeps_padlock_in_place(self):
+        self.install_padlock()
+        self.lua.execute("MetaComic.Inventory.canCarry=function() return false end;handlers['meta_comic:server:vendingPadlock'](1,'remove')")
+        self.assertIsNotNone(self.lua.eval('record.padlock'))
+
+    def test_failed_item_delivery_can_be_claimed_once(self):
+        self.install_padlock()
+        self.lua.execute("addFail=true;handlers['meta_comic:server:vendingPadlock'](1,'remove')")
+        self.assertIsNone(self.lua.eval('record.padlock'))
+        self.assertIsNotNone(self.lua.eval('record.padlockReturn'))
+        self.lua.execute("addFail=false;handlers['meta_comic:server:vendingPadlock'](1,'collect');handlers['meta_comic:server:vendingPadlock'](1,'collect')")
+        self.assertEqual(self.lua.eval('padlockReturns'), 1)
+
+    def test_criminal_must_pick_padlock_before_drilling(self):
+        self.install_padlock()
+        self.lua.execute("source=22;startData=nil;handlers['meta_comic:server:crimeStart'](1,'breakin')")
+        self.assertIsNone(self.lua.eval('startData'))
+        self.assertFalse(self.lua.eval('MetaComic.VendingLoot.unlock(22,entry)'))
+        self.lua.execute("handlers['meta_comic:server:crimeStart'](1,'pickpadlock');timer=timer+startData.duration;handlers['meta_comic:server:crimeFinish'](startData.token,true)")
+        self.assertIsNone(self.lua.eval('record.padlock'))
+        self.assertEqual(self.lua.eval('padlockReturns'), 1)
+        self.assertFalse(self.lua.eval('MetaComic.VendingLoot.isOpen(entry)'))
+        self.lua.execute("handlers['meta_comic:server:crimeStart'](1,'breakin')")
+        self.assertEqual(self.lua.eval('startData.minigame'), 'drill_hard')
+
+    def test_padlock_install_invalidates_started_drill(self):
+        self.issue()
+        self.lua.execute("cabinetOpen=false;source=22;handlers['meta_comic:server:crimeStart'](1,'breakin');drillToken=startData.token;source=11;handlers['meta_comic:server:vendingPadlock'](1,'install');source=22;timer=45000;handlers['meta_comic:server:crimeFinish'](drillToken,true)")
+        self.assertIsNotNone(self.lua.eval('record.padlock'))
+        self.assertFalse(self.lua.eval('MetaComic.VendingLoot.isOpen(entry)'))
+
+    def test_repair_requires_open_door_at_start_and_finish(self):
+        self.lua.execute("record.lockCondition='damaged';cabinetOpen=false;handlers['meta_comic:server:vendingRepairStart'](1)")
+        self.assertEqual(self.lua.eval('#events'), 0)
+        self.lua.execute("cabinetOpen=true;handlers['meta_comic:server:vendingRepairStart'](1);repairToken=events[#events].data.token;cabinetOpen=false;timer=30000;handlers['meta_comic:server:vendingRepairFinish'](repairToken)")
+        self.assertEqual(self.lua.eval('record.lockCondition'), 'damaged')
+
+    def test_repaired_open_cabinet_preserves_repairing_key_session(self):
+        self.issue(); self.unlock()
+        self.lua.execute("record.lockCondition='damaged';handlers['meta_comic:server:vendingRepairStart'](1);timer=30000;handlers['meta_comic:server:vendingRepairFinish'](events[#events].data.token);handlers['meta_comic:server:vendingKeyMenu'](1)")
+        self.assertEqual(self.lua.eval('record.lockCondition'), 'intact')
+        self.assertTrue(self.lua.eval('events[#events].data.cabinetOpen'))
+        self.assertTrue(self.lua.eval('events[#events].data.session'))
+
+    def test_open_cabinet_menu_without_session_requests_authentication_not_opening(self):
+        self.lua.execute('''
+            function GetResourceState() return 'started' end
+            exports={ox_lib={registerContext=function(self,data) context=data end,showContext=function() end}}
+        ''')
+        client = (ROOT / 'fivem/client/vending_keys.lua').read_text(encoding='utf-8')
+        menu = client.split("RegisterNetEvent('meta_comic:client:vendingKeyMenu'", 1)[1].split("RegisterNetEvent('meta_comic:client:vendingRekeyStart'", 1)[0]
+        self.lua.execute("RegisterNetEvent('meta_comic:client:vendingKeyMenu'" + menu)
+        self.lua.execute("handlers['meta_comic:client:vendingKeyMenu']({serial='VM-1',lockId='C1',condition='intact',cabinetOpen=true,hasFull=true,boxEnabled=true})")
+        titles = [option['title'] for option in self.lua.eval('context.options').values()]
+        self.assertIn('Authenticate cabinet key', titles)
+        self.assertNotIn('Open machine only', titles)
+        self.assertNotIn('Open machine and cash box', titles)
+
+    def load_real_door(self):
+        self.lua.execute('''
+            localEvents={};exported={}
+            function AddEventHandler(name,fn) localEvents[name]=fn end
+            function TriggerEvent(name,...) if localEvents[name] then localEvents[name](...) end end
+            function SetTimeout() end
+            function exports(name,fn) exported[name]=fn end
+            local originalClientEvent=TriggerClientEvent
+            function TriggerClientEvent(name,src,data,state)
+                if name=='meta_comic:client:vendingDoor' then lastDoorState=state end
+                originalClientEvent(name,src,data)
+            end
+        ''')
+        self.lua.execute((ROOT / 'fivem/server/modules/vending_door.lua').read_text(encoding='utf-8'))
+
+    def test_first_close_after_padlock_removal_waits_for_save_then_closes(self):
+        self.install_padlock()
+        self.lua.execute("handlers['meta_comic:server:vendingPadlock'](1,'remove')")
+        self.load_real_door()
+        self.unlock()
+        self.lua.execute('''
+            exported.SetVendingDoor(1,true,30)
+            MetaComic.Settings.set=function() coroutine.yield();return true end
+            closeJob=coroutine.create(function() handlers['meta_comic:server:vendingKeyLock'](1) end)
+            assert(coroutine.resume(closeJob))
+        ''')
+        self.assertTrue(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+        self.lua.execute("while coroutine.status(closeJob) ~= 'dead' do assert(coroutine.resume(closeJob)) end")
+        self.assertFalse(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+        self.assertEqual(self.lua.eval('events[#events].name'), 'meta_comic:client:vendingDoor')
+        self.assertFalse(self.lua.eval('lastDoorState'))
+
+    def test_failed_lock_save_does_not_close_door(self):
+        self.issue(); self.load_real_door(); self.unlock()
+        self.lua.execute("exported.SetVendingDoor(1,true,30);saveOK=false;handlers['meta_comic:server:vendingKeyLock'](1)")
+        self.assertTrue(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+
+    def test_unauthorized_lock_request_does_not_close_door(self):
+        self.issue(); self.load_real_door(); self.unlock()
+        self.lua.execute("exported.SetVendingDoor(1,true,30);source=22;handlers['meta_comic:server:vendingKeyLock'](1)")
+        self.assertTrue(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+
+    def test_close_before_lock_shuts_door_without_invalidating_key_session(self):
+        self.issue(); self.load_real_door(); self.unlock()
+        self.lua.execute("exported.SetVendingDoor(1,true,30);handlers['meta_comic:server:vendingKeyCloseForLock'](1)")
+        self.assertFalse(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+        self.assertTrue(self.lua.eval("Keys.access(11,entry,'service')"))
+        self.assertEqual(self.lua.eval('events[#events].name'), 'meta_comic:client:vendingKeyCloseForLock')
+
+    def test_close_before_lock_rejects_unauthorized_and_looting_machine(self):
+        self.issue(); self.load_real_door(); self.unlock()
+        self.lua.execute("exported.SetVendingDoor(1,true,30);source=22;handlers['meta_comic:server:vendingKeyCloseForLock'](1)")
+        self.assertTrue(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+        self.lua.execute("source=11;MetaComic.VendingLoot.busy=function() return true end;handlers['meta_comic:server:vendingKeyCloseForLock'](1)")
+        self.assertTrue(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+
+    def test_police_secures_open_cabinet_closes_all_lids_immediately(self):
+        self.issue(); self.load_real_door(); self.unlock()
+        self.lua.execute('''
+            exported.SetVendingDoor(1,true,30)
+            handlers['meta_comic:server:vendingCashboxKey'](1,true)
+            handlers['meta_comic:server:vendingRackKey'](1,true)
+            record.lockCondition='damaged'
+            assert(MetaComic.VendingLoot.secure(55,entry))
+        ''')
+        self.assertIsNotNone(self.lua.eval('record.securitySeal'))
+        self.assertFalse(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+        self.assertFalse(self.lua.eval('MetaComic.VendingCashbox.isOpen(1)'))
+        self.assertFalse(self.lua.eval('MetaComic.VendingCashbox.rackOpen(1)'))
+        self.assertFalse(self.lua.eval('lastDoorState'))
+        self.lua.execute('exported.SetVendingDoor(1,true,30)')
+        self.assertFalse(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+
+    def test_failed_secure_save_leaves_open_cabinet_without_seal(self):
+        self.issue(); self.load_real_door(); self.unlock()
+        self.lua.execute("exported.SetVendingDoor(1,true,30);record.lockCondition='damaged';saveOK=false;assert(not MetaComic.VendingLoot.secure(55,entry))")
+        self.assertIsNone(self.lua.eval('record.securitySeal'))
+        self.assertTrue(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+
+    def test_automatic_seal_closes_open_cabinet(self):
+        self.issue()
+        self.lua.execute('expiryThread=threads[#threads]')
+        self.load_real_door(); self.unlock()
+        self.lua.execute('''
+            exported.SetVendingDoor(1,true,300)
+            record.lockCondition='damaged';record.unlockedUntil=now+1;record.displacedOpen=nil
+            now=now+10
+            assert(coroutine.resume(expiryThread));assert(coroutine.resume(expiryThread))
+        ''')
+        self.assertIsNotNone(self.lua.eval('record.securitySeal'))
+        self.assertFalse(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+
+    def test_rack_and_cashbox_actions_explain_closed_door_with_active_unlock_timer(self):
+        self.load_real_door()
+        self.lua.execute("record.lockCondition='damaged';record.unlockedUntil=now+600;source=22;messages={};handlers['meta_comic:server:rackStart'](1);handlers['meta_comic:server:cashboxStart'](1)")
+        self.assertEqual(self.lua.eval('#messages'), 2)
+        for index in (1, 2):
+            self.assertIn('main cabinet door', self.lua.eval(f'messages[{index}].message'))
+        self.assertFalse(self.lua.eval('MetaComic.VendingCashbox.rackOpen(1)'))
+        self.assertFalse(self.lua.eval('MetaComic.VendingCashbox.isOpen(1)'))
+
+    def test_rack_action_explains_missing_tools_and_already_open(self):
+        self.issue(); self.load_real_door(); self.unlock()
+        self.lua.execute("exported.SetVendingDoor(1,true,30);MetaComic.Inventory.count=function() return 0 end;source=22;handlers['meta_comic:server:rackStart'](1)")
+        self.assertIn('lockpick', self.lua.eval('messages[#messages].message'))
+        self.lua.execute("source=11;handlers['meta_comic:server:vendingRackKey'](1,true);source=22;handlers['meta_comic:server:rackStart'](1)")
+        self.assertIn('already open', self.lua.eval('messages[#messages].message'))
+
+    def test_breakin_seals_at_600_seconds_without_door_reopening_reset(self):
+        self.lua.execute('expiryThread=threads[#threads]')
+        self.load_real_door()
+        self.lua.execute('''
+            source=22;assert(MetaComic.VendingLoot.unlock(22,entry))
+            deadline=record.unlockedUntil;assert(deadline==now+600)
+            source=22;handlers['meta_comic:server:vendingDamagedDoor'](1,true)
+            handlers['meta_comic:server:vendingDamagedDoor'](1,false)
+            handlers['meta_comic:server:vendingDamagedDoor'](1,true)
+            now=deadline-1
+            assert(coroutine.resume(expiryThread));assert(coroutine.resume(expiryThread))
+        ''')
+        self.assertIsNone(self.lua.eval('record.securitySeal'))
+        self.assertEqual(self.lua.eval('record.unlockedUntil'), self.lua.eval('deadline'))
+        self.lua.execute('now=deadline;assert(coroutine.resume(expiryThread))')
+        self.assertIsNotNone(self.lua.eval('record.securitySeal'))
+        self.assertFalse(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+
+    def test_displaced_machine_does_not_auto_seal_at_original_deadline(self):
+        self.lua.execute('''
+            assert(MetaComic.VendingLoot.unlock(22,entry))
+            record.displacedOpen=true;record.status='stolen';isItem=true
+            now=record.unlockedUntil+1
+            assert(coroutine.resume(threads[#threads]));assert(coroutine.resume(threads[#threads]))
+        ''')
+        self.assertIsNone(self.lua.eval('record.securitySeal'))
 
 
 if __name__ == '__main__':

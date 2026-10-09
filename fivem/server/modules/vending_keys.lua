@@ -4,6 +4,7 @@ local keys = cfg.Keys or {}
 if cfg.Enabled == false or keys.Enabled ~= true then return end
 local Registry, Vending = MetaComic.VendingRegistry, MetaComic.Vending
 local service, sessions, pending, locks = {}, {}, {}, {}
+local repairing = {}
 MetaComic.VendingKeys = service
 local ITEM = keys.Item or 'vending_key'
 local function notify(src, message, kind) if MetaComic.Framework.notify then MetaComic.Framework.notify(src, message, kind or 'error') end end
@@ -52,7 +53,13 @@ function service.canReplace(src, record)
         or record.lockCondition == 'damaged' and not record.securitySeal
             and (record.displacedOpen == true or (tonumber(record.unlockedUntil) or 0) > os.time()))
 end
-function service.busy(entry) return entry and (locks[entry.serial] == true or service.replacing(entry)) end
+function service.busy(entry) return entry and (locks[entry.serial] == true or service.replacing(entry) or service.repairing(entry)) end
+function service.repairing(entry)
+    for _, job in pairs(repairing) do
+        if job.serial == entry.serial and GetGameTimer() - job.at < job.duration + 30000 then return true end
+    end
+    return false
+end
 function service.replacing(entry)
     for _, job in pairs(pending) do if job.serial == entry.serial then return true end end
     return false
@@ -81,7 +88,7 @@ function service.cabinetOpen(entry, src)
     return MetaComic.VendingLoot and MetaComic.VendingLoot.isOpen(entry) or src ~= nil and service.access(src, entry, 'service')
 end
 function service.replacementReady(src, entry, record)
-    return record ~= nil and not record.securitySeal and service.cabinetOpen(entry, src)
+    return record ~= nil and not record.securitySeal and not record.padlock and service.cabinetOpen(entry, src)
         and (service.canReplace(src, record) or record.lockCondition == 'damaged' and service.canUnseal(src, record))
 end
 function service.unseal(src, entry)
@@ -100,7 +107,7 @@ function service.unseal(src, entry)
     if ok then Vending.broadcast(entry) end
     return ok
 end
-function service.access(src, entry, required, moving)
+local function validSession(src, entry, required)
     if not entry then return false end
     local ped = GetPlayerPed(src)
     if ped == 0 or GetEntityHealth and GetEntityHealth(ped) <= 100 then return false end
@@ -108,14 +115,122 @@ function service.access(src, entry, required, moving)
     local session = sessions[src] and sessions[src][entry.serial]
     -- a damaged / sealed cylinder still turns for its current keys: after a break-in is secured the key holders keep
     -- running the machine until the cylinder is replaced (sealing bumps lockRevision, so they unlock once more)
-    if not record or not record.keyArchive or not session
-        or session.revision ~= record.lockRevision or session.untilAt <= os.time()
-        or not Vending.near(src, entry, moving and (tonumber(cfg.PlaceDistance) or 15) + 10 or Vending.reach()) then return false end
+    if not record or record.padlock or not record.keyArchive or not session
+        or session.revision ~= record.lockRevision or session.untilAt <= os.time() then return false end
     return findKey(src, record, required, session.keyId) ~= nil
+end
+function service.access(src, entry, required, moving)
+    return validSession(src, entry, required)
+        and Vending.near(src, entry, moving and (tonumber(cfg.PlaceDistance) or 15) + 10 or Vending.reach())
 end
 function service.invalidate(record)
     record.lockRevision = (record.lockRevision or 0) + 1
 end
+local function sendSession(src, entry, record, session)
+    TriggerClientEvent('meta_comic:client:vendingKeyAccess', src, {
+        id = entry.id, serial = entry.serial, revision = record.lockRevision,
+        seconds = math.max(0, session.untilAt - os.time()), full = findKey(src, record, 'full', session.keyId) ~= nil,
+    })
+end
+-- The optional external padlock is separate from the recovery chain/security seal.
+local padlock = keys.Padlock or {}
+local PADLOCK_ITEM = padlock.Item or 'vending_padlock'
+local function padlockEvent(record, event, src)
+    -- Append forensic history in the same save as the item/state transaction.
+    local field = record.systemController and 'osHistory' or 'history'
+    record[field] = type(record[field]) == 'table' and record[field] or {}
+    table.insert(record[field], 1, { at = os.time(), event = event, by = Registry.nameOf(src) })
+    local limit = math.max(1, math.min(5000, math.floor(tonumber((cfg.Records or {}).HistoryLimit) or tonumber((cfg.Ownership or {}).HistoryLength) or 25)))
+    while #record[field] > limit do table.remove(record[field]) end
+    record.updatedAt = os.time()
+end
+local function padlockReady(src, entry, record)
+    return padlock.Enabled ~= false and record and record.lockCondition == 'intact' and not record.securitySeal
+        and not record.padlock and not record.padlockReturn and not service.cabinetOpen(entry, src)
+        and findKey(src, record, 'service') ~= nil
+end
+local function returnPadlock(src, entry, record)
+    local due = record.padlockReturn
+    if not due or due.recipient ~= Registry.identifierOf(src) then return false end
+    -- A failed receipt save must not let a repeated request deliver another item.
+    local delivered = due.delivered == true
+    for _, item in pairs(MetaComic.Inventory.slotsOf(src, PADLOCK_ITEM) or {}) do
+        local metadata = item.metadata or item.info or {}
+        if metadata.padlockId == due.id then delivered = true end
+    end
+    if not delivered then
+        if MetaComic.Inventory.canCarry and not MetaComic.Inventory.canCarry(src, PADLOCK_ITEM, 1) then
+            notify(src, 'Make room in your inventory to collect the padlock.'); return false
+        end
+        if not MetaComic.Inventory.add(src, PADLOCK_ITEM, 1, { padlockId = due.id }) then
+            notify(src, 'The padlock is removed. Collect it from Cabinet lock and keys when your inventory is available.'); return false
+        end
+        due.delivered = true
+    end
+    record.padlockReturn = nil
+    if not Registry.save() then record.padlockReturn = due end
+    return true
+end
+function service.removePadlock(src, entry, picked)
+    local record = entry and Registry.get(entry.serial)
+    if not record or not record.padlock or not service.ensure(record) or service.busy(entry)
+        or not Vending.near(src, entry, Vending.reach()) or Vending.isTransferringStock(entry)
+        or not picked and not findKey(src, record, 'service') then return false end
+    if MetaComic.Inventory.canCarry and not MetaComic.Inventory.canCarry(src, PADLOCK_ITEM, 1) then
+        notify(src, 'Make room in your inventory before removing the padlock.'); return false
+    end
+    locks[entry.serial] = true
+    local old = MetaComic.CopyTable(record)
+    record.padlockReturn = { id = record.padlock.id, recipient = Registry.identifierOf(src) }
+    record.padlock = nil
+    service.invalidate(record)
+    padlockEvent(record, picked and 'External padlock lockpicked' or 'External padlock removed with key', src)
+    local ok = persist(record, old)
+    if ok then
+        returnPadlock(src, entry, record)
+        Vending.broadcast(entry)
+        notify(src, 'Padlock removed. The cabinet cylinder is still locked.', 'success')
+    end
+    locks[entry.serial] = nil
+    return ok
+end
+RegisterNetEvent('meta_comic:server:vendingPadlock', function(id, action)
+    local src, entry = source, Vending.get(id)
+    local record = entry and Registry.get(entry.serial)
+    if not record or not Vending.near(src, entry, Vending.reach()) then return notify(src, 'Stand at the vending machine first.') end
+    if not service.ensure(record) or service.busy(entry) then return notify(src, 'The machine is busy or its lock is unavailable.') end
+    if action == 'remove' then
+        if not record.padlock then return notify(src, 'There is no cabinet padlock to remove.') end
+        if not findKey(src, record, 'service') then return notify(src, 'You need a current matching key to remove the padlock.') end
+        return service.removePadlock(src, entry, false)
+    end
+    if action == 'collect' then
+        locks[entry.serial] = true
+        returnPadlock(src, entry, record)
+        locks[entry.serial] = nil
+        return
+    end
+    if action ~= 'install' or not padlockReady(src, entry, record) or Vending.isTransferringStock(entry)
+        or MetaComic.VendingLoot and MetaComic.VendingLoot.busy(entry) then return notify(src, 'Padlock installation requires a closed, intact cabinet, a matching current key and no active machine operation.') end
+    locks[entry.serial] = true
+    if not MetaComic.Inventory.remove(src, PADLOCK_ITEM, 1) then
+        locks[entry.serial] = nil; return notify(src, 'You need a vending padlock.')
+    end
+    if not padlockReady(src, entry, record) then
+        MetaComic.Inventory.add(src, PADLOCK_ITEM, 1)
+        locks[entry.serial] = nil; return notify(src, 'The cabinet changed. Padlock installation stopped.')
+    end
+    local old = MetaComic.CopyTable(record)
+    record.padlock = { id = ('%s:%s:%s'):format(record.serial, os.time(), record.lockRevision), lockId = record.lockId }
+    record.unlockedUntil, record.unlockedBy, record.displacedOpen = nil, nil, nil
+    service.invalidate(record)
+    padlockEvent(record, 'External padlock installed', src)
+    local ok = persist(record, old)
+    if not ok then MetaComic.Inventory.add(src, PADLOCK_ITEM, 1) end
+    locks[entry.serial] = nil
+    if ok then Vending.broadcast(entry); notify(src, 'Padlock installed.', 'success')
+    else notify(src, 'Could not save the padlock. Your item was returned.') end
+end)
 -- kind: who chained it ('police', 'owner', 'business'; 'automatic' for the security timer, nil for anyone else)
 function service.sealFields(record, by, kind)
     return { unlockedUntil = false, unlockedBy = false, displacedOpen = false, lockCondition = 'damaged',
@@ -229,6 +344,7 @@ function service.unlock(src, entry, slot)
     if not service.ensure(record) or service.busy(entry) then return notify(src, 'The lock is unavailable or being serviced.') end
     if MetaComic.VendingLoot and MetaComic.VendingLoot.isOpen(entry) then return notify(src, 'Secure and repair the broken-in cabinet first.') end
     if record.securitySeal then return notify(src, service.sealText(record)) end -- chained shut: the key can't reach the cabinet
+    if record.padlock then return notify(src, 'Unlock and remove the padlock first.') end
     local key
     if slot then
         local item = MetaComic.Inventory.getSlot(src, tonumber(slot))
@@ -237,6 +353,8 @@ function service.unlock(src, entry, slot)
     if not key then return notify(src, 'You need a matching current key. Retired keys cannot unlock this cylinder.') end
     sessions[src] = sessions[src] or {}
     sessions[src][entry.serial] = { keyId = key.id, revision = record.lockRevision, untilAt = os.time() + math.max(10, tonumber(keys.SessionSeconds) or 300) }
+    sendSession(src, entry, record, sessions[src][entry.serial])
+    TriggerClientEvent('meta_comic:client:vendingKeyUnlocked', src, { id = entry.id, open = not service.cabinetOpen(entry, src) })
     notify(src, ('Cabinet unlocked (%s access).'):format(key.access), 'success')
     if record.securitySeal or record.lockCondition ~= 'intact' then notify(src, 'The lock is still damaged. Repair or replace the cylinder to make the machine secure again.', 'info') end
     Vending.openManage(src, entry)
@@ -248,9 +366,8 @@ RegisterNetEvent('meta_comic:server:vendingIssueKey', function(serial, target, a
     notify(src, ok and 'Numbered key issued and permanently recorded.' or err, ok and 'success' or 'error')
 end)
 -- Repairing a damaged cylinder (Config.VendingMachines.Keys.Repair) keeps it and every key cut for it: it uses up the
--- configured items and takes the chain and padlock off. Replacing the cylinder (further down) retires the old keys instead.
+-- configured items with the cabinet already open. Replacing the cylinder (further down) retires the old keys instead.
 local repair = keys.Repair or {}
-local repairing = {} -- src -> repair job
 local function repairItems()
     local list = {}
     for _, item in ipairs(repair.Items or {}) do
@@ -279,13 +396,16 @@ RegisterNetEvent('meta_comic:server:vendingRepairStart', function(id)
     local src, entry = source, Vending.get(id)
     local record = entry and Registry.get(entry.serial)
     local busyJob = repairing[src]
-    if busyJob and GetGameTimer() - busyJob.at < busyJob.duration + 30000 then return end
-    if pending[src] or not entry or not canRepair(src, record) or not Vending.near(src, entry, Vending.reach()) then return end
+    if busyJob and GetGameTimer() - busyJob.at < busyJob.duration + 30000 or pending[src] then return notify(src, 'Finish or cancel your current cylinder work first.') end
+    if not entry or not Vending.near(src, entry, Vending.reach()) then return notify(src, 'Stand at the vending machine first.') end
+    if not canRepair(src, record) then return notify(src, 'Cylinder repair requires a damaged lock and maintenance authority.') end
+    if record.padlock or record.securitySeal or not service.cabinetOpen(entry, src) then return notify(src, 'Open the cabinet before repairing its cylinder.') end
     if not service.ensure(record) or service.busy(entry) or Vending.isTransferringStock(entry)
         or MetaComic.VendingLoot and MetaComic.VendingLoot.busy(entry) then return notify(src, 'The machine is busy.') end
     local missing = missingRepairItem(src)
     if missing then return notify(src, ('You need %dx %s to repair the cylinder.'):format(missing.count, missing.label)) end
     local duration = math.max(1000, tonumber(repair.Duration) or 30000)
+    if MetaComic.VendingProgressDuration then duration = MetaComic.VendingProgressDuration(duration) end
     local token = ('%s:%s:%s:repair'):format(src, GetGameTimer(), record.lockRevision)
     repairing[src] = { id = entry.id, serial = entry.serial, revision = record.lockRevision, token = token, at = GetGameTimer(), duration = duration }
     TriggerClientEvent('meta_comic:client:vendingRepairStart', src, { token = token, duration = duration })
@@ -297,6 +417,7 @@ RegisterNetEvent('meta_comic:server:vendingRepairFinish', function(token)
     if not job or job.token ~= token or GetGameTimer() - job.at < job.duration * 0.9 then return end
     local entry, record = Vending.get(job.id), Registry.get(job.serial)
     if not entry or entry.serial ~= job.serial or not canRepair(src, record) or not Vending.near(src, entry, Vending.reach())
+        or record.padlock or record.securitySeal or not service.cabinetOpen(entry, src)
         or record.lockRevision ~= job.revision or service.busy(entry) or Vending.isTransferringStock(entry)
         or MetaComic.VendingLoot and MetaComic.VendingLoot.busy(entry) then return notify(src, 'The machine changed or became busy. Repair stopped.') end
     locks[job.serial] = true
@@ -314,16 +435,21 @@ RegisterNetEvent('meta_comic:server:vendingRepairFinish', function(token)
     local cylinder = record.keyArchive.cylinders[#record.keyArchive.cylinders]
     cylinder.repairs = type(cylinder.repairs) == 'table' and cylinder.repairs or {}
     cylinder.repairs[#cylinder.repairs + 1] = { at = os.time(), by = Registry.nameOf(src), byId = Registry.identifierOf(src) }
-    -- same cylinder, same keys; open key sessions still close (new revision)
+    -- Same cylinder and keys. Other sessions expire; the repairing key holder keeps cabinet access.
     Registry.update(record.serial, { lockCondition = 'intact', securitySeal = false, unlockedUntil = false, unlockedBy = false, displacedOpen = false,
-        lockRevision = (record.lockRevision or 0) + 1 }, 'Lock cylinder repaired; chain and padlock removed', Registry.nameOf(src))
+        lockRevision = (record.lockRevision or 0) + 1 }, 'Lock cylinder repaired', Registry.nameOf(src))
     local ok = persist(record, old)
     if not ok then giveBack() end
     locks[job.serial] = nil
     if not ok then return notify(src, 'Could not save the repair. Your items were returned.') end
+    local session = sessions[src] and sessions[src][entry.serial]
+    if session and findKey(src, record, 'service', session.keyId) then
+        session.revision = record.lockRevision
+        sendSession(src, entry, record, session)
+    end
     entry.openedBy = nil
     Vending.broadcast(entry)
-    notify(src, 'Lock cylinder repaired and the chain removed. The existing keys still work.', 'success')
+    notify(src, 'Lock cylinder repaired. The existing keys still work.', 'success')
 end)
 AddEventHandler('playerDropped', function() repairing[source] = nil end)
 
@@ -339,24 +465,40 @@ RegisterNetEvent('meta_comic:server:vendingKeyMenu', function(id)
     TriggerClientEvent('meta_comic:client:vendingKeyMenu', src, {
         -- open / close the machine and its cash box separately (server/modules/vending_door.lua)
         hasFull = findKey(src, record, 'full') ~= nil, session = session, fullSession = session and service.access(src, entry, 'full'),
-        cabinetOpen = box ~= nil and box.cabinetOpen(entry.id), boxOpen = box ~= nil and box.isOpen(entry.id),
+        cabinetOpen = service.cabinetOpen(entry, src), boxOpen = box ~= nil and box.isOpen(entry.id),
+        padlock = record.padlock ~= nil, hasKey = findKey(src, record, 'service') ~= nil,
+        canPadlock = padlockReady(src, entry, record), hasPadlockItem = (MetaComic.Inventory.count(src, PADLOCK_ITEM) or 0) > 0,
+        padlockReturn = record.padlockReturn and record.padlockReturn.recipient == Registry.identifierOf(src) or false,
+        busy = service.busy(entry) or Vending.isTransferringStock(entry), looting = MetaComic.VendingLoot and MetaComic.VendingLoot.busy(entry) or false,
+        repairMissing = missingRepairItem(src), hasCylinder = (MetaComic.Inventory.count(src, keys.CylinderItem or 'vending_lock_cylinder') or 0) > 0,
         boxEnabled = box ~= nil and box.keyBox == true,
         rackOpen = box ~= nil and box.rackOpen ~= nil and box.rackOpen(entry.id), rackEnabled = box ~= nil and box.keyRack == true,
         id = entry.id, serial = entry.serial, lockId = record.lockId, condition = record.lockCondition, sealed = record.securitySeal ~= nil,
         canReplace = service.replacementReady(src, entry, record), canIssue = service.canIssue(src, record), replacementKeyDue = replacementKeyDue(src, record),
         canUnseal = record.securitySeal ~= nil and service.canUnseal(src, record), damagedUnsealed = record.lockCondition == 'damaged' and not record.securitySeal,
-        sealText = service.sealText(record), canRepair = canRepair(src, record), repairItems = repairLabel(),
+        sealText = service.sealText(record), canRepair = canRepair(src, record) and not record.securitySeal and not record.padlock and service.cabinetOpen(entry, src), repairItems = repairLabel(),
         canRead = police or service.authority(src, record) or Registry.osMember(record, Registry.identifierOf(src)),
     })
+end)
+-- Shut the physical door before the key-turn pose; the final lock still validates and saves separately.
+RegisterNetEvent('meta_comic:server:vendingKeyCloseForLock', function(id)
+    local src, entry = source, Vending.get(id)
+    if not service.access(src, entry, 'service') then return notify(src, 'Authenticate a current cabinet key before closing and locking the machine.') end
+    if MetaComic.VendingLoot and MetaComic.VendingLoot.busy(entry) then
+        return notify(src, 'You cannot close the main door while someone is looting this machine.', 'error')
+    end
+    if service.busy(entry) or Vending.isTransferringStock(entry) then return notify(src, 'The machine is busy. Wait for its current action to finish.') end
+    TriggerEvent('meta_comic:server:vendingKeyCloseForLockSuccess', src, entry.id)
+    TriggerClientEvent('meta_comic:client:vendingKeyCloseForLock', src, entry.id)
 end)
 RegisterNetEvent('meta_comic:server:vendingKeyLock', function(id)
     local src = source -- saving can yield, and `source` is gone after a yield
     local entry = Vending.get(id)
-    if not service.access(src, entry, 'service') then return end
+    if not service.access(src, entry, 'service') then return notify(src, 'Authenticate a current cabinet key before closing and locking the machine.') end
     if MetaComic.VendingLoot and MetaComic.VendingLoot.busy(entry) then
         return notify(src, 'You cannot close the main door while someone is looting this machine.', 'error')
     end
-    if service.busy(entry) or Vending.isTransferringStock(entry) then return end
+    if service.busy(entry) or Vending.isTransferringStock(entry) then return notify(src, 'The machine is busy. Wait for its current action to finish.') end
     local record = Registry.get(entry.serial)
     if locks[entry.serial] then return end
     locks[entry.serial] = true
@@ -364,7 +506,11 @@ RegisterNetEvent('meta_comic:server:vendingKeyLock', function(id)
     service.invalidate(record)
     local ok = persist(record, old)
     locks[entry.serial] = nil
-    if ok then notify(src, 'Cabinet locked. All cabinet sessions closed.', 'success') end
+    if ok then
+        TriggerEvent('meta_comic:server:vendingKeyLockSuccess', src, entry.id)
+        Vending.broadcast(entry)
+        notify(src, 'Cabinet locked. All cabinet sessions closed.', 'success')
+    end
 end)
 
 -- Lost/stolen keys and broken locks use the same verified physical replacement service.
@@ -380,6 +526,7 @@ RegisterNetEvent('meta_comic:server:vendingRekeyStart', function(id)
     local forced = not service.canRegister(src, record)
     local duration = math.max(1000, tonumber(keys.ReplaceDuration) or 60000)
     if forced then duration = math.max(duration, tonumber(keys.ForcedReplaceDuration) or 180000) end
+    if MetaComic.VendingProgressDuration then duration = MetaComic.VendingProgressDuration(duration) end
     local token = ('%s:%s:%s'):format(src, GetGameTimer(), record.lockRevision)
     pending[src] = { id = entry.id, serial = entry.serial, revision = record.lockRevision, token = token, at = GetGameTimer(), duration = duration,
         forced = forced, openAccess = record.lockCondition == 'damaged' and not record.securitySeal }
@@ -395,7 +542,7 @@ RegisterNetEvent('meta_comic:server:vendingRekeyFinish', function(token)
     local entry, record = Vending.get(job.id), Registry.get(job.serial)
     local openAccess = record and job.openAccess and record.lockCondition == 'damaged' and not record.securitySeal
     if not job.forced and not service.canRegister(src, record) then return notify(src, 'Your cylinder service permission changed. Start a new attempt.') end
-    if not entry or entry.serial ~= job.serial or not record or record.securitySeal or not service.cabinetOpen(entry, src)
+    if not entry or entry.serial ~= job.serial or not record or record.securitySeal or record.padlock or not service.cabinetOpen(entry, src)
         or not (service.canReplace(src, record) or openAccess or record.lockCondition == 'damaged' and service.canUnseal(src, record)) or not Vending.near(src, entry, Vending.reach())
         or record.lockRevision ~= job.revision or service.busy(entry) or Vending.isTransferringStock(entry)
         or MetaComic.VendingLoot and MetaComic.VendingLoot.busy(entry) then return notify(src, 'The machine changed or became busy. Replacement stopped.') end
@@ -442,7 +589,10 @@ end)
 AddEventHandler('playerDropped', function() sessions[source], pending[source] = nil, nil end)
 CreateThread(function()
     Wait(1000)
-    for _, record in ipairs(Registry.all()) do service.ensure(record) end
+    for index, record in ipairs(Registry.all()) do
+        service.ensure(record)
+        if index%50==0 then Wait(0) end
+    end
     while true do
         Wait(1000)
         for src, job in pairs(pending) do
@@ -456,7 +606,11 @@ CreateThread(function()
         for src, machines in pairs(sessions) do
             for serial, session in pairs(machines) do
                 local entry = Vending.bySerial(serial)
-                if session.untilAt <= os.time() or not entry or not service.access(src, entry, 'service', true) then machines[serial] = nil end
+                -- Streaming out / walking away must not discard authentication. Actions still require proximity.
+                if not validSession(src, entry, 'service') then
+                    machines[serial] = nil
+                    if entry then TriggerClientEvent('meta_comic:client:vendingKeyAccess', src, { id = entry.id, seconds = 0 }) end
+                end
             end
             if not next(machines) then sessions[src] = nil end
         end

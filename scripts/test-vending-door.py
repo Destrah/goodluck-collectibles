@@ -50,6 +50,21 @@ class MovingDoorTests(unittest.TestCase):
         self.assertEqual(self.lua.eval('parents[state.body]'), 100)
         self.assertEqual(self.lua.eval('parents[state.door]'), self.lua.eval('state.body'))
 
+    def test_lock_wait_includes_each_lid_actual_angle_after_close_request(self):
+        source = (ROOT / 'fivem/client/vending_door.lua').read_text(encoding='utf-8')
+        section = source.split('MetaComic.VendingDoorOpen =', 1)[1].split('-- the hacks need', 1)[0]
+        self.lua.execute('MetaComic={};doors={[1]={target=0,angle=0,lidAngle=0,rackAngle=30}};lids={};racks={};MetaComic.VendingDoorOpen =' + section)
+        self.assertTrue(self.lua.eval("MetaComic.VendingLockPartsOpen(1,'cylinder')"))
+        self.assertTrue(self.lua.eval("MetaComic.VendingLockPartsOpen(1,'rack')"))
+        self.assertFalse(bool(self.lua.eval("MetaComic.VendingLockPartsOpen(1,'cashbox')")))
+        self.lua.execute('doors[1].rackAngle=0;doors[1].lidAngle=20')
+        self.assertTrue(self.lua.eval("MetaComic.VendingLockPartsOpen(1,'cylinder')"))
+        self.assertTrue(self.lua.eval("MetaComic.VendingLockPartsOpen(1,'cashbox')"))
+        self.lua.execute('doors[1].lidAngle=0')
+        self.assertFalse(bool(self.lua.eval("MetaComic.VendingLockPartsOpen(1,'cylinder')")))
+        self.lua.execute('lids[1]=0')  # an open, empty cashbox still needs closing
+        self.assertTrue(self.lua.eval("MetaComic.VendingLockPartsOpen(1,'cylinder')"))
+
     def test_cleanup_restores_original_and_removes_both_parts(self):
         self.lua.execute('state=Build(100);loose[100]=state;Drop(100,state)')
         self.assertEqual(self.lua.eval('alpha[100]'), 255)

@@ -21,6 +21,8 @@ local function statement(sql,values) return {query=sql,values=values or {}} end
 local function copy(value) return MetaComic.CopyTable(value) end
 local function decode(raw) if type(raw)=='table' then return MetaComic.Collectibles.normalize(copy(raw)) end;local value=json.decode(raw); assert(type(value)=='table','Invalid collectible JSON');return MetaComic.Collectibles.normalize(value) end
 local function find(list,id) for _,item in ipairs(list) do if item.id==id then return item end end end
+-- a saved, non-empty set of this collectible type (shipping crates pick one per collectible)
+function service.setOf(typeId,id) local set=type(id)=='string' and find(service.data.sets,id);return set and set.collectibleType==typeId and #(set.itemIds or {})>0 and set or nil end
 
 -- Rarity tiers shared with the trading cards.
 local RARITY_LABELS={common='Common',uncommon='Uncommon',rare='Rare',ultra_rare='Ultra Rare',legendary='Legendary'}
@@ -310,6 +312,8 @@ end
 
 function service.create(source,payload)
  local names=validType(payload.typeId);local container=copy(assert(service.data.containers[payload.typeId],'Save this container first'));local outer=payload.outer==true
+ -- payload.setId: pull from this set instead of the container's own (shipping crates); kept in the sealed snapshot
+ if payload.setId~=nil then container.setId=assert(service.setOf(payload.typeId,payload.setId),'That collectible set is missing or empty').id end
  -- the version chosen when creating them; the sealed items keep it, and so do the containers inside an outer case
  local innerKind=container.kind=='bag' and 'bag' or 'box'
  container.look=container.look or {};container.look.style=styleOf(innerKind,{style=payload.style or container.look.style})

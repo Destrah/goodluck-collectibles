@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class RekeyClientTests(unittest.TestCase):
     def setUp(self):
         self.lua = LuaRuntime(unpack_returned_tuples=True)
+        self.lua.execute('function AddEventHandler() end')
         self.lua.execute('''
             function vector3(x,y,z) return {x=x,y=y,z=z} end
             Config={VendingMachines={Keys={Enabled=true,ReplaceOffset=vector3(0.85,-0.15,0)}}}

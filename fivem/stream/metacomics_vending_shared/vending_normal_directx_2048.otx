@@ -1,0 +1,10 @@
+Version 13 30
+{
+	Image vending_normal_directx_2048.dds
+	Type Regular
+	PixelFormat DXT1
+	Levels 12
+	Usage UNKNOWN
+	UsageFlags -
+	ExtraFlags 0
+}

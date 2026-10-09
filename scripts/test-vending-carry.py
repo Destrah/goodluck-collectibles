@@ -204,6 +204,60 @@ class VendingCarryTests(unittest.TestCase):
         self.assertEqual(self.lua.eval('updates'), before)
         self.assertTrue(self.lua.eval('DoesEntityExist(100)'))
 
+    def setup_client_crate_carry(self, available=True):
+        self.lua.execute('''
+            Config.ShippingCrates={Models={Closed='crate'},Carry={Enabled=true,MoveRate=0.7}}
+            Config.VendingCarry.VehicleEntry='drop'
+            Config.VendingCarry.Dolly={model='dolly'}
+            crateHeld=true;nextProp=300;spawnedCrates=0;spawnedDollies=0;collision={}
+            exports={ox_inventory={GetItemCount=function(_,name) return name=='shipping_crate' and crateHeld and 1 or 0 end}}
+            function GetResourceState() return 'started' end
+            function PlayerPedId() return 1 end;function PlayerId() return 1 end
+            function DisableControlAction(_,control) if control==23 then entryBlocked=true end end
+            function IsDisabledControlJustPressed() return true end
+            function GetVehiclePedIsTryingToEnter() return 0 end
+            function TriggerServerEvent(name) if name=='meta_comic:server:vendingCarryDrop' then requestedDrops=(requestedDrops or 0)+1 end end
+            function TriggerEvent() end
+            function IsPedInAnyVehicle() return false end;function IsPedSwimming() return false end
+            function IsPedRagdoll() return false end;function IsEntityDead() return false end
+            function IsPedClimbing() return false end;function IsPedFalling() return false end
+            function joaat(name) return name=='crate' and 27 or name=='dolly' and 28 or 123 end
+            function IsModelInCdimage(model) return model~=27 or crateAvailable end;function RequestModel() end;function HasModelLoaded() return true end
+            function SetModelAsNoLongerNeeded() end
+            function CreateObject(model,x,y,z) assert(model==27 or model==28);if model==27 then spawnedCrates=spawnedCrates+1 else spawnedDollies=spawnedDollies+1 end;nextProp=nextProp+1;coords[nextProp]=vector3(x,y,z);return nextProp end
+            function SetEntityCollision(id,value) collision[id]=value end
+            function AttachEntityToEntity(id) assert(collision[id]==false) end
+            function DetachEntity() end
+            function GetModelDimensions() return vector3(-0.5,-0.5,-0.4),vector3(0.5,0.5,0.4) end
+            function SetCurrentPedWeapon() end;function DisablePlayerFiring() end
+            function SetPedMaxMoveBlendRatio() end;function SetPedMoveRateOverride(_,rate) moveRate=rate end
+        ''')
+        self.lua.execute('crateAvailable='+str(available).lower())
+        self.lua.execute((ROOT/'fivem/client/vending_carry.lua').read_text())
+        self.lua.execute('assert(coroutine.resume(threads[4]));assert(coroutine.resume(threads[8]))')
+
+    def test_shipping_crate_carry_uses_crate_prop_pauses_for_opening_and_blocks_entry(self):
+        self.setup_client_crate_carry()
+        self.assertEqual(self.lua.eval('spawnedCrates'),1)
+        self.assertEqual(self.lua.eval('moveRate'),0.7)
+        self.assertTrue(self.lua.eval('entryBlocked'))
+        self.assertIsNone(self.lua.eval('requestedDrops'))
+        self.lua.execute("stopHandlers['meta_comic:client:crateCarryPause'](true);assert(coroutine.resume(threads[8]))")
+        self.assertFalse(self.lua.eval('DoesEntityExist(301)'))
+        self.assertEqual(self.lua.eval('spawnedCrates'),1)
+        self.lua.execute("stopHandlers['meta_comic:client:crateCarryPause'](false);assert(coroutine.resume(threads[8]))")
+        self.assertEqual(self.lua.eval('spawnedCrates'),2)
+        self.lua.execute('crateHeld=false;assert(coroutine.resume(threads[4]));assert(coroutine.resume(threads[8]))')
+        self.assertFalse(self.lua.eval('DoesEntityExist(304)'))
+
+    def test_missing_crate_retries_without_duplicating_the_existing_dolly(self):
+        self.setup_client_crate_carry(available=False)
+        self.assertEqual(self.lua.eval('spawnedCrates'),0)
+        self.assertEqual(self.lua.eval('spawnedDollies'),1)
+        self.lua.execute('crateAvailable=true;now=6000;assert(coroutine.resume(threads[8]))')
+        self.assertEqual(self.lua.eval('spawnedCrates'),1)
+        self.assertEqual(self.lua.eval('spawnedDollies'),1)
+
     def test_vanished_cabinet_never_returns_inventory(self):
         self.tow()
         self.lua.execute('coords[100]=nil;assert(coroutine.resume(threads[2]));assert(coroutine.resume(threads[2]))')

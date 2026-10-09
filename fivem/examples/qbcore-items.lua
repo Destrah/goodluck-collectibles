@@ -80,6 +80,11 @@
     name = 'vending_lock_cylinder', label = 'Vending Lock Cylinder', weight = 200, type = 'item', image = 'vending_lock_cylinder.png',
     unique = false, useable = false, shouldClose = true, description = 'Replacement cylinder for damaged locks or compromised keys.',
 },
+['vending_padlock'] = {
+    name = 'vending_padlock', label = 'Vending Padlock', weight = 150, type = 'item', image = 'vending_padlock.png',
+    unique = false, useable = false, shouldClose = true,
+    description = 'Fit to a closed vending cabinet using a valid key for its current cylinder.',
+},
 ['card_blank'] = {
     name = 'card_blank', label = 'Card Blank', weight = 2,
     type = 'item', image = 'card_blank.png', unique = false, useable = false,

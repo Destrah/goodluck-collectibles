@@ -163,6 +163,10 @@
     label = 'Vending Lock Cylinder', weight = 200, stack = true, close = true,
     description = 'Replacement cylinder for damaged locks or compromised keys.',
 },
+['vending_padlock'] = {
+    label = 'Vending Padlock', weight = 150, stack = true, close = true,
+    description = 'Fit to a closed vending cabinet using a valid key for its current cylinder.',
+},
 -- Tools used by the default recipes and crime settings, if your server doesn't have them yet:
 ['card_skimmer'] = {
     label = 'Card Skimmer', weight = 100, stack = true, close = true, consume = 0,

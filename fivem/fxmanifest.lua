@@ -10,7 +10,9 @@ ui_page 'web/index.html'
 shared_scripts {
     'config.lua',
     'shared/utils.lua',
+    'shared/card_buyer_zones.lua',
     'shared/vending_placement.lua',
+    'shared/vending_cargo_geometry.lua',
     'shared/legacy.lua',
     'shared/collectibles.lua',
 }
@@ -19,14 +21,18 @@ client_scripts {
     'client/main.lua',
     'client/vending_machines.lua',
     'client/vending_keys.lua',
+    'client/prop_tuner.lua',
+    'client/box_zone_tool.lua',
     'client/crafting.lua',
     'client/shipping_crates.lua',
     'client/minigames.lua',
     'client/police.lua',
     'client/vending_crime.lua',
     'client/vending_carry.lua',
+    'client/vending_trunk_cargo.lua',
     'client/vending_door.lua',
     'client/vending_skimmer.lua',
+    'client/card_buyers.lua',
 }
 
 server_scripts {
@@ -51,7 +57,9 @@ server_scripts {
     'server/modules/sample_cards.lua',
     'server/modules/set_logos.lua',
     'server/modules/money.lua',
+    'server/modules/runtime_saves.lua',
     'server/modules/settings.lua',
+    'server/modules/vending_state.lua',
     'server/main.lua',
     'server/modules/rewards.lua',
     'server/modules/crafting.lua',
@@ -66,9 +74,15 @@ server_scripts {
     'server/modules/vending_loot.lua',
     'server/modules/vending_crime.lua',
     'server/modules/vending_carry.lua',
+    'server/modules/vending_trunk_cargo.lua',
     'server/modules/vending_trunks.lua',
     'server/modules/vending_door.lua',
     'server/modules/vending_testing.lua',
+    'server/modules/prop_tuner.lua',
+    'server/modules/card_buyer_stock.lua',
+    'server/modules/card_buyers.lua',
+    'server/modules/card_market_analysis.lua',
+    'server/modules/box_zone_tool.lua',
 }
 
 files {

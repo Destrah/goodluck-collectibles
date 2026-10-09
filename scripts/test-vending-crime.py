@@ -83,6 +83,7 @@ class CrimeTests(unittest.TestCase):
 
     def start(self):
         # Exercise the optional GPS/open-cabinet prerequisites independently of the user's current defaults.
+        self.lua.execute('Config.VendingMachines.Crime.Steal.Duration=180000')
         self.lua.execute('''
             Config.VendingMachines.Crime.Steal.NeedsGPSDisabled=true
             record.unlockedUntil=record.unlockedUntil or 1600

@@ -7,3 +7,5 @@
 - Large FiveM payloads must use latent events.
 - Run npm build and build:fivem when applicable.
 - Prefer focused diffs and do not modify unrelated features.
+- Keep mutable runtime state authoritative in server memory; coalesce dirty writes with MetaComic.RuntimeSaves, save periodically, and flush/checkpoint on resource stop. Preserve explicit editor Save/Revert and authoritative inventory/money transaction checks.
+- Store growing vending registries, logs, archives and report snapshots in normalized state/entry rows rather than giant settings JSON values; preserve migration backups and pending shutdown checkpoints.

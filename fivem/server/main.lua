@@ -15,7 +15,7 @@ do
     end
     MetaComic.Legacy = MetaComic.Legacy or {
         prefsKey = 'rush_cards:pack_prefs', uploadConvar = 'rushcards_fivemanage_key',
-        manageAce = 'rushcards.manage', catalogAce = 'rushcards.catalog.write',
+        manageAce = 'metacomic.manage', catalogAce = 'rushcards.catalog.write',
         fallbackIcon = function(value) return value end,
     }
     MetaComic.Collectibles = MetaComic.Collectibles or { snapshot = function(typeId, item) local copy = MetaComic.CopyTable(item); copy.collectibleType = typeId; return copy end }
@@ -202,7 +202,6 @@ local function canManage(source)
     if management.Enabled == false then return true end
 
     if management.Ace and management.Ace ~= '' and IsPlayerAceAllowed(source, management.Ace) then return true end
-    if management.Ace == 'metacomic.manage' and IsPlayerAceAllowed(source, MetaComic.Legacy.manageAce) then return true end
     -- Backwards compatibility: anyone who already had the older catalog-write ACE keeps management access.
     local legacyAce = Config.Catalog and Config.Catalog.WriteAce
     if legacyAce and legacyAce ~= '' and IsPlayerAceAllowed(source, legacyAce) then return true end
@@ -261,7 +260,7 @@ end
 -- Portal (Config.Portal): which admin UI tabs someone may open, e.g. embedded in a business tablet (GetEmbedUrl) or
 -- with /cardportal. Managers get every tab; registered vending machine owners get OwnerTabs, scoped to their own
 -- machines by the vending modules; people listed under Editor also get the card editor. Every RPC still checks.
-local PORTAL_TABS = { 'editor', 'management', 'vending', 'records', 'crafting', 'minigames' }
+local PORTAL_TABS = { 'editor', 'management', 'vending', 'records', 'crafting', 'minigames', 'pricing' }
 local function portalJob(source, jobs)
     local job = MetaComic.Framework.getJob and MetaComic.Framework.getJob(source)
     local configured = job and job.name and type(jobs) == 'table' and jobs[job.name]
@@ -313,6 +312,7 @@ MetaComic.Portal = {
             return result
         end
         result.owner = portalOwnerId(source) ~= nil
+        if MetaComic.CardBuyers and #MetaComic.CardBuyers.analysisBuyers(source)>0 then add('pricing') end
         if portalEditor(source) then add('editor') end
         if result.owner then for _, tab in ipairs(portal.OwnerTabs or { 'vending', 'records' }) do add(tostring(tab)) end end
         return result
@@ -564,7 +564,7 @@ local CARD_ICON_FIELDS = { 'title', 'hp', 'accent', 'rarityKey', 'image', 'image
 local function iconField(card, field)
     if field == 'collectibleType' then return typeOf(card) end -- older items use the misspelled key
     if field == 'starColour' then
-        return card.baseCardId and MetaComic.Cards.starColour and MetaComic.Cards.starColour(card.baseCardId, card.variantId) or nil
+        return card.baseCardId and MetaComic.Cards.starColour and MetaComic.Cards.starColour(card.baseCardId, card.variantId, card.setId) or nil
     end
     return card[field]
 end
@@ -580,11 +580,12 @@ local function sigValue(value)
     end
     return tostring(value)
 end
-local function hashText(text)
+local function hashText(text, yielding)
     local h = 5381
     for i = 1, #text, 4096 do
         local bytes = { text:byte(i, math.min(i + 4095, #text)) }
         for j = 1, #bytes do h = (h * 33 + bytes[j]) % 4294967296 end
+        if yielding and i % 32768 == 1 then Wait(0) end
     end
     return ('%08x%d'):format(h, #text)
 end
@@ -592,39 +593,39 @@ end
 -- Artwork saved in the editor can be a multi-MB data: URL. Hashing it in Lua on every lookup made each icon check
 -- slow, so long values are hashed once and remembered.
 local longValueHashes, longValueCount = {}, 0
-local function sigPart(value)
+local function sigPart(value, yielding)
     if type(value) ~= 'string' or #value <= 512 then return sigValue(value) end
     local cached = longValueHashes[value]
     if cached then return cached end
     if longValueCount >= 512 then longValueHashes, longValueCount = {}, 0 end
-    cached = '#' .. hashText(value)
+    cached = '#' .. hashText(value, yielding)
     longValueHashes[value], longValueCount = cached, longValueCount + 1
     return cached
 end
 
 -- everything the icon shows; prints with the same signature share one icon
-local function iconSig(card)
+local function iconSig(card, yielding)
     local parts = { tostring(ICON_STYLE) }
     for _, field in ipairs(objectType(card) and OBJECT_ICON_FIELDS or CARD_ICON_FIELDS) do
         local value = iconField(card, field)
         if value == nil or value == '' then value = FIELD_DEFAULTS[field] end
-        parts[#parts + 1] = sigPart(value)
+        parts[#parts + 1] = sigPart(value, yielding)
     end
     return hashText(table.concat(parts, '\31'))
 end
 
 -- the signature older versions stored for a card + rarity icon (only used to adopt those uploads once)
-local function legacyCardSig(card)
+local function legacyCardSig(card, yielding)
     return hashText(table.concat({ tostring(ICON_STYLE), tostring(card.title), tostring(card.hp), tostring(card.accent),
-        tostring(card.rarityKey), tostring(card.image), tostring(card.imagePositionX or 50), tostring(card.imagePositionY or 50), tostring(card.imageZoom or 100) }, '\31'))
+        tostring(card.rarityKey), tostring(card.image), tostring(card.imagePositionX or 50), tostring(card.imagePositionY or 50), tostring(card.imageZoom or 100) }, '\31'), yielding)
 end
 
-local function printKey(card)
+local function printKey(card, yielding)
     if type(card) ~= 'table' then return nil end
     if objectType(card) then
-        return ('obj::%s::%s::%s'):format(objectType(card), tostring(card.definitionId or card.id), iconSig(card))
+        return ('obj::%s::%s::%s'):format(objectType(card), tostring(card.definitionId or card.id), iconSig(card, yielding))
     end
-    return card.baseCardId and ('card::%s::%s'):format(card.baseCardId, iconSig(card)) or nil
+    return card.baseCardId and ('card::%s::%s'):format(card.baseCardId, iconSig(card, yielding)) or nil
 end
 
 -- what the NUI needs to draw an icon (not the whole snapshot: keeps the latent event small)
@@ -1066,12 +1067,13 @@ end
 -- icon key -> true for every look in the catalog, plus how many card / object looks there are
 local function liveIconKeys()
     local live, cards, objects = {}, 0, 0
-    for _, card in ipairs(catalogPrints()) do
-        local key = printKey(card)
+    for index, card in ipairs(catalogPrints()) do
+        local key = printKey(card, true)
         if key and not live[key] then
             live[key] = true
             if key:sub(1, 5) == 'obj::' then objects = objects + 1 else cards = cards + 1 end
         end
+        if index % 10 == 0 then Wait(0) end
     end
     return live, cards, objects
 end
@@ -1153,13 +1155,14 @@ local function adoptLegacyIcons()
     local prints = catalogPrints()
     if #prints == 0 then return end -- catalog not loaded: try again later rather than deleting everything
     local adopted = 0
-    for _, card in ipairs(prints) do
-        local key = printKey(card)
+    for index, card in ipairs(prints) do
+        local key = printKey(card, true)
         local old = card.baseCardId and legacyIcons[('%s::%s'):format(card.baseCardId, card.rarityKey or 'common')]
-        if key and not iconUrls[key] and old and old.sig == legacyCardSig(card) and (old.url or old.file) then
+        if key and not iconUrls[key] and old and old.sig == legacyCardSig(card, true) and (old.url or old.file) then
             iconUrls[key] = { v = ICON_FORMAT, sig = iconSig(card), url = old.url, file = old.file, hash = old.hash }
             adopted = adopted + 1
         end
+        if index % 10 == 0 then Wait(0) end
     end
     local inUse, trashed = {}, 0
     for _, entry in pairs(iconUrls) do if entry.url then inUse[entry.url] = true end end
@@ -1271,12 +1274,13 @@ end)
 -- ---------- keep every look's icon uploaded ----------
 local function missingPrints(includeFailed)
     local list, seen = {}, {}
-    for _, card in ipairs(catalogPrints()) do
-        local key = printKey(card)
+    for index, card in ipairs(catalogPrints()) do
+        local key = printKey(card, true)
         if key and not seen[key] then
             seen[key] = true
             if needsIcon(card) and (includeFailed or (not uploading[key] and (iconAttempts[key] or 0) < MAX_ATTEMPTS)) then list[#list + 1] = card end
         end
+        if index % 10 == 0 then Wait(0) end
     end
     return list
 end
@@ -1567,6 +1571,7 @@ local function showCardToOthers(source, metadata, slot)
 end
 
 -- Called when a player uses a booster pack / booster box item (framework usable item or ox_inventory client export).
+local pendingBoxes, claimBox = {}, nil -- booster box items waiting for their 3D opening to finish
 local function useItem(source, kind, slot, passedItem)
     local now = GetGameTimer()
     MetaComic.Debug('useItem', kind, 'player', source, 'inventory', MetaComic.Inventory.name, 'slot', slot)
@@ -1600,16 +1605,32 @@ local function useItem(source, kind, slot, passedItem)
     elseif kind == 'box' then
         local count = MetaComic.Collectibles.containerCount('booster_box')
         if not MetaComic.Inventory.has(source, expected, 1) then return notify(source, 'You do not have a booster box.', 'error') end
-        if not takeOne(source, expected, metadata, slot) then return notify(source, 'Could not open the booster box.', 'error') end
-        local ok, err = giveBoxPacks(source, count, set.id)
-        if not ok then
-            MetaComic.Inventory.add(source, expected, 1, sealedMetadata('box', set)) -- refund the exact set box
-            return notify(source, err, 'error')
-        end
-        notify(source, ('You opened a %s booster box: +%d %s packs.'):format(set.name, count, set.name), 'success')
+        if pendingBoxes[source] then claimBox(source) end -- an earlier box whose opening never reported back
+        -- the 3D opening plays first; the box is swapped for its packs when it ends (or after a minute regardless)
+        local job = { slot = slot, metadata = metadata, set = set, count = count }
+        pendingBoxes[source] = job
+        SetTimeout(60000, function() if pendingBoxes[source] == job then claimBox(source) end end)
         TriggerClientEvent('meta_comic:client:boxOpened', source, count, set.id, set.name)
     end
 end
+
+-- booster box item: take the box and give its packs once the 3D opening has played
+claimBox = function(source)
+    local job = pendingBoxes[source]
+    pendingBoxes[source] = nil
+    if not job then return end
+    local expected, set = Config.Items.BoosterBox, job.set
+    if not MetaComic.Inventory.has(source, expected, 1) then return notify(source, 'You do not have a booster box.', 'error') end
+    if not takeOne(source, expected, job.metadata, job.slot) then return notify(source, 'Could not open the booster box.', 'error') end
+    local ok, err = giveBoxPacks(source, job.count, set.id)
+    if not ok then
+        MetaComic.Inventory.add(source, expected, 1, sealedMetadata('box', set)) -- refund the exact set box
+        return notify(source, err, 'error')
+    end
+    notify(source, ('You opened a %s booster box: +%d %s packs.'):format(set.name, job.count, set.name), 'success')
+end
+RegisterNetEvent('meta_comic:server:boxClaim', function() claimBox(source) end)
+AddEventHandler('playerDropped', function() pendingBoxes[source] = nil end) -- the box stays in the inventory
 
 -- Card items are handed over once the player has flipped them all or closed the opening
 -- (adding them at roll time would pop inventory notifications that spoil the reveal). Fallback: after 2 minutes.
@@ -1791,7 +1812,9 @@ end
 
 -- expected copies per pack of every print ("baseCardId::variantId"), for the card stars' tooltip and colour
 handlers.getPrintOdds = function()
-    return { ok = true, odds = MetaComic.Cards.printOdds() }
+    local bySet={}
+    for _,set in ipairs(MetaComic.Sets.getAll()) do bySet[set.id]=MetaComic.Cards.printOdds(set.id) end
+    return { ok = true, odds = MetaComic.Cards.printOdds(), bySet = bySet }
 end
 
 -- other resources (e.g. a grading business) can read a record too

@@ -3,7 +3,10 @@
 -- vehicle with a rope (ox_target on the vehicle) and dragged; untie it (ox_target on the machine) to load it back up.
 local vending = Config.VendingMachines or {}
 local cfg = Config.VendingCarry or {}
-if vending.Enabled == false or cfg.Enabled == false then return end
+local crates = Config.ShippingCrates or {}
+local crateCfg = crates.Carry or {}
+local CRATE = crates.Item or 'shipping_crate'
+if cfg.Enabled == false or vending.Enabled == false and (crates.Enabled == false or crateCfg.Enabled == false) then return end
 
 local ITEM = vending.Item or 'vending_machine'
 local MODEL = vending.Model or 'metacomics_vending_machine'
@@ -13,10 +16,12 @@ local tow = cfg.Tow or {}
 local BLOCKED = { 21, 22, 24, 25, 37, 44, 45, 47, 58, 140, 141, 142, 143, 257, 263, 264 } -- sprint, jump, attack, aim, cover, weapons
 
 local carrying, stolen, busy = false, false, false -- busy: tying the rope (its own animation plays)
+local carryingItem, crateOpening = ITEM, false
 local props = {} -- dolly / machine entities attached to the player
 local ropes = {} -- object net id -> { rope, vehicle net id }
 local looseMachines = {} -- snapped machines remain available for pickup
 local stopping = false
+local nextAttachAt, missingModelNotice = 0, {}
 
 local function notify(message, notifyType) TriggerEvent('meta_comic:client:notify', message, notifyType) end
 local function vec(value, default) return value and vector3(value.x + 0.0, value.y + 0.0, value.z + 0.0) or default end
@@ -26,7 +31,8 @@ local function loadModel(name)
     RequestModel(hash)
     local timeout = GetGameTimer() + 5000
     while not HasModelLoaded(hash) and GetGameTimer() < timeout do Wait(0) end
-    return HasModelLoaded(hash) and hash or nil
+    if not HasModelLoaded(hash) then SetModelAsNoLongerNeeded(hash);return nil end
+    return hash
 end
 local function loadDict(dict)
     RequestAnimDict(dict)
@@ -36,16 +42,16 @@ local function loadDict(dict)
 end
 
 -- how many machine items the player holds
-local function heldCount()
+local function heldCount(name)
     if GetResourceState('ox_inventory') == 'started' then
-        local ok, count = pcall(function() return exports.ox_inventory:GetItemCount(ITEM) end)
+        local ok, count = pcall(function() return exports.ox_inventory:GetItemCount(name) end)
         return ok and tonumber(count) or 0
     end
     local core = GetResourceState('qb-core') == 'started' and exports['qb-core']:GetCoreObject() or nil
     local data = core and core.Functions.GetPlayerData() or {}
     local total = 0
     for _, item in pairs(data.items or {}) do
-        if item and item.name == ITEM then total = total + (tonumber(item.amount or item.count) or 1) end
+        if item and item.name == name then total = total + (tonumber(item.amount or item.count) or 1) end
     end
     return total
 end
@@ -54,6 +60,7 @@ local function removeProps()
     local ped = PlayerPedId()
     for _, entity in pairs(props) do if DoesEntityExist(entity) then DetachEntity(entity, true, false); DeleteEntity(entity) end end
     props = {}
+    nextAttachAt = 0
     if anim.dict then StopAnimTask(ped, anim.dict, anim.clip, 1.0) end
 end
 
@@ -79,10 +86,18 @@ local function attachProps()
     local ped = PlayerPedId()
     local coords = GetEntityCoords(ped)
     local dollyHash = dollyCfg.model and loadModel(dollyCfg.model)
-    local machineHash = loadModel(MODEL)
-    if stopping or not carrying then return end
-    local base = ped
-    if dollyHash then
+    local isCrate = carryingItem == CRATE
+    local models = crates.Models or {}
+    local model = isCrate and (models.Closed or 'prop_ld_crate_01') or MODEL
+    local machineHash = loadModel(model)
+    local lidHash = isCrate and models.SeparateLid and models.Lid and loadModel(models.Lid)
+    local propCfg = isCrate and (crateCfg.Prop or {}) or machineCfg
+    if stopping or not carrying or (isCrate and crateOpening) or isCrate ~= (carryingItem == CRATE) then
+        for _,hash in pairs({dollyHash,machineHash,lidHash}) do if hash then SetModelAsNoLongerNeeded(hash) end end
+        return
+    end
+    local base = props.dolly and DoesEntityExist(props.dolly) and props.dolly or ped
+    if dollyHash and base == ped then
         local dolly = CreateObject(dollyHash, coords.x, coords.y, coords.z - 5.0, true, true, false)
         SetEntityCollision(dolly, false, false)
         -- Bone 0 is the animated skeleton root; use the entity origin to avoid walking sway.
@@ -93,28 +108,54 @@ local function attachProps()
         props.dolly = dolly
         base = dolly
     end
+    if dollyHash then SetModelAsNoLongerNeeded(dollyHash) end
     if machineHash then
-        local machine = CreateObject(machineHash, coords.x, coords.y, coords.z - 5.0, true, true, false)
+        local machine = props.machine and DoesEntityExist(props.machine) and props.machine or CreateObject(machineHash, coords.x, coords.y, coords.z - 5.0, true, true, false)
+        if not machine or machine == 0 then SetModelAsNoLongerNeeded(machineHash);return end
         SetEntityCollision(machine, false, false)
         if base == ped then
             local rotation = vector3(0.0, 0.0, 180.0)
             AttachEntityToEntity(machine, ped, -1, machineBaseOffset(machineHash, vector3(0.0, 1.0, -0.98), rotation), rotation, true, false, false, false, 2, true)
         else
-            local rotation = vec(machineCfg.rotation, vector3(0.0, 0.0, 0.0))
-            local offset = machineBaseOffset(machineHash, vec(machineCfg.offset, vector3(0.0, -0.1, 0.05)), rotation)
+            local rotation = vec(propCfg.rotation, vector3(0.0, 0.0, 0.0))
+            local offset = machineBaseOffset(machineHash, vec(propCfg.offset, vector3(0.0, -0.1, 0.05)), rotation)
+            if isCrate then
+                local minimum,maximum = GetModelDimensions(machineHash)
+                local x,y,z = (minimum.x+maximum.x)/2,(minimum.y+maximum.y)/2,(minimum.z+maximum.z)/2
+                local rx,ry,rz = math.rad(rotation.x),math.rad(rotation.y),math.rad(rotation.z)
+                local cx,sx,cy,sy,cz,sz = math.cos(rx),math.sin(rx),math.cos(ry),math.sin(ry),math.cos(rz),math.sin(rz)
+                local u,v = cy*x+sy*z,sx*sy*x+cx*y-sx*cy*z
+                offset = vector3(offset.x-(cz*u-sz*v),offset.y-(sz*u+cz*v),offset.z)
+            end
             AttachEntityToEntity(machine, base, -1, offset, rotation,
                 true, false, false, false, 2, true)
         end
         SetModelAsNoLongerNeeded(machineHash)
         props.machine = machine
-        Entity(machine).state:set('metaComicDoorLoose', stolen, true) -- broken-into: its door swings (client/vending_door.lua)
+        if isCrate and lidHash and (not props.crateLid or not DoesEntityExist(props.crateLid)) then
+            local lid = CreateObject(lidHash,coords.x,coords.y,coords.z-5.0,true,true,false)
+            if lid and lid ~= 0 then
+                SetEntityCollision(lid,false,false)
+                local minimum,maximum = GetModelDimensions(machineHash)
+                local lidMin,lidMax = GetModelDimensions(lidHash)
+                local o = MetaComic.VendingCargoGeometry.topAttachment(minimum,maximum,lidMin,lidMax)
+                AttachEntityToEntity(lid,machine,-1,o.x,o.y,o.z,0.0,0.0,0.0,false,false,false,false,2,true)
+                props.crateLid = lid
+            end
+        end
+        if lidHash then SetModelAsNoLongerNeeded(lidHash) end
+        if not isCrate then Entity(machine).state:set('metaComicDoorLoose', stolen, true) end -- broken-into: its door swings
+    end
+    if not machineHash and not missingModelNotice[model] then
+        missingModelNotice[model] = true
+        notify('Cannot load carry model ' .. tostring(model) .. '. Check your game build or configured model.', 'error')
     end
     if anim.dict and loadDict(anim.dict) then TaskPlayAnim(ped, anim.dict, anim.clip, 3.0, 3.0, -1, anim.flag or 49, 0, false, false, false) end
     SetCurrentPedWeapon(ped, joaat("WEAPON_UNARMED"), true)
 end
 
 local function canShow(ped)
-    return not IsPedInAnyVehicle(ped, true) and not IsPedSwimming(ped) and not IsPedRagdoll(ped) and not IsEntityDead(ped)
+    return not (carryingItem == CRATE and crateOpening) and not IsPedInAnyVehicle(ped, true) and not IsPedSwimming(ped) and not IsPedRagdoll(ped) and not IsEntityDead(ped)
         and not IsPedClimbing(ped) and not IsPedFalling(ped)
 end
 
@@ -132,18 +173,23 @@ local function carryLoop()
             nextEntryAttempt = GetGameTimer() + 1500
             if inside ~= 0 then TaskLeaveVehicle(ped, inside, 16)
             elseif entering ~= 0 then ClearPedTasks(ped) end
-            if cfg.VehicleEntry == 'drop' then
+            if carryingItem ~= CRATE and cfg.VehicleEntry == 'drop' then
                 TriggerServerEvent('meta_comic:server:vendingCarryDrop')
             else
-                notify('Put down or store the vending machine before entering a vehicle.', 'error')
+                notify('Put down or store the ' .. (carryingItem == CRATE and 'shipping crate' or 'vending machine') .. ' before entering a vehicle.', 'error')
             end
         end
         if canShow(ped) then
-            if not props.machine and not props.dolly then attachProps() end
+            local missingLid = carryingItem == CRATE and (crates.Models or {}).SeparateLid and (crates.Models or {}).Lid
+                and (not props.crateLid or not DoesEntityExist(props.crateLid))
+            if (not props.machine or not DoesEntityExist(props.machine) or missingLid) and GetGameTimer() >= nextAttachAt then
+                nextAttachAt = GetGameTimer() + 5000 -- retry missing cargo even if its dolly is already visible
+                attachProps()
+            end
             for _, control in ipairs(BLOCKED) do DisableControlAction(0, control, true) end
             DisablePlayerFiring(PlayerId(), true)
             SetPedMaxMoveBlendRatio(ped, 1.0) -- walk, never jog / run
-            SetPedMoveRateOverride(ped, rate)
+            SetPedMoveRateOverride(ped, carryingItem == CRATE and (tonumber(crateCfg.MoveRate) or rate) or rate)
             if not busy and anim.dict and not IsEntityPlayingAnim(ped, anim.dict, anim.clip, 3) and HasAnimDictLoaded(anim.dict) then
                 TaskPlayAnim(ped, anim.dict, anim.clip, 3.0, 3.0, -1, anim.flag or 49, 0, false, false, false)
             end
@@ -158,10 +204,19 @@ end
 
 CreateThread(function()
     while true do
-        local held = heldCount() > 0
+        local kind = vending.Enabled ~= false and heldCount(ITEM) > 0 and ITEM or nil
+        if not kind and crates.Enabled ~= false and crateCfg.Enabled ~= false and heldCount(CRATE) > 0 then kind = CRATE end
+        local held = kind ~= nil
+        if held and carrying and carryingItem ~= kind then
+            removeProps();carryingItem = kind;stolen = false
+            nextAttachAt = 0
+            if kind == ITEM then TriggerServerEvent('meta_comic:server:vendingCarryInfo') end
+        end
         if held and not carrying then
+            carryingItem = kind
+            nextAttachAt = 0
             carrying = true
-            TriggerServerEvent('meta_comic:server:vendingCarryInfo')
+            if kind == ITEM then TriggerServerEvent('meta_comic:server:vendingCarryInfo') end
             CreateThread(carryLoop)
         elseif not held and carrying then
             carrying, stolen = false, false
@@ -170,8 +225,13 @@ CreateThread(function()
     end
 end)
 RegisterNetEvent('meta_comic:client:vendingCarryInfo', function(isStolen)
+    if carryingItem == CRATE then return end
     stolen = isStolen == true
     if props.machine and DoesEntityExist(props.machine) then Entity(props.machine).state:set('metaComicDoorLoose', stolen, true) end
+end)
+AddEventHandler('meta_comic:client:crateCarryPause', function(value)
+    crateOpening = value == true
+    if crateOpening and carryingItem == CRATE then removeProps() end
 end)
 
 -- Ropes ----------------------------------------------------------------------------------------------------------------

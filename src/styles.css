@@ -2050,3 +2050,11 @@ html.fivem-runtime #root {
 .unsaved-dialog h3 { margin:7px 0 8px; font-size:20px; }
 .unsaved-dialog p { margin:0; color:#9fa8b7; line-height:1.55; font-size:12px; }
 .unsaved-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:20px; flex-wrap:wrap; }
+
+/* 3D booster box opening (BoosterBoxOpening3D) */
+.bb-open3d { cursor:pointer; } /* booster box opening: shares the container openings' .meta-opening3d stage and caption */
+/* FiveM booster box item (BoosterBoxOverlay) is full-screen like .collectible-opening-overlay; packs-added line in gold */
+.meta-opening3d > p.bb-done { color:#ffd23c; font-weight:700; }
+
+.crate-sets .crate-set-list { display:flex; flex-wrap:wrap; gap:6px 14px; padding:6px 0; }
+.crate-sets .crate-set-list label { display:inline-flex; align-items:center; gap:6px; font-size:12px; cursor:pointer; }

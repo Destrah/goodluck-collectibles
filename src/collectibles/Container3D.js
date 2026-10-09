@@ -307,6 +307,19 @@ export async function createContainerScene(canvas, options = {}) {
   floorGlow.rotation.x = -Math.PI / 2; floorGlow.position.y = 0.005; floorGlow.scale.setScalar(4.4); scene.add(floorGlow)
 
   const packArt = await loadImage(PACK_ART)
+  // other scenes (the shipping crate reveal) borrow the sealed container models; they render with their own renderer
+  if (opts.modelsOnly) {
+    renderer.dispose(); renderer.forceContextLoss?.()
+    return {
+      build(modelKind, style, caseInfo) {
+        opts.caseInfo = caseInfo || {}
+        const model = modelKind === 'bag' ? buildBag(style) : buildBox(style)
+        model.update(0, 0, 0); shadowCasting(model.root)
+        return model
+      },
+      dispose: () => owned.forEach(o => o.dispose?.()),
+    }
+  }
   const container = opts.viewer ? null : kind === 'bag' ? buildBag(opts.style) : buildBox(opts.style)
   if (container) { scene.add(container.root); shadowCasting(container.root) }
 
@@ -1440,6 +1453,10 @@ export async function createContainerScene(canvas, options = {}) {
     },
   }
 }
+
+// The sealed coin bag / plushie box / outer case models without a scene: build(kind 'bag'|'box', style, caseInfo)
+// -> { root, height }. Case designs (display, chest, crate) are built with kind 'box'.
+export const createContainerModels = () => createContainerScene(document.createElement('canvas'), { modelsOnly: true })
 
 // FiveM: build and draw one throwaway coin-bag and plushie-box scene while the game UI is idle, so the first real
 // opening doesn't pay for loading three.js and compiling its shaders (the GPU process keeps compiled programs).

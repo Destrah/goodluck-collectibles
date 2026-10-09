@@ -8,6 +8,14 @@ from lupa.lua54 import LuaRuntime
 ROOT = Path(__file__).resolve().parents[1]
 
 class TrunkTests(unittest.TestCase):
+    def test_shipping_crate_uses_same_vehicle_restrictions(self):
+        self.lua.execute("vehicleModel=1;payload.fromSlot={name='shipping_crate',count=1}")
+        self.assertFalse(self.lua.eval('Hook(payload)'))
+        self.lua.execute("payload={source=1,action='swap',fromType='trunk',fromInventory='trunkABC',fromSlot={name='water'},toType='player',toInventory=1,toSlot={name='shipping_crate',count=1}}")
+        self.assertFalse(self.lua.eval('Hook(payload)'))
+        self.lua.execute('vehicleModel=3')
+        self.assertIsNone(self.lua.eval('Hook(payload)'))
+
     def setUp(self):
         self.lua = LuaRuntime(unpack_returned_tuples=True)
         self.lua.execute('''
@@ -58,6 +66,17 @@ class TrunkTests(unittest.TestCase):
 
     def test_stale_vehicle_rejected(self):
         self.lua.execute('stale=true')
+        self.assertFalse(self.lua.eval('Hook(payload)'))
+
+    def test_allowlist_and_combined_blacklist(self):
+        module=(ROOT/'fivem/server/modules/vending_trunks.lua').read_text(encoding='utf-8')
+        self.lua.execute("Config.VendingCarry.TrunkRestrictions.Mode='allowlist';Config.VendingCarry.TrunkRestrictions.AllowedModels={'speedo'};Config.VendingCarry.TrunkRestrictions.BlockedModels={'speedo'}")
+        self.lua.execute(module)
+        self.assertIsNone(self.lua.eval('Hook(payload)'))
+        self.lua.execute('vehicleModel=4')
+        self.assertFalse(self.lua.eval('Hook(payload)'))
+        self.lua.execute("vehicleModel=3;Config.VendingCarry.TrunkRestrictions.Mode='both'")
+        self.lua.execute(module)
         self.assertFalse(self.lua.eval('Hook(payload)'))
 
 if __name__ == '__main__':

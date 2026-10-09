@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import TradingCard from './TradingCard'
 import PropVisual from './PropVisual'
+import BoosterBoxOpening3D from './BoosterBoxOpening3D'
 import CardViewer from './CardViewer'
 import PackOpenScene, { PackStage, PackTable, TEAR_INFO, TEAR_KEYS, FAN_INFO, RANDOM_INFO, BASE_SECONDS, resolveTear, resolveFan, fanVars } from './PackOpenScene'
 import { soundFx } from '../utils/soundFx'
@@ -29,6 +30,7 @@ export default function PackSimulator({ cards, sets = [], overlay = false, overl
   const [opening, setOpening] = useState(null)
   const [packsRemaining, setPacksRemaining] = useState(0)
   const [boxOpened, setBoxOpened] = useState(false)
+  const [boxRun, setBoxRun] = useState(null) // the 3D box opening while it plays: { key, packs: Promise, onDone }
   const [viewer, setViewer] = useState(null)
   const [error, setError] = useState('')
   const [prefs, setPrefs] = useState(defaultPackPrefs)
@@ -166,21 +168,28 @@ export default function PackSimulator({ cards, sets = [], overlay = false, overl
     if (openingRef.current) return
     openingRef.current = true
     setError('')
-    soundFx.boxOpen()
     setOpened([])
     resetFlips()
     setOpening('box')
     const started = performance.now()
+    // the 3D box drops in straight away and stays sealed until the server answers; then the packs come out
+    const request = bridge.openBox({ cards, set: setId })
+    let shown3d
+    const played = new Promise(resolve => { shown3d = resolve })
+    setBoxRun({ key: Date.now(), packs: request.then(response => Number(response?.packs) || 12), onDone: shown3d })
     try {
-      const response = await bridge.openBox({ cards, set: setId })
-      const wait = Math.max(0, 1550 - (performance.now() - started))
+      const response = await request
+      const played3d = await played
+      if (!played3d) soundFx.boxOpen() // the 3D opening has its own wrap / lid sounds
+      const wait = played3d ? 0 : Math.max(0, 1550 - (performance.now() - started))
       if (wait) await sleep(wait)
       setPacksRemaining(Number(response?.packs) || 12)
       setBoxOpened(true)
-      soundFx.boxReveal()
+      if (!played3d) soundFx.boxReveal()
     } catch (err) {
       setError(err?.message || String(err))
     } finally {
+      setBoxRun(null)
       setOpening(null)
       openingRef.current = false
     }
@@ -452,7 +461,9 @@ export default function PackSimulator({ cards, sets = [], overlay = false, overl
         </section>
       )}
 
-      {!boxOpened && !opened.length && opening !== 'pack' && (
+      {boxRun && <BoosterBoxOpening3D key={boxRun.key} packs={boxRun.packs} onDone={boxRun.onDone} />}
+
+      {!boxRun && !boxOpened && !opened.length && opening !== 'pack' && (
         <div className="sealed-options">
           <button className="sealed-product" onClick={openPack} disabled={!!opening}>
             <div className="product-stage pack-product-stage">

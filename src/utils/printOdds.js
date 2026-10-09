@@ -1,16 +1,12 @@
 // How rare a print really is: the expected number of copies of it per booster pack, from the same pull rules as
 // packLogic.js / cards.lua (3 common slots, 1 uncommon slot, 1 rare slot: rare 75% / ultra rare 20% / legendary 5%,
-// each falling back to lower tiers when a set has none; base cards and prints picked by their chance weights).
+// preserving minimum tier guarantees when qualifying prints exist; base cards and prints picked by chance weights).
 // The footer stars on a card show its tier (how many) and these odds (their colour).
 
 const TIER_STARS = { common: 1, uncommon: 2, rare: 3, ultra_rare: 4, legendary: 5 }
 const LABEL_TO_TIER = { Common: 'common', Uncommon: 'uncommon', Rare: 'rare', 'Ultra Rare': 'ultra_rare', Legendary: 'legendary' }
 // [chance per pack, tiers tried in order]
-const PACK_SLOTS = [
-  [1, ['common']], [1, ['common']], [1, ['common']],
-  [1, ['uncommon', 'common']],
-  [0.75, ['rare', 'uncommon', 'common']], [0.2, ['ultra_rare', 'rare', 'uncommon', 'common']], [0.05, ['legendary', 'rare', 'uncommon', 'common']],
-]
+import { PACK_SLOTS } from '../runtime/packRules.js'
 const weight = value => Math.max(1, Number(value) || 1)
 
 export const tierOf = card => card?.rarityKey || LABEL_TO_TIER[card?.rarity] || 'common'
@@ -50,14 +46,16 @@ export function computePrintOdds(catalog) {
 let current = { all: new Map(), bySet: {} }
 // FiveM: the server works the odds out from its own catalogue (the NUI only loads the catalogue for the editor)
 let serverOdds = null
+let serverBySet = {}
 // cards already on screen redraw their stars when the odds arrive
 let version = 0
 const listeners = new Set()
 export const subscribeOdds = listener => { listeners.add(listener); return () => listeners.delete(listener) }
 export const oddsVersion = () => version
-export function setServerOdds(odds) {
+export function setServerOdds(odds, bySet = {}) {
   serverOdds = odds && typeof odds === 'object' ? new Map(Object.entries(odds).map(([key, value]) => [key, Number(value) || 0])) : null
-  if (serverOdds && !current.all.size) current = { all: serverOdds, bySet: {} }
+  serverBySet = Object.fromEntries(Object.entries(bySet).map(([id, entries]) => [id, new Map(Object.entries(entries).map(([key, value]) => [key, Number(value) || 0]))]))
+  if (serverOdds) current = { all: serverOdds, bySet: serverBySet }
   version += 1
   listeners.forEach(listener => listener())
 }
@@ -68,7 +66,7 @@ export function setPrintOdds(catalog, sets = []) {
     if (ids.size) bySet[set.id] = computePrintOdds((catalog || []).filter(card => ids.has(card.id)))
   }
   const all = computePrintOdds(catalog)
-  current = { all: all.size || !serverOdds ? all : serverOdds, bySet }
+  current = { all: serverOdds || all, bySet: { ...bySet, ...serverBySet } }
 }
 // expected copies per pack (0 when unknown)
 export function oddsFor(card) {

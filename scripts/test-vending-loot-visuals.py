@@ -75,7 +75,7 @@ class InterruptionTests(unittest.TestCase):
         VisualTests.setUp(self)
         self.lua.execute('''
             Config.VendingMachines={Crime=crime};events={};resourceEvents={};serverEvents={};threads={}
-            progressCancels=0;hardClears=0;secondaryClears=0
+            progressCancels=0;hardClears=0;secondaryClears=0;source=65535
             function RegisterNetEvent(name,fn) events[name]=fn end
             function AddEventHandler(name,fn) resourceEvents[name]=fn end
             function TriggerServerEvent(name) serverEvents[#serverEvents+1]=name end
@@ -146,6 +146,35 @@ class InterruptionTests(unittest.TestCase):
         clears=self.lua.eval('hardClears')
         self.lua.execute("events['meta_comic:client:lootStopped']('Old acknowledgement')")
         self.assertEqual(self.lua.eval('hardClears'),clears)
+
+    def test_restock_bars_share_animation_and_cancel_cleans_up(self):
+        self.lua.execute("work=coroutine.create(function() events['meta_comic:client:vendingWork']({id=1,kind='restock',duration=600,token='one',more=true}) end);resume(work);progressResult=true;resume(work)")
+        self.assertTrue(self.lua.eval('MetaComic.VendingActionBusy()'))
+        threads=self.lua.eval('#threads')
+        clears=self.lua.eval('secondaryClears')
+        self.lua.execute("work=coroutine.create(function() events['meta_comic:client:vendingWork']({id=1,kind='restock',duration=600,token='two',more=true}) end);resume(work)")
+        self.assertEqual(self.lua.eval('#threads'),threads)
+        self.assertEqual(self.lua.eval('secondaryClears'),clears)
+        self.lua.execute('progressResult=false;resume(work)')
+        self.assertFalse(self.lua.eval('MetaComic.VendingActionBusy()'))
+        self.assertGreater(self.lua.eval('secondaryClears'),clears)
+        self.assertEqual(self.lua.eval('serverEvents[#serverEvents]'),'meta_comic:server:vendingWorkCancel')
+
+    def test_restock_gap_interrupt_and_server_rejection_end_animation(self):
+        for action in ('damaged=true;resume(threads[2])', "events['meta_comic:client:vendingWorkStop']('one')"):
+            self.setUp()
+            self.lua.execute("work=coroutine.create(function() events['meta_comic:client:vendingWork']({id=1,kind='restock',duration=600,token='one',more=true}) end);resume(work);progressResult=true;resume(work)")
+            self.lua.execute(action)
+            self.assertFalse(self.lua.eval('MetaComic.VendingActionBusy()'))
+            self.assertGreater(self.lua.eval('hardClears'),0)
+
+    def test_cancel_between_bars_rejects_delayed_next_batch(self):
+        self.lua.execute("work=coroutine.create(function() events['meta_comic:client:vendingWork']({id=1,kind='restock',duration=600,token='one',run='run',more=true}) end);resume(work);progressResult=true;resume(work);escape=true;resume(threads[2])")
+        threads=self.lua.eval('#threads')
+        self.lua.execute("events['meta_comic:client:vendingWork']({id=1,kind='restock',duration=600,token='two',run='run',more=true})")
+        self.assertEqual(self.lua.eval('#threads'),threads)
+        self.assertFalse(self.lua.eval('MetaComic.VendingActionBusy()'))
+        self.assertEqual(self.lua.eval('serverEvents[#serverEvents]'),'meta_comic:server:vendingWorkCancel')
 
     def test_interrupted_crime_cannot_report_success_after_progress_resumes(self):
         self.lua.execute("action=coroutine.create(function() events['meta_comic:client:crimeStart']({id=1,duration=4000,token='crime',animation={dict='test',clip='test'}}) end);resume(action);stunned=true;resume(threads[2]);progressResult=true;resume(action)")

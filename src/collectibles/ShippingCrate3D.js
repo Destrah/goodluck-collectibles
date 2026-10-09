@@ -8,6 +8,8 @@
  * and lands in a row in front of it; onReveal(index) fires as each one lands.
  */
 import * as THREE from 'three'
+import { buildBoosterBox, loadBoxArt } from './BoosterBox3D.js'
+import { normalizeLook } from './container3dOptions'
 
 export const CRATE_ANIMATIONS = ['lid', 'panels', 'pry', 'straps']
 
@@ -72,12 +74,12 @@ function woodTexture(w, h, { boards = 4, vertical = false, stencil, sub } = {}) 
 }
 
 const ITEM_STYLE = {
-  box: { colors: ['#c41fa8', '#4a0f63'], text: 'BOOSTER BOX', size: [0.5, 0.32, 0.3] },
+  box: { colors: ['#c41fa8', '#4a0f63'], text: 'BOOSTER BOX', size: [0.5, 0.22, 0.41] }, // prop_boosterbox_01 proportions
   pack: { colors: ['#ff2bd6', '#1b1030'], text: 'BOOSTER', size: [0.22, 0.34, 0.04] },
-  plushie: { colors: ['#ff8fcf', '#8a2a6a'], text: 'PLUSHIE', size: [0.42, 0.4, 0.34] },
-  plushieCase: { colors: ['#b0814f', '#5a3a1c'], text: 'PLUSHIE CASE', size: [0.62, 0.48, 0.44] },
-  coin: { colors: ['#ffd23c', '#7a4f00'], text: 'COINS', size: [0.32, 0.34, 0.32], bag: true },
-  coinCase: { colors: ['#b0814f', '#5a3a1c'], text: 'COIN BAG BOX', size: [0.6, 0.42, 0.42] },
+  plushie: { colors: ['#ff8fcf', '#8a2a6a'], text: 'PLUSHIE', size: [0.48, 0.52, 0.42] },
+  plushieCase: { colors: ['#b0814f', '#5a3a1c'], text: 'PLUSHIE CASE', size: [0.72, 0.52, 0.52] },
+  coin: { colors: ['#ffd23c', '#7a4f00'], text: 'COINS', size: [0.38, 0.42, 0.38], bag: true },
+  coinCase: { colors: ['#b0814f', '#5a3a1c'], text: 'COIN BAG BOX', size: [0.72, 0.5, 0.52] },
   item: { colors: ['#4df3ff', '#0e3140'], text: '', size: [0.32, 0.22, 0.22] },
 }
 export function itemStyleKey(item = {}) {
@@ -191,7 +193,35 @@ export async function createCrateScene(canvas, options = {}) {
   crowbar.add(bar); crowbar.visible = false
   scene.add(crowbar)
 
-  /* the contents, hidden inside until they fly out */
+  /* the contents, hidden inside until they fly out. Booster boxes are the in-game box (prop_boosterbox_01); plushie
+     boxes, coin bags and their cases are the same 3D models their own openings use (Container3D.js) */
+  const boxArt = items.some(item => itemStyleKey(item) === 'box') ? await loadBoxArt(keep).catch(() => null) : null
+  let models = null
+  if (items.some(item => item.type === 'container')) {
+    try { models = keep(await (await import('./Container3D.js')).createContainerModels()) } catch (error) { console.warn('Shipping crate: container models unavailable', error) }
+  }
+  const modelCache = new Map()
+  const containerModel = item => {
+    if (!models) return null
+    const kind = item.outer ? 'case' : item.containerKind === 'bag' || (!item.containerKind && item.collectible === 'challenge_coin') ? 'bag' : 'box'
+    const style = normalizeLook(kind, item.look).style
+    const innerLabel = item.innerLabel || (item.collectible === 'challenge_coin' ? 'Coin Bag' : 'Plushie Box')
+    const cacheKey = [kind, style, innerLabel, item.caseCount || ''].join(':')
+    if (!modelCache.has(cacheKey)) modelCache.set(cacheKey, models.build(kind === 'bag' ? 'bag' : 'box', style, { count: item.caseCount, innerLabel }).root)
+    return modelCache.get(cacheKey).clone(true)
+  }
+  // centre a model on the origin and scale it into the item's slot (glow planes and other effects don't count)
+  const fitted = (model, [w, h, d]) => {
+    model.updateMatrixWorld(true)
+    const bounds = new THREE.Box3()
+    model.traverse(o => { if (o.isMesh && o.visible && !o.material?.isShaderMaterial && !(o.material?.transparent && o.material.opacity < 0.5)) bounds.expandByObject(o) })
+    const size = bounds.getSize(new THREE.Vector3()), centre = bounds.getCenter(new THREE.Vector3())
+    const scale = Math.min(w / Math.max(size.x, 1e-3), h / Math.max(size.y, 1e-3), d / Math.max(size.z, 1e-3))
+    model.scale.multiplyScalar(scale); model.position.sub(centre.multiplyScalar(scale))
+    const group = new THREE.Group(); group.add(model)
+    group.traverse(o => { if (o.isMesh && !o.material?.isShaderMaterial) o.castShadow = true })
+    return { group, height: size.y * scale }
+  }
   const landing = (i, n) => {
     const spread = Math.min(2.6, 0.62 * (n - 1))
     const x = n === 1 ? 0 : lerp(-spread / 2, spread / 2, i / (n - 1))
@@ -199,12 +229,19 @@ export async function createCrateScene(canvas, options = {}) {
   }
   const itemMeshes = items.map((item, i) => {
     const style = ITEM_STYLE[itemStyleKey(item)]
-    const [w, h, d] = style.size
-    const mat = keep(new THREE.MeshStandardMaterial({ map: keep(labelTexture(style, item.label)), roughness: 0.5, metalness: 0.05 }))
-    const geo = keep(style.bag ? new THREE.SphereGeometry(w / 2, 24, 16) : new THREE.BoxGeometry(w, h, d))
-    const mesh = new THREE.Mesh(geo, mat)
-    if (style.bag) mesh.scale.set(1, h / w * 1.2, 1)
-    mesh.castShadow = true
+    const [w, , d] = style.size
+    let h = style.size[1], mesh
+    const model = itemStyleKey(item) === 'box' ? buildBoosterBox(boxArt, keep).root : item.type === 'container' ? containerModel(item) : null
+    if (model) {
+      const fit = fitted(model, style.size)
+      mesh = fit.group; h = fit.height
+    } else {
+      const mat = keep(new THREE.MeshStandardMaterial({ map: keep(labelTexture(style, item.label)), roughness: 0.5, metalness: 0.05 }))
+      const geo = keep(style.bag ? new THREE.SphereGeometry(w / 2, 24, 16) : new THREE.BoxGeometry(w, h, d))
+      mesh = new THREE.Mesh(geo, mat)
+      if (style.bag) mesh.scale.set(1, h / w * 1.2, 1)
+      mesh.castShadow = true
+    }
     mesh.userData = { from: new THREE.Vector3((i % 3 - 1) * 0.35, H * 0.35, (Math.floor(i / 3) % 2 ? -0.15 : 0.15)), to: landing(i, items.length).setY(h / 2), height: h, spin: (i % 2 ? 1 : -1) * Math.PI * 2 }
     mesh.position.copy(mesh.userData.from); mesh.visible = false
     scene.add(mesh)

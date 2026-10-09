@@ -27,6 +27,7 @@ class LootTests(unittest.TestCase):
             function GetCurrentResourceName() return 'test' end
             function GetGameTimer() return timer end
             function TriggerClientEvent(name,src,data) events[#events+1]={name=name,src=src,data=data} end
+            function TriggerLatentClientEvent(name,src,rate,data) TriggerClientEvent(name,src,data) end
             MetaComic.Vending.get=function() return entry end
             MetaComic.Vending.near=function() return not farAway end
             MetaComic.Vending.reach=function() return 2 end
@@ -143,5 +144,53 @@ class LootTests(unittest.TestCase):
         self.assertEqual(self.lua.eval('events[1].data.stock'), 'low')
         self.assertEqual(self.lua.eval('events[1].data.cashMs'), 12000)
         self.assertEqual(self.lua.eval('events[1].data.stockMs'), 15000)
+
+    def test_selected_box_uses_box_visual_and_leaves_other_stock(self):
+        self.lua.execute("entry.products={{set='test',kind='pack',stock=3},{set='test',kind='box',stock=1}};handlers['meta_comic:server:lootStart'](1,'stock',{set='test',kind='box'});advance(0)")
+        self.assertEqual(self.lua.eval('events[#events].data.productKind'), 'box')
+        self.lua.execute('advance(5000)')
+        self.assertEqual(self.lua.eval('entry.products[1].stock'), 3)
+        self.assertEqual(self.lua.eval('entry.products[2].stock'), 0)
+        self.assertEqual(self.lua.eval('packs'), 1)
+        self.assertFalse(self.lua.eval('MetaComic.VendingLoot.busy(entry)'))
+
+    def test_invalid_or_stale_selection_never_starts(self):
+        for selection in ["'box'", "{}", "{set='missing',kind='pack'}", "{set='test',kind='invalid'}", "{set='test',kind='box'}"]:
+            self.setUp()
+            self.lua.execute("handlers['meta_comic:server:lootStart'](1,'stock'," + selection + ")")
+            self.assertFalse(self.lua.eval('MetaComic.VendingLoot.busy(entry)'))
+            self.assertEqual(self.lua.eval('#events'), 0)
+
+    def test_selection_removed_mid_batch_does_not_switch_product(self):
+        self.lua.execute("entry.products={{set='test',kind='pack',stock=3},{set='other',kind='box',stock=1}};handlers['meta_comic:server:lootStart'](1,'stock',{set='other',kind='box'});advance(0);entry.products[2].stock=0;advance(5000)")
+        self.assertEqual(self.lua.eval('entry.products[1].stock'), 3)
+        self.assertEqual(self.lua.eval('packs'), 0)
+
+    def test_stock_selection_payload_names_sets_and_kind_without_exact_counts(self):
+        self.lua.execute("MetaComic.Sets={get=function(id) return {name='Named set'} end};entry.products={{set='test',kind='box',stock=2}};handlers['meta_comic:server:lootInspect'](1)")
+        self.assertEqual(self.lua.eval('events[1].data.products[1].setName'), 'Named set')
+        self.assertEqual(self.lua.eval('events[1].data.products[1].kind'), 'box')
+        self.assertIsNone(self.lua.eval('events[1].data.products[1].stock'))
+        self.assertEqual(self.lua.eval('events[1].data.products[1].stockMs'), 10000)
+
+    def test_client_stock_choice_sends_selected_set_and_box_kind(self):
+        self.lua.execute('''
+            menus={};exports={ox_lib={registerContext=function(_,data) menus[data.id]=data end,showContext=function(id) shown=id end}}
+            function GetResourceState() return 'started' end
+            function TriggerServerEvent(name,id,mode,selection) request={name=name,id=id,mode=mode,selection=selection} end
+        ''')
+        script = (ROOT / 'fivem/client/vending_crime.lua').read_text(encoding='utf-8')
+        section = script.split("RegisterNetEvent('meta_comic:client:lootInspect'", 1)[1].split("RegisterNetEvent('meta_comic:client:lootStarted'", 1)[0]
+        self.lua.execute("RegisterNetEvent('meta_comic:client:lootInspect'" + section)
+        self.lua.execute("handlers['meta_comic:client:lootInspect']({id=1,cash='low',stock='low',cashMs=4000,stockMs=10000,products={{set='test',setName='Test set',kind='pack',level='low',stockMs=5000},{set='test',setName='Test set',kind='box',level='low',stockMs=5000}}});menus.meta_comic_vending_loot.options[3].onSelect()")
+        self.assertIsNone(self.lua.eval('request'))  # choosing stock first opens product selection
+        self.assertEqual(self.lua.eval('menus.meta_comic_vending_loot_stock.options[3].title'), 'Test set — Booster boxes')
+        self.lua.execute('menus.meta_comic_vending_loot_stock.options[3].onSelect()')
+        self.assertEqual(self.lua.eval('request.selection.kind'), 'box')
+        self.assertEqual(self.lua.eval('request.selection.set'), 'test')
+        self.assertEqual(self.lua.eval('request.mode'), 'stock')
+        self.lua.execute('menus.meta_comic_vending_loot.options[4].onSelect();menus.meta_comic_vending_loot_stock.options[2].onSelect()')
+        self.assertEqual(self.lua.eval('request.mode'), 'both')
+        self.assertEqual(self.lua.eval('request.selection.kind'), 'pack')
 
 if __name__ == '__main__': unittest.main()

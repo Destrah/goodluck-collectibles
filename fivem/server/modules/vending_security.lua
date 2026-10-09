@@ -162,7 +162,7 @@ function service.remove(source, entry)
     return ok
 end
 -- the owner, whoever controls the machine, managers or police check the coin panel: a skimmer they find comes off
--- (anything it held is lost) and goes to them as evidence (Skimmer.EvidenceItem, false = destroyed)
+-- with its captured data intact, as evidence (Skimmer.EvidenceItem, false = destroyed).
 function service.inspect(source, entry)
     local record = Registry.get(entry.serial)
     if not record or locks[entry.serial] then return false end
@@ -172,10 +172,21 @@ function service.inspect(source, entry)
         return true
     end
     locks[entry.serial] = true
+    local evidenceItem = skimmer.EvidenceItem or SKIMMER_ITEM
+    local data = cardData(entry.serial, device)
+    if data then
+        data.label = ('Card skimmer (%d cards stored)'):format(data.cards)
+        data.description = ('Holds card details copied from %d purchases. Use it to print them out.'):format(data.cards)
+    end
+    if skimmer.EvidenceItem ~= false and not MetaComic.Inventory.add(source, evidenceItem, 1, data) then
+        locks[entry.serial] = nil
+        notify(source, 'You cannot carry the removed skimmer. Make room in your inventory first.', 'error')
+        return false
+    end
     local ok = write(record, 'skimmer', nil, 'Card skimmer found and removed', source)
+    if not ok and skimmer.EvidenceItem ~= false then MetaComic.Inventory.remove(source, evidenceItem, 1, data and { dataId = data.dataId }) end
     locks[entry.serial] = nil
     if not ok then return false end
-    if skimmer.EvidenceItem ~= false then MetaComic.Inventory.add(source, skimmer.EvidenceItem or SKIMMER_ITEM, 1) end -- wiped: no card data
     Vending.broadcast(entry)
     local installer = device.installer and Registry.onlineSource and Registry.onlineSource(device.installer)
     if installer and Vending.sendAccess then Vending.sendAccess(installer) end

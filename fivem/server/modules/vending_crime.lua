@@ -11,7 +11,7 @@ local crime = cfg.Crime or {}
 if cfg.Enabled == false or crime.Enabled == false then return end
 local Registry = MetaComic.VendingRegistry
 local Vending = MetaComic.Vending
-local ACTIONS = { falsifylogs = 'FalsifyLogs', breakin = 'BreakIn', hack = 'Hack', fullhack = 'FullHack', steal = 'Steal', disablegps = 'DisableGPS', enablegps = 'EnableGPS',
+local ACTIONS = { pickseal = 'BreakSeal', pickpadlock = 'PickPadlock', falsifylogs = 'FalsifyLogs', breakin = 'BreakIn', hack = 'Hack', fullhack = 'FullHack', steal = 'Steal', disablegps = 'DisableGPS', enablegps = 'EnableGPS',
     installskimmer = 'InstallSkimmer', collectskimmer = 'CollectSkimmer', removeskimmer = 'RemoveSkimmer', replaceboard = 'ReplaceBoard', secure = 'Secure',
     inspectpanel = 'InspectPanel', adjustskimmer = 'AdjustSkimmer', takemachine = 'TakeMachine', bolt = 'BoltMachine' }
 local pending, cooldowns = {}, {}
@@ -20,7 +20,17 @@ MetaComic.VendingCrimeBusy = function(source) return pending[source] ~= nil end
 local function notify(source, message, notifyType)
     if MetaComic.Framework.notify then MetaComic.Framework.notify(source, message, notifyType) end
 end
-local function settings(action) local key = ACTIONS[action]; return key and type(crime[key]) == 'table' and crime[key] or nil end
+local function settings(action)
+    local key = ACTIONS[action]
+    local s = key and type(crime[key]) == 'table' and crime[key] or nil
+    if s and action == 'pickseal' then
+        s = MetaComic.CopyTable(s)
+        local seal = (cfg.Keys or {}).Seal or {}
+        s.Duration = s.Duration or seal.BreakDuration or 20000
+        s.Minigame = s.Minigame or seal.Minigame or 'lockpick_medium'
+    end
+    return s
+end
 local function count(source, item) return MetaComic.Inventory.count and MetaComic.Inventory.count(source, item) or 0 end
 local function itemsOf(action)
     if action == 'installskimmer' then return { { item = (cfg.Skimmer or {}).Item or 'card_skimmer', label = 'card skimmer', count = 1 } } end
@@ -37,6 +47,7 @@ local function cooldownKey(entry, action) return ('%s:%s'):format(entry.serial o
 -- fitting / reading / removing a skimmer and checking the coin panel never put the machine on a tamper cooldown
 local function noCooldown(action) return action:find('skimmer') ~= nil or action == 'inspectpanel' end
 local function coords(entry) return vector3(entry.x, entry.y, entry.z) end
+local function evidenceAction(action) return action == 'takemachine' and 'steal' or action == 'pickseal' and 'breakin' or action end
 local function canInspect(source, entry)
     return Vending.canControl(source, entry) or Vending.businessStaff and Vending.businessStaff(source, entry)
         or MetaComic.Police and MetaComic.Police.isPolice and MetaComic.Police.isPolice(source)
@@ -58,43 +69,52 @@ RegisterNetEvent('meta_comic:server:crimeStart', function(id, action, option)
     local source = source
     local s = settings(action)
     local entry = Vending.get(id)
-    if not s or s.Enabled == false or not entry or pending[source] then return end
+    if not s or s.Enabled == false then return notify(source, 'This vending action is disabled.', 'error') end
+    if not entry then return notify(source, 'That vending machine no longer exists.', 'error') end
+    if pending[source] then return notify(source, 'Finish or cancel your current action first.', 'error') end
     if not Vending.near(source, entry, Vending.reach()) then return notify(source, 'You need to stand at the vending machine.', 'error') end
     local record = Registry.get(entry.serial)
     local keys = MetaComic.VendingKeys
     if keys and (not keys.ensure(record) or keys.busy(entry)) then return notify(source, 'The cabinet lock is being serviced.', 'error') end
+    if action == 'breakin' and record and record.padlock then return notify(source, 'Lockpick and remove the padlock before drilling the cabinet cylinder.', 'error') end
+    if action == 'pickpadlock' and (not keys or not record or not record.padlock) then return notify(source, 'There is no cabinet padlock to pick.', 'error') end
+    if action == 'breakin' and record and record.securitySeal then return notify(source, 'Lockpick the security seal. The cabinet cylinder is already damaged.', 'error') end
+    if action == 'breakin' and record and record.lockCondition == 'damaged' then
+        return notify(source, 'The cylinder is already broken. Open the damaged cabinet through Cabinet lock and keys.', 'error')
+    end
+    if action == 'pickseal' and (not keys or not record or not record.securitySeal or record.padlock or not MetaComic.VendingLoot) then return notify(source, 'The security seal is unavailable. Remove any cabinet padlock first.', 'error') end
     local looting = MetaComic.VendingLoot
     if action == 'breakin' and (s.Loot or {}).Enabled ~= false and not looting then
         return notify(source, 'Timed looting is unavailable. Ask staff to check server/modules/vending_loot.lua in fxmanifest.lua.', 'error')
     end
-    if Vending.isTransferringStock and Vending.isTransferringStock(entry) then return end
+    if Vending.isTransferringStock and Vending.isTransferringStock(entry) then return notify(source, 'Wait for the stock transfer to finish.', 'error') end
     if looting and looting.busy(entry) and action ~= 'secure' then return notify(source, 'Someone is looting this machine.', 'error') end
-    if action == 'secure' and (not looting or not looting.canSecure(source, entry)) then return end
-    if action == 'bolt' and not canBolt(source, entry, record) then return end
-    if action == 'takemachine' and (not record or record.unbolted ~= true) then return end
+    if action == 'secure' and (not looting or not looting.canSecure(source, entry)) then return notify(source, 'Securing requires a damaged cabinet and police or maintenance authority.', 'error') end
+    if action == 'bolt' and not canBolt(source, entry, record) then return notify(source, 'The machine must be unbolted and you must have installation or full-key authority.', 'error') end
+    if action == 'takemachine' and (not record or record.unbolted ~= true) then return notify(source, 'Unbolt the machine before taking it.', 'error') end
     if action == 'steal' and record and record.unbolted == true then return notify(source, 'This machine is not bolted down. Use Steal Machine.', 'error') end
     -- already open (broken into, or unlocked with a key): go straight to the inspect / loot menu
     if action == 'breakin' and looting and (looting.lootable or looting.isOpen)(entry) then return looting.inspect(source, entry) end
     local maintenance = action == 'falsifylogs' or action == 'bolt' or action == 'disablegps' or action == 'enablegps' or action == 'collectskimmer' or action == 'removeskimmer' or action == 'replaceboard' or action == 'secure' or action == 'inspectpanel' or action == 'adjustskimmer'
     local criminal = action ~= 'bolt' and action ~= 'enablegps' and action ~= 'collectskimmer' and action ~= 'removeskimmer' and action ~= 'replaceboard' and action ~= 'secure' and action ~= 'inspectpanel' and action ~= 'adjustskimmer'
     -- checking the coin panel for a skimmer: the owner, whoever controls the machine, managers and police
-    if action == 'inspectpanel' and not canInspect(source, entry) then return end
-    if action == 'replaceboard' and (not record or not Registry.systemController(record) or not canRecoverBoard(source, entry, record)) then return end
-    local lockRecovery = action == 'breakin' and (s.Loot or {}).Enabled ~= false and MetaComic.VendingKeys and MetaComic.VendingKeys.canRegister(source, record)
+    if action == 'inspectpanel' and not canInspect(source, entry) then return notify(source, 'Panel inspection requires police, maintenance authority or an authenticated cabinet key.', 'error') end
+    if action == 'replaceboard' and (not record or not Registry.systemController(record) or not canRecoverBoard(source, entry, record)) then return notify(source, 'Board replacement requires a taken-over machine and recovery authority.', 'error') end
+    local lockRecovery = (action == 'pickseal' or action == 'pickpadlock' or action == 'breakin' and (s.Loot or {}).Enabled ~= false) and MetaComic.VendingKeys and MetaComic.VendingKeys.canRegister(source, record)
     if action ~= 'fullhack' and not maintenance and not lockRecovery and not crime.OwnersCanRob and Registry.ownedBy(record, Registry.identifierOf(source)) then return notify(source, 'This is your own machine.', 'error') end
-    if action == 'disablegps' and ((cfg.GPS or {}).Enabled == false or record and record.gpsDisabled) then return end
+    if action == 'disablegps' and ((cfg.GPS or {}).Enabled == false or record and record.gpsDisabled) then return notify(source, 'GPS is already disabled or unavailable.', 'error') end
     if action == 'enablegps' and ((cfg.GPS or {}).Enabled == false or not (record and record.gpsDisabled)
         or not (Vending.canOperateSystem or Vending.canControl)(source, entry)
-        or keys and (not keys.cabinetOpen(entry, source) or not keys.access(source, entry, 'full'))) then return end
+        or keys and (not keys.cabinetOpen(entry, source) or not keys.access(source, entry, 'full'))) then return notify(source, 'GPS rearming requires system authority, full-key access and an open cabinet.', 'error') end
     if action:find('skimmer') then
         if (cfg.Skimmer or {}).Enabled == false then return end
         local device = record and record.skimmer
         if action == 'installskimmer' and device then return notify(source, 'There is no room on this coin panel.', 'error') end
-        if action ~= 'installskimmer' and not device then return end
+        if action ~= 'installskimmer' and not device then return notify(source, 'No skimmer is installed on this machine.', 'error') end
         -- only the installer reads or removes it; owners and police find it with 'inspectpanel'
-        if action ~= 'installskimmer' and device.installer ~= Registry.identifierOf(source) then return end
+        if action ~= 'installskimmer' and device.installer ~= Registry.identifierOf(source) then return notify(source, 'Only the skimmer installer can manage that device.', 'error') end
     end
-    if action == 'fullhack' and record and (record.owner == Registry.identifierOf(source) or Registry.systemController(record) ~= nil) then return end
+    if action == 'fullhack' and record and (record.owner == Registry.identifierOf(source) or Registry.systemController(record) ~= nil) then return notify(source, 'This machine is yours or its operating system has already been taken over.', 'error') end
     -- hacks and the GPS switch need the machine open and its server rack open (the cash box without a rack)
     local cashbox = MetaComic.VendingCashbox
     if action == 'falsifylogs' and (not cashbox or not cashbox.cabinetOpen(entry.id) or not cashbox.rackOpen or not cashbox.rackOpen(entry.id)) then
@@ -123,20 +143,14 @@ RegisterNetEvent('meta_comic:server:crimeStart', function(id, action, option)
     end
     local token = ('%d-%d'):format(source, GetGameTimer())
     local duration = math.max(1000, math.floor(tonumber(s.Duration) or 8000))
+    if MetaComic.VendingProgressDuration then duration = MetaComic.VendingProgressDuration(duration) end
     local minigame = s.Minigame
-    if action == 'breakin' and keys and record.securitySeal then
-        local seal = (cfg.Keys or {}).Seal or {}
-        duration = duration + math.max(1000, tonumber(seal.BreakDuration) or 20000)
-        minigame = {}
-        if seal.Minigame then minigame[#minigame + 1] = seal.Minigame end
-        for _, game in ipairs(type(s.Minigame) == 'table' and s.Minigame or { s.Minigame }) do minigame[#minigame + 1] = game end
-    end
     pending[source] = { token = token, id = entry.id, serial = entry.serial, revision = record and record.lockRevision, action = action, startedAt = GetGameTimer(), duration = duration,
         alias = action == 'falsifylogs' and type(option) == 'table' and tostring(option.employee or '') or nil,
         percent = (action == 'installskimmer' or action == 'adjustskimmer') and MetaComic.VendingSecurity.cutOf(type(option) == 'table' and option.percent) or nil }
-    local evidenceAction = action == 'takemachine' and 'steal' or action
-    if criminal and MetaComic.Police then MetaComic.Police.alert(source, { action = evidenceAction, stage = 'start', coords = coords(entry), serial = entry.serial }) end
-    if action ~= 'bolt' and MetaComic.CrimeEvidence then MetaComic.CrimeEvidence.start(source, entry, evidenceAction) end
+    local evidence = evidenceAction(action)
+    if criminal and MetaComic.Police then MetaComic.Police.alert(source, { action = evidence, stage = 'start', coords = coords(entry), serial = entry.serial }) end
+    if action ~= 'bolt' and MetaComic.CrimeEvidence then MetaComic.CrimeEvidence.start(source, entry, evidence) end
     TriggerClientEvent('meta_comic:client:crimeStart', source, {
         token = token, id = entry.id, action = action, label = s.ProgressLabel or s.Label, duration = duration,
         minigame = minigame, animation = s.Animation, minigameFirst = s.MinigameFirst ~= false,
@@ -160,6 +174,13 @@ local function useUpItems(source, action)
 end
 
 local handlers = {}
+function handlers.pickseal(source, entry)
+    local record = Registry.get(entry.serial)
+    return record and record.securitySeal and not record.padlock and MetaComic.VendingLoot and MetaComic.VendingLoot.unlock(source, entry)
+end
+function handlers.pickpadlock(source, entry)
+    return MetaComic.VendingKeys and MetaComic.VendingKeys.removePadlock(source, entry, true)
+end
 function handlers.falsifylogs(source, entry, s, job)
     local record = Registry.get(entry.serial)
     local person = job.alias and Registry.person(job.alias)
@@ -343,10 +364,10 @@ RegisterNetEvent('meta_comic:server:crimeFinish', function(token, success)
     local key = cooldownKey(entry, job.action)
     if not Vending.near(source, entry, Vending.reach() + 2.0) then return notify(source, 'You moved away from the machine.', 'error') end
     if success ~= true then
-        if MetaComic.CrimeEvidence and job.action ~= 'bolt' then MetaComic.CrimeEvidence.failure(source, entry, job.action == 'takemachine' and 'steal' or job.action) end
+        if MetaComic.CrimeEvidence and job.action ~= 'bolt' then MetaComic.CrimeEvidence.failure(source, entry, evidenceAction(job.action)) end
         breakTools(source, job.action)
         if not noCooldown(job.action) then cooldowns[key] = os.time() + math.floor(tonumber(s.FailCooldown) or 30) end
-        if MetaComic.Police and job.action ~= 'bolt' then MetaComic.Police.alert(source, { action = job.action == 'takemachine' and 'steal' or job.action, stage = 'fail', coords = coords(entry), serial = entry.serial }) end
+        if MetaComic.Police and job.action ~= 'bolt' then MetaComic.Police.alert(source, { action = evidenceAction(job.action), stage = 'fail', coords = coords(entry), serial = entry.serial }) end
         Registry.update(entry.serial, nil, ({ breakin = 'Failed break-in attempt', hack = 'Failed hacking attempt', steal = 'Failed theft attempt' })[job.action] or ('Failed ' .. job.action .. ' attempt'))
         return notify(source, s.FailMessage or 'You failed.', 'error')
     end
@@ -365,8 +386,8 @@ RegisterNetEvent('meta_comic:server:crimeFinish', function(token, success)
     if handlers[job.action](source, entry, s, job) then
         useUpItems(source, job.action)
         if not noCooldown(job.action) then cooldowns[key] = os.time() + math.floor(tonumber(s.Cooldown) or 600) end
-        if MetaComic.Police and job.action ~= 'inspectpanel' and job.action ~= 'bolt' then MetaComic.Police.alert(source, { action = job.action == 'takemachine' and 'steal' or job.action, stage = 'success', coords = coords(entry), serial = entry.serial }) end
+        if MetaComic.Police and job.action ~= 'inspectpanel' and job.action ~= 'bolt' then MetaComic.Police.alert(source, { action = evidenceAction(job.action), stage = 'success', coords = coords(entry), serial = entry.serial }) end
         TriggerEvent('meta_comic:server:vendingDoorSuccess', source, entry.id, 'crime', job.action) -- the door opens on success only
-        if job.action == 'breakin' and MetaComic.VendingLoot then MetaComic.VendingLoot.inspect(source, entry) end
+        if (job.action == 'breakin' or job.action == 'pickseal') and MetaComic.VendingLoot then MetaComic.VendingLoot.inspect(source, entry) end
     end
 end)

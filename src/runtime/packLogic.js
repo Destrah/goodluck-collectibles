@@ -1,5 +1,6 @@
 import { resolveCardVariant } from '../cardData.js'
 import { generateCondition } from '../grading/condition.js'
+import { PACK_TIER_CHAINS } from './packRules.js'
 
 export const weightedPick = (pool, getWeight = item => item.chanceWeight) => {
   if (!pool?.length) return null
@@ -30,12 +31,9 @@ export function pullFromTier(cards, tier, fallbackTiers = []) {
 export function makePack(cards) {
   const rareRoll = Math.random() * 100
   const rareTier = rareRoll > 95 ? 'legendary' : rareRoll > 75 ? 'ultra_rare' : 'rare'
+  const pull = tier => pullFromTier(cards, tier, PACK_TIER_CHAINS[tier].slice(1))
   return [
-    pullFromTier(cards, 'common'),
-    pullFromTier(cards, 'common'),
-    pullFromTier(cards, 'common'),
-    pullFromTier(cards, 'uncommon', ['common']),
-    pullFromTier(cards, rareTier, ['rare', 'uncommon', 'common']),
+    pull('common'), pull('common'), pull('common'), pull('uncommon'), pull(rareTier),
   ].filter(Boolean).map(card => {
     const pullId = crypto.randomUUID()
     // every copy comes out of the pack with its own small print imperfections (src/grading/condition.js)

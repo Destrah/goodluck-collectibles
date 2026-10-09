@@ -5,7 +5,10 @@ import fs from 'node:fs';
 import zlib from 'node:zlib';
 import assert from 'node:assert/strict';
 
-const file = process.argv[2] || 'fivem/stream/metacomics_vending_machine.ydr';
+const checkOnly = process.argv.includes('--check');
+const files = process.argv.slice(2).filter(arg => arg !== '--check');
+if (!files.length) files.push('fivem/stream/metacomics_vending_machine.ydr', 'fivem/stream/metacomics_vending_body.ydr');
+for (const file of files) {
 const resource = fs.readFileSync(file);
 assert.equal(resource.subarray(0, 4).toString(), 'RSC7');
 const data = zlib.inflateRawSync(resource.subarray(16));
@@ -35,5 +38,7 @@ for (let i = 0; i < data.length; i++) {
 assert.equal(data.length, before.length);
 const output = Buffer.concat([resource.subarray(0, 16), zlib.deflateRawSync(data)]);
 assert.deepEqual(zlib.inflateRawSync(output.subarray(16)), data);
-if (!data.equals(before)) fs.writeFileSync(file, output);
-console.log('Vending collision filters verified; geometry, textures and resource header preserved.');
+if (checkOnly) assert.ok(data.equals(before), `${file}: missing object/world collision filters; run npm run vending:collision after exporting`);
+else if (!data.equals(before)) fs.writeFileSync(file, output);
+console.log(`${file}: vending collision filters verified; geometry, textures and resource header preserved.`);
+}

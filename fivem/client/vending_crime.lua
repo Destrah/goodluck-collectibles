@@ -6,6 +6,8 @@ local crime = cfg.Crime or {}
 if cfg.Enabled == false or crime.Enabled == false then return end
 
 local ACTIONS = {
+    { id = 'pickseal', key = 'BreakSeal', label = 'Lockpick security seal', icon = 'fas fa-lock' },
+    { id = 'pickpadlock', key = 'PickPadlock', label = 'Lockpick padlock', icon = 'fas fa-lock' },
     { id = 'falsifylogs', key = 'FalsifyLogs', label = 'Falsify sensor records', icon = 'fas fa-laptop-code' },
     { id = 'breakin', key = 'BreakIn', label = 'Break in', icon = 'fas fa-screwdriver-wrench' },
     { id = 'hack', key = 'Hack', label = 'Hack payment terminal', icon = 'fas fa-laptop-code' },
@@ -27,6 +29,8 @@ local busy = false
 local crimeGeneration = 0
 local looting = false
 local lootGeneration = 0
+local working, workGeneration = false, 0
+MetaComic.VendingActionBusy = function() return busy or looting or working end
 local stopLootVisual
 local held -- prop in the player's hand while the minigame runs
 
@@ -273,39 +277,62 @@ end
 
 -- Timed restocking / cash collection by someone allowed to (server/modules/vending_machines.lua, Config.VendingMachines.Work):
 -- the looting moves on a loop, loading packs into the machine or taking the cash, behind a progress bar.
-local working, workGeneration = false, 0
-RegisterNetEvent('meta_comic:client:vendingWork', function(data)
-    if busy or looting or working then return TriggerServerEvent('meta_comic:server:vendingWorkCancel') end
-    working = true
+local workWaitingAt, activeWorkToken, blockedWorkRun
+RegisterNetEvent('meta_comic:client:vendingWorkStop', function(token)
+    if source ~= 65535 or token ~= activeWorkToken then return end
+    working = false
     workGeneration = workGeneration + 1
+    workWaitingAt, activeWorkToken = nil, nil
+    cancelActiveProgress()
+    stopPose(true)
+end)
+RegisterNetEvent('meta_comic:client:vendingWork', function(data)
+    if source ~= 65535 then return end
+    if data.run and data.run == blockedWorkRun then return TriggerServerEvent('meta_comic:server:vendingWorkCancel', data.token) end
+    local continuing = working and workWaitingAt and lootMachine == tonumber(data.id)
+    if busy or looting or working and not continuing then return TriggerServerEvent('meta_comic:server:vendingWorkCancel', data.token) end
+    working = true
+    workWaitingAt, activeWorkToken = nil, data.token
+    if not continuing then workGeneration = workGeneration + 1 end
     local generation = workGeneration
     lootMachine = tonumber(data.id)
-    local finishAt = GetGameTimer() + math.max(1000, tonumber(data.duration) or 1000)
+    local finishAt = GetGameTimer() + math.max(1, tonumber(data.duration) or 1000)
     local function current() return working and workGeneration == generation end
     local ped = PlayerPedId()
-    ClearEntityLastDamageEntity(ped)
-    CreateThread(function()
-        while current() do
-            if IsEntityDead(ped) or HasEntityBeenDamagedByAnyPed(ped) or IsPedRagdoll(ped) or IsPedBeingStunned(ped, 0) then
-                working = false
-                workGeneration = workGeneration + 1
-                cancelActiveProgress()
-                stopPose(true)
-                TriggerServerEvent('meta_comic:server:vendingWorkCancel')
-                return
+    if not continuing then
+        ClearEntityLastDamageEntity(ped)
+        CreateThread(function()
+            while current() do
+                if IsEntityDead(ped) or HasEntityBeenDamagedByAnyPed(ped) or IsPedRagdoll(ped) or IsPedBeingStunned(ped, 0)
+                    or workWaitingAt and (GetGameTimer() - workWaitingAt > 5000 or IsControlJustPressed(0, 73)) then
+                    working = false
+                    workGeneration = workGeneration + 1
+                    cancelActiveProgress()
+                    stopPose(true)
+                    blockedWorkRun = data.run
+                    TriggerServerEvent('meta_comic:server:vendingWorkCancel', activeWorkToken)
+                    workWaitingAt, activeWorkToken = nil, nil
+                    return
+                end
+                if workWaitingAt then
+                    DisableControlAction(0, 30, true)
+                    DisableControlAction(0, 31, true)
+                    DisableControlAction(0, 24, true)
+                    DisableControlAction(0, 25, true)
+                end
+                Wait(0)
             end
-            Wait(0)
-        end
-    end)
-    CreateThread(function()
-        local cycle = math.max(1200, tonumber(data.cycle) or 2000)
-        while current() and GetGameTimer() < finishAt - 400 do
-            local deadline = math.min(finishAt, GetGameTimer() + cycle)
-            animateLootBatch({ kind = data.kind == 'cash' and 'cash' or 'stock', productKind = data.productKind, duration = deadline - GetGameTimer(),
-                placing = data.kind ~= 'cash', isCurrent = current }, deadline, 0)
-            while current() and GetGameTimer() < deadline do Wait(50) end
-        end
-    end)
+        end)
+        CreateThread(function()
+            local cycle = math.max(1200, tonumber(data.cycle) or 2000)
+            while current() do
+                local deadline = GetGameTimer() + cycle
+                animateLootBatch({ kind = data.kind == 'cash' and 'cash' or 'stock', productKind = data.productKind, duration = deadline - GetGameTimer(),
+                    placing = data.kind ~= 'cash', isCurrent = current }, deadline, 0)
+                while current() and GetGameTimer() < deadline do Wait(50) end
+            end
+        end)
+    end
     local completed = true
     if GetResourceState('ox_lib') == 'started' then
         completed = exports.ox_lib:progressBar({ duration = finishAt - GetGameTimer(), label = data.label or 'Working...', canCancel = true,
@@ -315,11 +342,18 @@ RegisterNetEvent('meta_comic:client:vendingWork', function(data)
     end
     -- A canceled progress call can resume after an interruption or after a newer job starts.
     if not current() then return end
+    if completed and data.kind == 'restock' and data.more then
+        workWaitingAt = GetGameTimer()
+        TriggerServerEvent('meta_comic:server:vendingWorkFinish', data.token)
+        return -- Keep the visual loop and interruption monitor alive for the next progress bar.
+    end
     working = false
     workGeneration = workGeneration + 1
     stopPose(not completed)
+    if not completed then blockedWorkRun = data.run end
+    workWaitingAt, activeWorkToken = nil, nil
     if completed then TriggerServerEvent('meta_comic:server:vendingWorkFinish', data.token)
-    else TriggerServerEvent('meta_comic:server:vendingWorkCancel') end
+    else TriggerServerEvent('meta_comic:server:vendingWorkCancel', data.token) end
 end)
 
 local function stopLooting()
@@ -340,7 +374,20 @@ RegisterNetEvent('meta_comic:client:lootInspect', function(data)
     local function choice(mode, title, duration, enabled)
         options[#options + 1] = { title = title, disabled = not enabled,
             description = ('About %d seconds to take the current contents; cancel anytime'):format(math.ceil(duration / 1000)),
-            onSelect = function() TriggerServerEvent('meta_comic:server:lootStart', data.id, mode) end }
+            onSelect = function()
+                if mode == 'cash' or data.stock == 'empty' then return TriggerServerEvent('meta_comic:server:lootStart', data.id, mode) end
+                local stockOptions = {{title = 'Take all stock', description = 'Take every stocked product; cancel anytime.',
+                    onSelect = function() TriggerServerEvent('meta_comic:server:lootStart', data.id, mode) end}}
+                for _, product in ipairs(data.products or {}) do
+                    local selected = { set = product.set, kind = product.kind }
+                    local duration = (product.stockMs or 0) + (mode == 'both' and data.cashMs or 0)
+                    stockOptions[#stockOptions + 1] = { title = ('%s — %s'):format(product.setName or product.set, product.kind == 'box' and 'Booster boxes' or 'Booster packs'),
+                        description = ('Stock: %s | About %d seconds; cancel anytime'):format(product.level or 'available', math.ceil(duration / 1000)),
+                        onSelect = function() TriggerServerEvent('meta_comic:server:lootStart', data.id, mode, selected) end }
+                end
+                exports.ox_lib:registerContext({id = 'meta_comic_vending_loot_stock', title = 'Choose stock to take', menu = 'meta_comic_vending_loot', options = stockOptions})
+                exports.ox_lib:showContext('meta_comic_vending_loot_stock')
+            end }
     end
     options[#options + 1] = { title = ('Cash: %s · Stock: %s'):format(data.cash, data.stock), readOnly = true }
     if data.cashLocked then
@@ -463,6 +510,39 @@ local function progress(data)
     return true
 end
 
+-- Approach the actual lock, then settle before starting its full-body tool animation.
+local function approachLock(machine, action, current)
+    local settings = action == 'breakin' and crime.BreakIn or action == 'pickpadlock' and crime.PickPadlock
+    local interaction = settings and settings.Interaction
+    if not interaction then
+        if machine and machine.entity and DoesEntityExist(machine.entity) then
+            TaskTurnPedToFaceEntity(PlayerPedId(), machine.entity, 700)
+            Wait(700)
+        end
+        return current()
+    end
+    if not machine or not machine.entity or not DoesEntityExist(machine.entity) then return false end
+    local ped, entity = PlayerPedId(), machine.entity
+    local spot, lock = interaction.Spot, interaction.Target
+    local target = GetOffsetFromEntityInWorldCoords(entity, spot.x, spot.y, spot.z)
+    local face = GetOffsetFromEntityInWorldCoords(entity, lock.x, lock.y, lock.z)
+    local heading = GetHeadingFromVector_2d(face.x - target.x, face.y - target.y)
+    local walkMs = math.max(500, math.min(2000, tonumber(interaction.WalkMs) or 1000))
+    ClearPedTasks(ped)
+    TaskGoStraightToCoord(ped, target.x, target.y, target.z, 1.0, walkMs + 200, heading, 0.1)
+    local untilAt = GetGameTimer() + walkMs
+    while current() and DoesEntityExist(entity) and GetGameTimer() < untilAt do Wait(0) end
+    if not current() or not DoesEntityExist(entity) then return false end
+    -- A moving/towed machine must not pull the player into a stale interaction spot.
+    local nowTarget = GetOffsetFromEntityInWorldCoords(entity, spot.x, spot.y, spot.z)
+    if #(GetEntityCoords(ped) - target) > 2.0 or #(nowTarget - target) > 0.3 then return false end
+    ClearPedTasks(ped)
+    SetEntityCoordsNoOffset(ped, target.x, target.y, GetEntityCoords(ped).z, false, false, false)
+    SetEntityHeading(ped, heading)
+    Wait(0)
+    return current()
+end
+
 RegisterNetEvent('meta_comic:client:crimeStart', function(data)
     if busy or looting or working then return TriggerServerEvent('meta_comic:server:crimeCancel') end
     busy = true
@@ -485,9 +565,15 @@ RegisterNetEvent('meta_comic:client:crimeStart', function(data)
         end
     end)
     local machine = MetaComic.VendingMachineById and MetaComic.VendingMachineById(data.id)
-    if machine and machine.entity and DoesEntityExist(machine.entity) then
-        TaskTurnPedToFaceEntity(PlayerPedId(), machine.entity, 700)
-        Wait(700)
+    if not approachLock(machine, data.action, current) then
+        if current() then
+            busy = false
+            crimeGeneration = crimeGeneration + 1
+            stopPose(true)
+            TriggerServerEvent('meta_comic:server:crimeCancel')
+            notify('The lock is no longer within reach.', 'error')
+        end
+        return
     end
     local passed = true
     if not current() then return end
@@ -564,11 +650,19 @@ CreateThread(function()
                 items = next(items) and items or nil,
                 canInteract = function(entity)
                     local machine = MetaComic.VendingMachineOf and MetaComic.VendingMachineOf(entity)
-                    if not machine or busy or looting then return false end
+                    if not machine or busy or looting or MetaComic.VendingKeyWorkBusy and MetaComic.VendingKeyWorkBusy() then return false end
+                    if action.id == 'pickpadlock' then return machine.padlock == true end
+                    if action.id == 'pickseal' then return machine.securitySeal ~= nil and not machine.padlock end
+                    if action.id == 'breakin' and (machine.padlock or machine.securitySeal or machine.lockCondition == 'damaged') then return false end
+                    if action.id == 'breakin' and MetaComic.VendingCabinetOpen and MetaComic.VendingCabinetOpen(machine.id) then return false end
                     local controlled = MetaComic.VendingControls and MetaComic.VendingControls(machine.id)
                     if action.id == 'falsifylogs' then return MetaComic.VendingTechReady and MetaComic.VendingTechReady(machine.id, action.id) == true end
                     if action.id == 'bolt' then return machine.bolted == false end -- server verifies installer, owner, employee or full key
                     if action.id == 'steal' and machine.bolted == false then return false end
+                    if action.id == 'steal' then
+                        if s.NeedsBreakIn ~= false and MetaComic.VendingCabinetOpen and not MetaComic.VendingCabinetOpen(machine.id) then return false end
+                        if s.NeedsGPSDisabled == true and (cfg.GPS or {}).Enabled ~= false and not machine.gpsDisabled then return false end
+                    end
                     if action.id == 'takemachine' and machine.bolted ~= false then return false end
                     -- hacks and the GPS switch only show with the machine and its server rack (or cash box) open (client/vending_door.lua)
                     if MetaComic.VendingTechReady then
@@ -576,7 +670,8 @@ CreateThread(function()
                     elseif (action.id == 'hack' or action.id == 'fullhack') and MetaComic.VendingHackReady and not MetaComic.VendingHackReady(machine.id) then return false end
                     if action.id == 'fullhack' then return not machine.systemTakenOver and MetaComic.VendingCanFullHack and MetaComic.VendingCanFullHack(machine.id) == true end
                     if action.id == 'replaceboard' then return machine.systemTakenOver and MetaComic.VendingCanReplaceBoard and MetaComic.VendingCanReplaceBoard(machine.id) == true end
-                    if action.id == 'secure' then return not machine.securitySeal and ((machine.unlockedUntil or 0) > 0 or machine.lockCondition == 'damaged') end
+                    if action.id == 'secure' then return not machine.securitySeal and ((machine.unlockedUntil or 0) > 0 or machine.lockCondition == 'damaged')
+                        and MetaComic.VendingCanSecure and MetaComic.VendingCanSecure(machine.id) end
                     if action.id == 'disablegps' then return (cfg.GPS or {}).Enabled ~= false and not machine.gpsDisabled end
                     if action.id == 'enablegps' then return (cfg.GPS or {}).Enabled ~= false and machine.gpsDisabled == true
                         and MetaComic.VendingCanOperateSystem and MetaComic.VendingCanOperateSystem(machine.id) == true end
@@ -631,8 +726,9 @@ CreateThread(function()
             canInteract = function(entity)
                 local machine = MetaComic.VendingMachineOf and MetaComic.VendingMachineOf(entity)
                 -- broken into, or the door stands open (unlocked with a key, being serviced)
-                return machine and not busy and not looting and ((machine.unlockedUntil or 0) > 0
-                    or MetaComic.VendingCabinetOpen ~= nil and MetaComic.VendingCabinetOpen(machine.id) and not machine.securitySeal)
+                return machine and not busy and not looting and not machine.securitySeal and not machine.padlock
+                    and MetaComic.VendingCabinetOpen ~= nil and MetaComic.VendingCabinetOpen(machine.id)
+                    and (crime.OwnersCanRob or not (MetaComic.VendingControls and MetaComic.VendingControls(machine.id)))
             end,
             onSelect = function(data)
                 local machine = MetaComic.VendingMachineOf(data.entity)

@@ -4,7 +4,7 @@
 -- up and placed again, or stolen and placed somewhere else, still pays its owner until someone hacks its routing.
 -- People have to be registered by the business (admin UI "Machine records") before they can be assigned machines;
 -- each registered person gets a routing number and their own tax rate, taken from their sales for the business.
--- Saved with MetaComic.Settings (MySQL settings table or data/settings.json).
+-- MySQL uses normalized vending state/entry rows; JSON hosts use the queued settings file.
 local cfg = Config.VendingMachines or {}
 if cfg.Enabled == false then return end
 local own = cfg.Ownership or {}
@@ -41,6 +41,7 @@ local data
 local function load()
     if data then return data end
     local saved = MetaComic.Settings.get(KEY, nil)
+    if MetaComic.VendingState then saved = MetaComic.VendingState.load(KEY, saved) end
     data = type(saved) == 'table' and saved or {}
     data.people = type(data.people) == 'table' and data.people or {}
     data.serials = type(data.serials) == 'table' and data.serials or {}
@@ -50,7 +51,9 @@ local function load()
     return data
 end
 local function save()
-    local ok, err = MetaComic.Settings.set(KEY, load())
+    if MetaComic.VendingState then return MetaComic.VendingState.stage(KEY, load()) end
+    local write = MetaComic.Settings.stage or MetaComic.Settings.set
+    local ok, err = write(KEY, load())
     if not ok then print('[meta-comic] vending records save failed: ' .. tostring(err)) end
     return ok
 end

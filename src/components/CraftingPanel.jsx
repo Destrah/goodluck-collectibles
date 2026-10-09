@@ -124,6 +124,7 @@ export default function CraftingPanel({ sets = [] }) {
                   <label className="field"><span>Collectible</span><select value={result.collectible || ''} onChange={e => patchResult({ collectible: e.target.value })}><option value="" disabled>Pick one</option>{(state.collectibles || []).map(id => <option key={id} value={id}>{id.replace('_', ' ')}</option>)}</select></label>
                   <label className="field"><span>Size</span><select value={result.outer ? 'outer' : 'inner'} onChange={e => patchResult({ outer: e.target.value === 'outer' })}><option value="inner">Box / bag</option><option value="outer">Case / bag box</option></select></label>
                 </>}
+                {result.type === 'crate' && <div className="field crate-sets"><span>Card sets for its booster packs / boxes (none = default set, or the crate's own sets)</span><div className="crate-set-list">{sets.map(set => <label key={set.id}><input type="checkbox" checked={(result.sets || []).includes(set.id)} onChange={e => patchResult({ sets: e.target.checked ? [...(result.sets || []), set.id] : (result.sets || []).filter(id => id !== set.id) })} /> {set.name}</label>)}</div></div>}
                 {result.type === 'crate' && <label className="field"><span>Crate</span><select value={result.crate || ''} onChange={e => patchResult({ crate: e.target.value })}><option value="" disabled>Pick one</option>{(state.crates || []).map(crate => <option key={crate.id} value={crate.id}>{crate.label}</option>)}</select></label>}
               </div>
             </div>

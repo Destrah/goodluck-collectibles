@@ -3,6 +3,16 @@ MetaComic.FrameworkAdapters = MetaComic.FrameworkAdapters or {}
 MetaComic.InventoryAdapters = MetaComic.InventoryAdapters or {}
 MetaComic.PersistenceAdapters = MetaComic.PersistenceAdapters or {}
 
+-- Only the server chooses action durations; clients receive the captured job duration.
+-- Keep production config values intact, including security deadlines and loot batch rates.
+function MetaComic.VendingProgressDuration(duration)
+    if GetConvarInt and GetConvarInt('metacomic_dev_testing', 0) == 1 then
+        local limit = math.max(10000, math.min(15000, GetConvarInt('metacomic_dev_progress_ms', 15000)))
+        return math.min(duration, limit)
+    end
+    return duration
+end
+
 function MetaComic.Debug(...)
     if not Config.Debug then return end
     print('[meta-comic]', ...)

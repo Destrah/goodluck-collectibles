@@ -88,6 +88,8 @@ export const standaloneBridge = {
   async packProp() { return { ok: true } }, // no character in the browser
   async holdCollectibles() { return { ok: true } },
   async roughHandling() { return { ok: true } }, // standalone wear happens in the Grading tab's copies
+  async claimBox() { return { ok: true } },
+  async claimCrate() { return { ok: true } },
   async claimCards() { return { ok: true, given: 0 } }, // no inventory in the browser
   async claimCollectibles() { return { ok: true, given: 0 } },
   async getCollection() { return { ok: true, cards: [] } },
@@ -151,6 +153,8 @@ export const standaloneBridge = {
   async printCard() { return { ok: false, error: 'Manual printing is only available in FiveM.' } },
   async printCollectible() { return { ok: false, error: 'Manual printing is only available in FiveM.' } },
   async createSealed() { return { ok: false, error: 'Sealed item creation is only available in FiveM.' } },
+  async getShippingCrates() { return { ok: true, crates: [{id:'mixed',label:'Mixed Shipping Crate',types:['trading_card','plushie','challenge_coin']},{id:'cards',label:'Card Shipping Crate',types:['trading_card']},{id:'plushies',label:'Plushie Shipping Crate',types:['plushie']},{id:'coins',label:'Coin Shipping Crate',types:['challenge_coin']}], default:'mixed', sets:{} } },
+  async createShippingCrate() { throw new Error('Shipping crate item creation is only available in FiveM.') },
   async saveCatalog() { return { ok: true } },
   subscribe(listener) {
     listeners.add(listener)

@@ -6,10 +6,11 @@ local G = MetaComic.Grading
 
 local function r2(n) return math.floor(n * 100 + 0.5) / 100 end
 local function clamp(n, lo, hi) return math.min(math.max(n, lo), hi) end
-local function gauss()
+local function gauss(random)
+    random=random or math.random
     local u, v = 0, 0
-    while u == 0 do u = math.random() end
-    while v == 0 do v = math.random() end
+    while u == 0 do u = random() end
+    while v == 0 do v = random() end
     return math.sqrt(-2 * math.log(u)) * math.cos(2 * math.pi * v)
 end
 
@@ -119,7 +120,8 @@ local function markId(kind)
     return ('%s-%x-%x'):format(kind, os.time(), markSerial)
 end
 
-local function randomMark(kind, side)
+local function randomMark(kind, side, random)
+    local math={random=random or math.random,pi=math.pi,cos=math.cos,sin=math.sin}
     side = side or (math.random() < 0.7 and 'front' or 'back')
     local s = r2(0.2 + math.random() * 0.6)
     if kind == 'tear' then
@@ -144,15 +146,17 @@ local function randomMark(kind, side)
 end
 
 -- A new card from a pack: print defects only. No wear or damage: that only comes from handling (G.applyWear).
-function G.generate()
+function G.generate(random)
+    random=random or math.random
+    local math={random=random}
     local perfect = math.random() < 0.04
-    local function g(scale) return perfect and r2(gauss() * scale * 0.25) or r2(gauss() * scale) end
+    local function g(scale) return perfect and r2(gauss(random) * scale * 0.25) or r2(gauss(random) * scale) end
     local miscut = not perfect and math.random() < 0.08
     local misprint = not perfect and math.random() < 0.04
     -- (same order of random draws as condition.js generateCondition)
     local marks = {}
     if not perfect then
-        for _, entry in ipairs(FACTORY_MARKS) do if math.random() < entry[2] then marks[#marks + 1] = randomMark(entry[1]) end end
+        for _, entry in ipairs(FACTORY_MARKS) do if math.random() < entry[2] then marks[#marks + 1] = randomMark(entry[1],nil,random) end end
     end
     local sections={}
     for _,part in ipairs(G.TEXT_SECTIONS) do sections[part]=math.random()<0.28 and {g(0.36),g(0.3)} or {0,0} end
@@ -164,7 +168,7 @@ function G.generate()
         },
         art = { g(misprint and 1.8 or 0.48), g(misprint and 1.4 or 0.38) },
         text = sections,
-        foil = { g(1.3), g(1.3), r2(gauss() * (perfect and 2 or 12)) },
+        foil = { g(1.3), g(1.3), r2(gauss(random) * (perfect and 2 or 12)) },
         mask = { g(0.45), g(0.45) },
         corners = { front = { 0, 0, 0, 0 }, back = { 0, 0, 0, 0 } },
         edges = { front = { 0, 0, 0, 0 }, back = { 0, 0, 0, 0 } },

@@ -13,6 +13,7 @@ import { bridge, isFiveM } from '../runtime'
 import './collectibles.css'
 import { loadPackPrefs } from '../runtime/packPrefs'
 import { openingLook } from './containerPrefs.js'
+import { MixedCrateCreator, cratesFor, createCrates, useShippingCrates } from '../components/ShippingCrateTools'
 
 const modules = listCollectibleTypes().filter(module => module.authorable)
 const clone = value => structuredClone(value)
@@ -95,6 +96,7 @@ export default function CollectiblesLab({ typeId, activeTab, onNavigate, onDirty
   },[openRequest,typeId])
   const previewSource = useMemo(() => draft ? withPrint(draft, printsOf(draft).find(entry => entry.id === printId) || printsOf(draft)[0]) : null, [draft, printId])
   const preview = useSettled(previewSource)
+  const crateInfo = useShippingCrates(isFiveM && canProduce)
   if (loaded.error) return <div role="alert">{loaded.error}</div>
   const attempt = async action => { setBusy(true); try { await action(); setError('') } catch (err) { setError(err.message) } finally {setBusy(false)} }
   const commit = async (next,operation) => { ++generation.current; const stored = isFiveM ? ((await bridge.saveCollectible(operation)).data || clone(next)) : saveCollectibles(next); setData(stored);return stored }
@@ -125,6 +127,10 @@ export default function CollectiblesLab({ typeId, activeTab, onNavigate, onDirty
   const saveContainers = () => attempt(async () => {if (!box.label.trim() || !typeSets.some(set => set.id === box.setId && set.itemIds.length)) throw new Error('Choose a saved set with collectibles before saving the container.');const value={...clone(box),kind:module.container.kind,count:Math.min(24,Math.max(1,Math.floor(Number(box.count)||1))),outer:{...(box.outer || module.container.outer),count:Math.min(100,Math.max(1,Math.floor(Number(box.outer?.count || module.container.outer.count)||1)))}};await commit({...data,containers:{...data.containers,[typeId]:value}},{kind:'container',typeId,value});setContainerDraft(null);setMessage('Containers saved.')})
   const saveCurrentSet = () => attempt(async () => {await commit(saveSet(data,selectedSet),{kind:'set',value:selectedSet});setSelectedSetId(selectedSet.id);setSetDraft(null);setMessage(`${selectedSet.name} saved.`)})
   const createSealed = outer => attempt(async () => { const response = await bridge.createCollectibleContainer({typeId,amount:Number(amount)||1,outer,style:chosenStyle,outerStyle:chosenOuterStyle}); setData(response.data); setMessage(`Created ${amount} ${outer ? box.outer?.label || module.container.outer.label : box.label} item${Number(amount) === 1 ? '' : 's'} in your inventory.`) })
+  // shipping crates of this collectible pull from the set selected here (its saved, non-empty version)
+  const typeCrates = cratesFor(crateInfo.crates, typeId)
+  const crateSet = typeSets.find(set => set.id === selectedSet?.id && set.itemIds.length > 0)
+  const runCrate = make => attempt(async () => setMessage(await make()))
   // 3D design + opening animation, saved on the container so every player (and each sealed snapshot) gets it
   const innerLook = normalizeLook(innerKind, box.look)
   const outerLook = normalizeLook('case', box.outer?.look)
@@ -220,8 +226,11 @@ export default function CollectiblesLab({ typeId, activeTab, onNavigate, onDirty
               <label className="field amount-field"><span>Amount</span><input type="number" min="1" max="100" value={amount} onChange={e => setAmount(Math.max(1, Number(e.target.value) || 1))} /></label>
               <button className="primary" disabled={busy || !data.containers[typeId]} onClick={() => createSealed(false)}>Create {box.label}</button>
               <button className="primary" disabled={busy || !data.containers[typeId]} onClick={() => createSealed(true)}>Create {box.outer?.label || module.container.outer.label}</button>
+              {typeCrates.map(crate => <button key={crate.id} className="primary" disabled={busy || !data.containers[typeId] || !crateSet} onClick={() => runCrate(() => createCrates(crate, amount, { [typeId]: crateSet.id }))}>Create {crate.label}</button>)}
             </div>
+            {typeCrates.length > 0 && <small>{crateSet ? `Crates hold ${crateSet.name} ${containerNoun} (up to 20 per click).` : 'Save the selected set with some collectibles to create crates from it.'}</small>}
           </div>}
+          {isFiveM && canProduce && <MixedCrateCreator crates={crateInfo.crates} sets={crateInfo.sets} busy={busy} onCreate={runCrate} />}
         </div>
       </div>
     </section>}

@@ -2,7 +2,7 @@
 MetaComic.Legacy = {
     prefsKey = 'rush_cards:pack_prefs',
     uploadConvar = 'rushcards_fivemanage_key',
-    manageAce = 'rushcards.manage',
+    manageAce = 'metacomic.manage',
     catalogAce = 'rushcards.catalog.write',
 }
 

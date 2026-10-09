@@ -79,11 +79,25 @@ MetaComic.VendingDoorOpen = function(id)
     local state = doors[tonumber(id) or 0]
     return state ~= nil and (state.target > 0 or state.angle > 0)
 end
+-- Include both the requested state and the visible angle, so key poses wait for the swing to finish.
+MetaComic.VendingLockPartsOpen = function(id, kind)
+    id = tonumber(id) or 0
+    local state = doors[id]
+    local cashOpen = lids[id] ~= nil or state and (state.lidAngle or 0) > 0
+    local rackOpen = racks[id] ~= nil or state and (state.rackAngle or 0) > 0
+    if kind == 'cashbox' then return cashOpen end
+    if kind == 'rack' then return rackOpen end
+    return MetaComic.VendingDoorOpen(id) or cashOpen or rackOpen
+end
 -- the hacks need the cabinet and its cash box open (client/vending_crime.lua)
 MetaComic.VendingHackReady = function(id) return box.Enabled == false or lids[tonumber(id) or 0] ~= nil end
 -- the hacks and the GPS switch in Rack.Required need the server rack open instead (the server checks again)
 MetaComic.VendingTechReady = function(id, action)
     id = tonumber(id) or 0
+    if RACK_NEEDS[action] or action == 'hack' or action == 'fullhack' then
+        local state = doors[id]
+        if not state or (state.target or 0) <= 0 then return false end
+    end
     if RACK_ON and RACK_NEEDS[action] then return racks[id] ~= nil end
     if action == 'hack' or action == 'fullhack' then return box.Enabled == false or lids[id] ~= nil end
     return true
@@ -370,8 +384,10 @@ if box.Enabled ~= false and box.Lock ~= false and GetResourceState('ox_target') 
             canInteract = function(entity)
                 local machine = MetaComic.VendingMachineOf and MetaComic.VendingMachineOf(entity)
                 -- broken into, or the cabinet is open for any other reason (unlocked with a key, being serviced)
-                local cabinetOpen = (machine and (machine.unlockedUntil or 0) > 0) or (machine and doors[machine.id] ~= nil and (doors[machine.id].target or 0) > 0)
-                return machine and not breaking and lids[machine.id] == nil and cabinetOpen and not machine.securitySeal
+                local cabinetOpen = machine and MetaComic.VendingCabinetOpen(machine.id)
+                return machine and not breaking and not (MetaComic.VendingActionBusy and MetaComic.VendingActionBusy())
+                    and not (MetaComic.VendingKeyWorkBusy and MetaComic.VendingKeyWorkBusy())
+                    and lids[machine.id] == nil and cabinetOpen and not machine.securitySeal and not machine.padlock
             end,
             onSelect = function(data)
                 local machine = MetaComic.VendingMachineOf and MetaComic.VendingMachineOf(data.entity)
@@ -394,8 +410,10 @@ if RACK_ON and rack.Lock ~= false and GetResourceState('ox_target') ~= 'missing'
             items = next(items) and items or nil,
             canInteract = function(entity)
                 local machine = MetaComic.VendingMachineOf and MetaComic.VendingMachineOf(entity)
-                local cabinetOpen = (machine and (machine.unlockedUntil or 0) > 0) or (machine and doors[machine.id] ~= nil and (doors[machine.id].target or 0) > 0)
-                return machine and not breaking and racks[machine.id] == nil and cabinetOpen and not machine.securitySeal
+                local cabinetOpen = machine and MetaComic.VendingCabinetOpen(machine.id)
+                return machine and not breaking and not (MetaComic.VendingActionBusy and MetaComic.VendingActionBusy())
+                    and not (MetaComic.VendingKeyWorkBusy and MetaComic.VendingKeyWorkBusy())
+                    and racks[machine.id] == nil and cabinetOpen and not machine.securitySeal and not machine.padlock
             end,
             onSelect = function(data)
                 local machine = MetaComic.VendingMachineOf and MetaComic.VendingMachineOf(data.entity)

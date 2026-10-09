@@ -57,7 +57,8 @@ local function keyReport(record, source)
 end
 local function reportStore()
     if printedReports then return printedReports end
-    local saved = MetaComic.Settings.get(REPORTS_KEY, {})
+    local saved = MetaComic.Settings.get(REPORTS_KEY, nil)
+    if MetaComic.VendingState then saved = MetaComic.VendingState.load(REPORTS_KEY, saved) end
     printedReports = type(saved) == 'table' and saved or {}
     printedReports.reports = type(printedReports.reports) == 'table' and printedReports.reports or {}
     printedReports.nextId = tonumber(printedReports.nextId) or 0
@@ -76,7 +77,9 @@ function service.giveKeyReport(source, serial)
     local reportId = ('VKR-%s-%06d'):format(os.time(), store.nextId)
     report.reportId = reportId
     store.reports[reportId] = report
-    if not MetaComic.Settings.set(REPORTS_KEY, store) then
+    local saved = MetaComic.VendingState and MetaComic.VendingState.saveNow(REPORTS_KEY, store)
+    if not MetaComic.VendingState then saved = MetaComic.Settings.set(REPORTS_KEY, store) end
+    if not saved then
         store.reports[reportId], store.nextId, printing = nil, previousId, false
         return false, 'Could not save the printed evidence snapshot.'
     end

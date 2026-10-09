@@ -51,6 +51,11 @@ local function cleanRecipe(raw, id)
         set = text(result.set, 80), collectible = text(result.collectible, 40), outer = result.outer == true,
         crate = text(result.crate, 40), model = text(result.model, 64),
     }
+    if typeId == 'crate' and type(result.sets) == 'table' then -- card sets the crate's packs / boxes come from
+        local sets = {}
+        for _, id in ipairs(result.sets) do local value = text(id, 80); if value and #sets < 20 then sets[#sets + 1] = value end end
+        cleanResult.sets = #sets > 0 and sets or nil
+    end
     if not cleanResult.count then return nil, id .. ': result count must be 1 to 1000' end
     if resultType.validate and not resultType.validate(cleanResult) then return nil, id .. ': the result is not valid (check its item / set / type)' end
     local ingredients = {}

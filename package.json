@@ -7,7 +7,9 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "build:fivem": "node scripts/sync-fivem-assets.mjs && vite build --mode fivem",
+    "build:fivem": "node scripts/fix-vending-collision.mjs && node scripts/fix-vending-textures.mjs && node scripts/sync-fivem-assets.mjs && vite build --mode fivem",
+    "vending:collision": "node scripts/fix-vending-collision.mjs",
+    "vending:textures": "node scripts/fix-vending-textures.mjs",
     "catalog:fivem": "node scripts/export-fivem-catalog.mjs"
   },
   "dependencies": {

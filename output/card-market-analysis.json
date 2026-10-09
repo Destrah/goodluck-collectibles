@@ -1,0 +1,3626 @@
+[
+  {
+    "fresh": {
+      "max": 1015,
+      "samples": 5000,
+      "exact": false,
+      "min": 8,
+      "standardDeviation": 42.97987441723142,
+      "sampleMean": 23.257,
+      "histogram": [
+        {
+          "count": 9,
+          "value": 8
+        },
+        {
+          "count": 112,
+          "value": 9
+        },
+        {
+          "count": 504,
+          "value": 10
+        },
+        {
+          "count": 425,
+          "value": 11
+        },
+        {
+          "count": 492,
+          "value": 12
+        },
+        {
+          "count": 374,
+          "value": 13
+        },
+        {
+          "count": 390,
+          "value": 14
+        },
+        {
+          "count": 261,
+          "value": 15
+        },
+        {
+          "count": 286,
+          "value": 16
+        },
+        {
+          "count": 216,
+          "value": 17
+        },
+        {
+          "count": 187,
+          "value": 18
+        },
+        {
+          "count": 177,
+          "value": 19
+        },
+        {
+          "count": 182,
+          "value": 20
+        },
+        {
+          "count": 116,
+          "value": 21
+        },
+        {
+          "count": 120,
+          "value": 22
+        },
+        {
+          "count": 111,
+          "value": 23
+        },
+        {
+          "count": 76,
+          "value": 24
+        },
+        {
+          "count": 83,
+          "value": 25
+        },
+        {
+          "count": 81,
+          "value": 26
+        },
+        {
+          "count": 61,
+          "value": 27
+        },
+        {
+          "count": 50,
+          "value": 28
+        },
+        {
+          "count": 30,
+          "value": 29
+        },
+        {
+          "count": 33,
+          "value": 30
+        },
+        {
+          "count": 35,
+          "value": 31
+        },
+        {
+          "count": 42,
+          "value": 32
+        },
+        {
+          "count": 13,
+          "value": 33
+        },
+        {
+          "count": 17,
+          "value": 34
+        },
+        {
+          "count": 23,
+          "value": 35
+        },
+        {
+          "count": 16,
+          "value": 36
+        },
+        {
+          "count": 15,
+          "value": 37
+        },
+        {
+          "count": 9,
+          "value": 38
+        },
+        {
+          "count": 11,
+          "value": 39
+        },
+        {
+          "count": 9,
+          "value": 40
+        },
+        {
+          "count": 6,
+          "value": 41
+        },
+        {
+          "count": 7,
+          "value": 42
+        },
+        {
+          "count": 2,
+          "value": 43
+        },
+        {
+          "count": 6,
+          "value": 44
+        },
+        {
+          "count": 3,
+          "value": 45
+        },
+        {
+          "count": 21,
+          "value": 46
+        },
+        {
+          "count": 9,
+          "value": 47
+        },
+        {
+          "count": 17,
+          "value": 48
+        },
+        {
+          "count": 11,
+          "value": 49
+        },
+        {
+          "count": 11,
+          "value": 50
+        },
+        {
+          "count": 13,
+          "value": 51
+        },
+        {
+          "count": 10,
+          "value": 52
+        },
+        {
+          "count": 4,
+          "value": 53
+        },
+        {
+          "count": 9,
+          "value": 54
+        },
+        {
+          "count": 21,
+          "value": 55
+        },
+        {
+          "count": 10,
+          "value": 56
+        },
+        {
+          "count": 21,
+          "value": 57
+        },
+        {
+          "count": 15,
+          "value": 58
+        },
+        {
+          "count": 11,
+          "value": 59
+        },
+        {
+          "count": 6,
+          "value": 60
+        },
+        {
+          "count": 5,
+          "value": 61
+        },
+        {
+          "count": 6,
+          "value": 62
+        },
+        {
+          "count": 6,
+          "value": 63
+        },
+        {
+          "count": 6,
+          "value": 64
+        },
+        {
+          "count": 1,
+          "value": 65
+        },
+        {
+          "count": 2,
+          "value": 66
+        },
+        {
+          "count": 1,
+          "value": 68
+        },
+        {
+          "count": 1,
+          "value": 69
+        },
+        {
+          "count": 1,
+          "value": 70
+        },
+        {
+          "count": 6,
+          "value": 72
+        },
+        {
+          "count": 8,
+          "value": 73
+        },
+        {
+          "count": 5,
+          "value": 74
+        },
+        {
+          "count": 6,
+          "value": 75
+        },
+        {
+          "count": 8,
+          "value": 76
+        },
+        {
+          "count": 3,
+          "value": 77
+        },
+        {
+          "count": 1,
+          "value": 78
+        },
+        {
+          "count": 4,
+          "value": 79
+        },
+        {
+          "count": 3,
+          "value": 80
+        },
+        {
+          "count": 1,
+          "value": 81
+        },
+        {
+          "count": 2,
+          "value": 82
+        },
+        {
+          "count": 1,
+          "value": 83
+        },
+        {
+          "count": 2,
+          "value": 85
+        },
+        {
+          "count": 1,
+          "value": 87
+        },
+        {
+          "count": 2,
+          "value": 88
+        },
+        {
+          "count": 2,
+          "value": 89
+        },
+        {
+          "count": 3,
+          "value": 91
+        },
+        {
+          "count": 1,
+          "value": 95
+        },
+        {
+          "count": 1,
+          "value": 96
+        },
+        {
+          "count": 1,
+          "value": 97
+        },
+        {
+          "count": 1,
+          "value": 99
+        },
+        {
+          "count": 2,
+          "value": 100
+        },
+        {
+          "count": 6,
+          "value": 101
+        },
+        {
+          "count": 4,
+          "value": 102
+        },
+        {
+          "count": 4,
+          "value": 103
+        },
+        {
+          "count": 4,
+          "value": 104
+        },
+        {
+          "count": 3,
+          "value": 105
+        },
+        {
+          "count": 3,
+          "value": 106
+        },
+        {
+          "count": 4,
+          "value": 107
+        },
+        {
+          "count": 1,
+          "value": 108
+        },
+        {
+          "count": 2,
+          "value": 109
+        },
+        {
+          "count": 3,
+          "value": 110
+        },
+        {
+          "count": 1,
+          "value": 111
+        },
+        {
+          "count": 1,
+          "value": 112
+        },
+        {
+          "count": 1,
+          "value": 114
+        },
+        {
+          "count": 2,
+          "value": 116
+        },
+        {
+          "count": 2,
+          "value": 119
+        },
+        {
+          "count": 3,
+          "value": 120
+        },
+        {
+          "count": 2,
+          "value": 121
+        },
+        {
+          "count": 4,
+          "value": 122
+        },
+        {
+          "count": 4,
+          "value": 123
+        },
+        {
+          "count": 3,
+          "value": 124
+        },
+        {
+          "count": 5,
+          "value": 126
+        },
+        {
+          "count": 3,
+          "value": 127
+        },
+        {
+          "count": 5,
+          "value": 128
+        },
+        {
+          "count": 4,
+          "value": 129
+        },
+        {
+          "count": 6,
+          "value": 130
+        },
+        {
+          "count": 5,
+          "value": 131
+        },
+        {
+          "count": 3,
+          "value": 133
+        },
+        {
+          "count": 5,
+          "value": 134
+        },
+        {
+          "count": 6,
+          "value": 135
+        },
+        {
+          "count": 1,
+          "value": 137
+        },
+        {
+          "count": 1,
+          "value": 138
+        },
+        {
+          "count": 1,
+          "value": 142
+        },
+        {
+          "count": 1,
+          "value": 202
+        },
+        {
+          "count": 1,
+          "value": 213
+        },
+        {
+          "count": 1,
+          "value": 214
+        },
+        {
+          "count": 2,
+          "value": 221
+        },
+        {
+          "count": 3,
+          "value": 250
+        },
+        {
+          "count": 1,
+          "value": 251
+        },
+        {
+          "count": 2,
+          "value": 252
+        },
+        {
+          "count": 3,
+          "value": 253
+        },
+        {
+          "count": 1,
+          "value": 256
+        },
+        {
+          "count": 2,
+          "value": 257
+        },
+        {
+          "count": 1,
+          "value": 258
+        },
+        {
+          "count": 1,
+          "value": 261
+        },
+        {
+          "count": 1,
+          "value": 845
+        },
+        {
+          "count": 1,
+          "value": 1005
+        },
+        {
+          "count": 1,
+          "value": 1008
+        },
+        {
+          "count": 2,
+          "value": 1009
+        },
+        {
+          "count": 1,
+          "value": 1013
+        },
+        {
+          "count": 1,
+          "value": 1015
+        }
+      ],
+      "p90": 35,
+      "median": 15,
+      "variance": 1847.269604920984,
+      "p10": 10,
+      "mean": 23.257,
+      "confidence95": [
+        22.065658662325156,
+        24.448341337674847
+      ]
+    },
+    "samples": 5000,
+    "prints": [
+      {
+        "key": "nate-gatto::nate-gatto--character-outline",
+        "grades": [
+          {
+            "price": 1,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 3,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 6,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 9,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 11,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 16,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.3289473684210526,
+        "cleanPrice": 5,
+        "rarity": "rare",
+        "variant": "Character Outline",
+        "label": "Nate Gatto"
+      },
+      {
+        "key": "county-heat-gauntlet::county-heat-gauntlet--gold-chase",
+        "grades": [
+          {
+            "price": 9,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 34,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 63,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 88,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 109,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 156,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.02857142857142857,
+        "cleanPrice": 50,
+        "rarity": "legendary",
+        "variant": "Gold Chase",
+        "label": "County Heat Gauntlet"
+      },
+      {
+        "key": "county-heat-gauntlet::county-heat-gauntlet--rare",
+        "grades": [
+          {
+            "price": 1,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 3,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 6,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 9,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 11,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 16,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.18421052631578946,
+        "cleanPrice": 5,
+        "rarity": "rare",
+        "variant": "Rare",
+        "label": "County Heat Gauntlet"
+      },
+      {
+        "key": "sunset-run::sunset-run--standard",
+        "grades": [
+          {
+            "price": 1,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 2,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 3,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 5,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 6,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 8,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.29090909090909095,
+        "cleanPrice": 3,
+        "rarity": "uncommon",
+        "variant": "Standard",
+        "label": "Sunset Run"
+      },
+      {
+        "key": "nate-gatto::nate-gatto--reverse-holo",
+        "grades": [
+          {
+            "price": 1,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 2,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 3,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 5,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 6,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 8,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.28846153846153855,
+        "cleanPrice": 3,
+        "rarity": "common",
+        "variant": "Reverse Holo",
+        "label": "Nate Gatto"
+      },
+      {
+        "key": "nate-gatto::nate-gatto--character-car-outline",
+        "grades": [
+          {
+            "price": 3,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 10,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 19,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 26,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 33,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 47,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.054644808743169404,
+        "cleanPrice": 15,
+        "rarity": "ultra_rare",
+        "variant": "Character + Car Outline",
+        "label": "Nate Gatto"
+      },
+      {
+        "key": "nate-gatto::nate-gatto--rainbow-chase",
+        "grades": [
+          {
+            "price": 1,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 4,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 8,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 11,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 14,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 20,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.11538461538461539,
+        "cleanPrice": 7,
+        "rarity": "common",
+        "variant": "Rainbow Chase",
+        "label": "Nate Gatto"
+      },
+      {
+        "key": "bcso-moto::bcso-moto--standard",
+        "grades": [
+          {
+            "price": 1,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 1,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 3,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 4,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 4,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 6,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.39877769289533993,
+        "cleanPrice": 2,
+        "rarity": "uncommon",
+        "variant": "Standard",
+        "label": "BCSO Moto"
+      },
+      {
+        "key": "peggy-moto::peggy-moto--prism",
+        "grades": [
+          {
+            "price": 1,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 5,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 10,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 14,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 17,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 24,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.09692307692307692,
+        "cleanPrice": 8,
+        "rarity": "common",
+        "variant": "Prism",
+        "label": "Peggy Moto"
+      },
+      {
+        "key": "county-heat-gauntlet::county-heat-gauntlet--prism-full-art",
+        "grades": [
+          {
+            "price": 5,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 17,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 31,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 43,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 54,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 77,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.030601092896174867,
+        "cleanPrice": 25,
+        "rarity": "ultra_rare",
+        "variant": "Prism Full Art",
+        "label": "County Heat Gauntlet"
+      },
+      {
+        "key": "dark-sky::dark-sky--full-art",
+        "grades": [
+          {
+            "price": 4,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 13,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 25,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 34,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 43,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 61,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.03825136612021858,
+        "cleanPrice": 20,
+        "rarity": "ultra_rare",
+        "variant": "Full Art",
+        "label": "Dark Sky"
+      },
+      {
+        "key": "pier-park-man::pier-park-man--legendary-etched",
+        "grades": [
+          {
+            "price": 23,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 84,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 153,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 214,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 268,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 383,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.006122448979591837,
+        "cleanPrice": 123,
+        "rarity": "legendary",
+        "variant": "Legendary Etched",
+        "label": "Pier Park Man"
+      },
+      {
+        "key": "air-juanito::air-juanito--ultra-rare",
+        "grades": [
+          {
+            "price": 8,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 28,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 51,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 71,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 89,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 128,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.01836065573770492,
+        "cleanPrice": 41,
+        "rarity": "ultra_rare",
+        "variant": "Ultra Rare",
+        "label": "Air Juanito"
+      },
+      {
+        "key": "pier-park-man::pier-park-man--legendary-rainbow",
+        "grades": [
+          {
+            "price": 13,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 46,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 84,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 117,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 146,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 209,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.011224489795918368,
+        "cleanPrice": 67,
+        "rarity": "legendary",
+        "variant": "Legendary Rainbow",
+        "label": "Pier Park Man"
+      },
+      {
+        "key": "pier-park-man::pier-park-man--legendary-aurora",
+        "grades": [
+          {
+            "price": 46,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 168,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 306,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 429,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 536,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 766,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.0030612244897959186,
+        "cleanPrice": 245,
+        "rarity": "legendary",
+        "variant": "Legendary Aurora",
+        "label": "Pier Park Man"
+      },
+      {
+        "key": "nate-gatto::nate-gatto--base",
+        "grades": [
+          {
+            "price": 1,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 1,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 1,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 2,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 2,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 3,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.75,
+        "cleanPrice": 1,
+        "rarity": "common",
+        "variant": "Base",
+        "label": "Nate Gatto"
+      },
+      {
+        "key": "holo-mask-lab::holo-mask-lab--reference-base",
+        "grades": [
+          {
+            "price": 21,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 78,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 143,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 200,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 249,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 356,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.006578947368421052,
+        "cleanPrice": 114,
+        "rarity": "rare",
+        "variant": "Reference Base",
+        "label": "Holo Mask Lab"
+      },
+      {
+        "key": "sunset-run::sunset-run--aurora",
+        "grades": [
+          {
+            "price": 1,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 4,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 8,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 11,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 13,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 19,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.12467532467532468,
+        "cleanPrice": 6,
+        "rarity": "uncommon",
+        "variant": "Aurora",
+        "label": "Sunset Run"
+      },
+      {
+        "key": "air-juanito::air-juanito--oil-slick",
+        "grades": [
+          {
+            "price": 18,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 66,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 119,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 167,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 208,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 298,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.007868852459016395,
+        "cleanPrice": 95,
+        "rarity": "ultra_rare",
+        "variant": "Oil Slick",
+        "label": "Air Juanito"
+      },
+      {
+        "key": "dark-sky::dark-sky--rare",
+        "grades": [
+          {
+            "price": 1,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 3,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 6,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 9,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 11,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 16,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.1489938080495356,
+        "cleanPrice": 5,
+        "rarity": "rare",
+        "variant": "Rare",
+        "label": "Dark Sky"
+      },
+      {
+        "key": "bcso-moto::bcso-moto--reverse",
+        "grades": [
+          {
+            "price": 1,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 3,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 5,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 7,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 9,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 13,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.18563789152024446,
+        "cleanPrice": 4,
+        "rarity": "uncommon",
+        "variant": "Reverse",
+        "label": "BCSO Moto"
+      },
+      {
+        "key": "bcso-moto::bcso-moto--full-art-prism",
+        "grades": [
+          {
+            "price": 3,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 10,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 19,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 27,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 33,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 48,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.04918032786885246,
+        "cleanPrice": 15,
+        "rarity": "ultra_rare",
+        "variant": "Full Art Prism",
+        "label": "BCSO Moto"
+      },
+      {
+        "key": "dark-sky::dark-sky--illustration-rare",
+        "grades": [
+          {
+            "price": 2,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 6,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 12,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 16,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 20,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 29,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.08126934984520123,
+        "cleanPrice": 9,
+        "rarity": "rare",
+        "variant": "Illustration Rare",
+        "label": "Dark Sky"
+      },
+      {
+        "key": "peggy-moto::peggy-moto--etched",
+        "grades": [
+          {
+            "price": 1,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 3,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 5,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 8,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 9,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 13,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.17446153846153847,
+        "cleanPrice": 4,
+        "rarity": "common",
+        "variant": "Etched",
+        "label": "Peggy Moto"
+      },
+      {
+        "key": "peggy-moto::peggy-moto--base",
+        "grades": [
+          {
+            "price": 1,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 1,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 1,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 2,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 2,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 3,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.6978461538461539,
+        "cleanPrice": 1,
+        "rarity": "common",
+        "variant": "Base",
+        "label": "Peggy Moto"
+      },
+      {
+        "key": "business-fudge::business-fudge--base",
+        "grades": [
+          {
+            "price": 1,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 1,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 1,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 2,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 2,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 4,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.6576923076923077,
+        "cleanPrice": 1,
+        "rarity": "common",
+        "variant": "Base",
+        "label": "Business Fudge"
+      },
+      {
+        "key": "business-fudge::business-fudge--reverse-holo",
+        "grades": [
+          {
+            "price": 1,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 2,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 4,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 6,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 7,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 11,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.21923076923076923,
+        "cleanPrice": 3,
+        "rarity": "common",
+        "variant": "Reverse Holo",
+        "label": "Business Fudge"
+      },
+      {
+        "key": "holo-mask-lab::holo-mask-lab--electric-outline-demo",
+        "grades": [
+          {
+            "price": 188,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 688,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.000273224043715847,
+        "cleanPrice": 1000,
+        "rarity": "ultra_rare",
+        "variant": "Electric Outline Demo",
+        "label": "Holo Mask Lab"
+      },
+      {
+        "key": "holo-mask-lab::holo-mask-lab--dedicated-outline-mask",
+        "grades": [
+          {
+            "price": 188,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 688,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.000273224043715847,
+        "cleanPrice": 1000,
+        "rarity": "ultra_rare",
+        "variant": "Dedicated Outline Mask",
+        "label": "Holo Mask Lab"
+      },
+      {
+        "key": "holo-mask-lab::holo-mask-lab--subject-prism-mask",
+        "grades": [
+          {
+            "price": 188,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 688,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.000273224043715847,
+        "cleanPrice": 1000,
+        "rarity": "ultra_rare",
+        "variant": "Subject Prism Mask",
+        "label": "Holo Mask Lab"
+      },
+      {
+        "key": "holo-mask-lab::holo-mask-lab--water-subject-demo",
+        "grades": [
+          {
+            "price": 188,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 688,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.000273224043715847,
+        "cleanPrice": 1000,
+        "rarity": "ultra_rare",
+        "variant": "Water Subject Demo",
+        "label": "Holo Mask Lab"
+      },
+      {
+        "key": "holo-mask-lab::holo-mask-lab--triple-mask-chase",
+        "grades": [
+          {
+            "price": 188,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 688,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.0001457725947521866,
+        "cleanPrice": 1000,
+        "rarity": "legendary",
+        "variant": "Triple Mask Chase",
+        "label": "Holo Mask Lab"
+      },
+      {
+        "key": "holo-mask-lab::holo-mask-lab--flame-hybrid-demo",
+        "grades": [
+          {
+            "price": 188,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 688,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.0001457725947521866,
+        "cleanPrice": 1000,
+        "rarity": "legendary",
+        "variant": "Flame Hybrid Demo",
+        "label": "Holo Mask Lab"
+      },
+      {
+        "key": "holo-mask-lab::holo-mask-lab--flame-smooth-demo",
+        "grades": [
+          {
+            "price": 188,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 688,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.0001457725947521866,
+        "cleanPrice": 1000,
+        "rarity": "legendary",
+        "variant": "Flame Smooth Demo",
+        "label": "Holo Mask Lab"
+      },
+      {
+        "key": "holo-mask-lab::holo-mask-lab--flame-hybrid-50-demo",
+        "grades": [
+          {
+            "price": 188,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 688,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.0001457725947521866,
+        "cleanPrice": 1000,
+        "rarity": "legendary",
+        "variant": "Flame Hybrid 50% Demo",
+        "label": "Holo Mask Lab"
+      },
+      {
+        "key": "holo-mask-lab::holo-mask-lab--flame-anime-demo",
+        "grades": [
+          {
+            "price": 188,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 688,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.0001457725947521866,
+        "cleanPrice": 1000,
+        "rarity": "legendary",
+        "variant": "Flame Anime Demo",
+        "label": "Holo Mask Lab"
+      },
+      {
+        "key": "holo-mask-lab::holo-mask-lab--flame-smoky-demo",
+        "grades": [
+          {
+            "price": 188,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 688,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.0001457725947521866,
+        "cleanPrice": 1000,
+        "rarity": "legendary",
+        "variant": "Flame Smoky Demo",
+        "label": "Holo Mask Lab"
+      },
+      {
+        "key": "holo-mask-lab::holo-mask-lab--flame-accent-demo",
+        "grades": [
+          {
+            "price": 188,
+            "grade": 1,
+            "population": 0
+          },
+          {
+            "price": 688,
+            "grade": 5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 8,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 9.5,
+            "population": 0
+          },
+          {
+            "price": 1000,
+            "grade": 10,
+            "population": 0
+          }
+        ],
+        "expectedCopies": 0.0001457725947521866,
+        "cleanPrice": 1000,
+        "rarity": "legendary",
+        "variant": "Flame Accent Demo",
+        "label": "Holo Mask Lab"
+      }
+    ],
+    "gradeScenarios": [
+      {
+        "grade": 1,
+        "mean": 6.950854319294587
+      },
+      {
+        "grade": 5,
+        "mean": 16.673361731717918
+      },
+      {
+        "grade": 8,
+        "mean": 28.976059215825693
+      },
+      {
+        "grade": 9,
+        "mean": 41.83368680582643
+      },
+      {
+        "grade": 9.5,
+        "mean": 49.631306647051105
+      },
+      {
+        "grade": 10,
+        "mean": 71.31061359504615
+      }
+    ],
+    "graded": {
+      "max": 1025,
+      "samples": 5000,
+      "exact": false,
+      "min": 8,
+      "standardDeviation": 54.832215556300135,
+      "sampleMean": 36.0534,
+      "histogram": [
+        {
+          "count": 2,
+          "value": 8
+        },
+        {
+          "count": 1,
+          "value": 9
+        },
+        {
+          "count": 11,
+          "value": 10
+        },
+        {
+          "count": 24,
+          "value": 11
+        },
+        {
+          "count": 60,
+          "value": 12
+        },
+        {
+          "count": 87,
+          "value": 13
+        },
+        {
+          "count": 169,
+          "value": 14
+        },
+        {
+          "count": 198,
+          "value": 15
+        },
+        {
+          "count": 212,
+          "value": 16
+        },
+        {
+          "count": 229,
+          "value": 17
+        },
+        {
+          "count": 258,
+          "value": 18
+        },
+        {
+          "count": 250,
+          "value": 19
+        },
+        {
+          "count": 229,
+          "value": 20
+        },
+        {
+          "count": 229,
+          "value": 21
+        },
+        {
+          "count": 209,
+          "value": 22
+        },
+        {
+          "count": 199,
+          "value": 23
+        },
+        {
+          "count": 174,
+          "value": 24
+        },
+        {
+          "count": 164,
+          "value": 25
+        },
+        {
+          "count": 176,
+          "value": 26
+        },
+        {
+          "count": 137,
+          "value": 27
+        },
+        {
+          "count": 155,
+          "value": 28
+        },
+        {
+          "count": 120,
+          "value": 29
+        },
+        {
+          "count": 117,
+          "value": 30
+        },
+        {
+          "count": 108,
+          "value": 31
+        },
+        {
+          "count": 72,
+          "value": 32
+        },
+        {
+          "count": 90,
+          "value": 33
+        },
+        {
+          "count": 94,
+          "value": 34
+        },
+        {
+          "count": 63,
+          "value": 35
+        },
+        {
+          "count": 60,
+          "value": 36
+        },
+        {
+          "count": 58,
+          "value": 37
+        },
+        {
+          "count": 61,
+          "value": 38
+        },
+        {
+          "count": 45,
+          "value": 39
+        },
+        {
+          "count": 61,
+          "value": 40
+        },
+        {
+          "count": 39,
+          "value": 41
+        },
+        {
+          "count": 28,
+          "value": 42
+        },
+        {
+          "count": 31,
+          "value": 43
+        },
+        {
+          "count": 33,
+          "value": 44
+        },
+        {
+          "count": 29,
+          "value": 45
+        },
+        {
+          "count": 27,
+          "value": 46
+        },
+        {
+          "count": 26,
+          "value": 47
+        },
+        {
+          "count": 28,
+          "value": 48
+        },
+        {
+          "count": 26,
+          "value": 49
+        },
+        {
+          "count": 11,
+          "value": 50
+        },
+        {
+          "count": 13,
+          "value": 51
+        },
+        {
+          "count": 14,
+          "value": 52
+        },
+        {
+          "count": 18,
+          "value": 53
+        },
+        {
+          "count": 9,
+          "value": 54
+        },
+        {
+          "count": 16,
+          "value": 55
+        },
+        {
+          "count": 20,
+          "value": 56
+        },
+        {
+          "count": 9,
+          "value": 57
+        },
+        {
+          "count": 11,
+          "value": 58
+        },
+        {
+          "count": 14,
+          "value": 59
+        },
+        {
+          "count": 18,
+          "value": 60
+        },
+        {
+          "count": 12,
+          "value": 61
+        },
+        {
+          "count": 13,
+          "value": 62
+        },
+        {
+          "count": 17,
+          "value": 63
+        },
+        {
+          "count": 10,
+          "value": 64
+        },
+        {
+          "count": 6,
+          "value": 65
+        },
+        {
+          "count": 6,
+          "value": 66
+        },
+        {
+          "count": 7,
+          "value": 67
+        },
+        {
+          "count": 10,
+          "value": 68
+        },
+        {
+          "count": 13,
+          "value": 69
+        },
+        {
+          "count": 8,
+          "value": 70
+        },
+        {
+          "count": 5,
+          "value": 71
+        },
+        {
+          "count": 5,
+          "value": 72
+        },
+        {
+          "count": 5,
+          "value": 73
+        },
+        {
+          "count": 15,
+          "value": 74
+        },
+        {
+          "count": 9,
+          "value": 75
+        },
+        {
+          "count": 1,
+          "value": 76
+        },
+        {
+          "count": 4,
+          "value": 77
+        },
+        {
+          "count": 5,
+          "value": 78
+        },
+        {
+          "count": 6,
+          "value": 79
+        },
+        {
+          "count": 4,
+          "value": 80
+        },
+        {
+          "count": 4,
+          "value": 81
+        },
+        {
+          "count": 12,
+          "value": 82
+        },
+        {
+          "count": 4,
+          "value": 83
+        },
+        {
+          "count": 6,
+          "value": 84
+        },
+        {
+          "count": 3,
+          "value": 85
+        },
+        {
+          "count": 3,
+          "value": 86
+        },
+        {
+          "count": 5,
+          "value": 87
+        },
+        {
+          "count": 3,
+          "value": 88
+        },
+        {
+          "count": 1,
+          "value": 89
+        },
+        {
+          "count": 3,
+          "value": 90
+        },
+        {
+          "count": 4,
+          "value": 91
+        },
+        {
+          "count": 3,
+          "value": 92
+        },
+        {
+          "count": 4,
+          "value": 93
+        },
+        {
+          "count": 1,
+          "value": 94
+        },
+        {
+          "count": 2,
+          "value": 95
+        },
+        {
+          "count": 5,
+          "value": 96
+        },
+        {
+          "count": 3,
+          "value": 97
+        },
+        {
+          "count": 5,
+          "value": 98
+        },
+        {
+          "count": 4,
+          "value": 99
+        },
+        {
+          "count": 4,
+          "value": 100
+        },
+        {
+          "count": 3,
+          "value": 101
+        },
+        {
+          "count": 3,
+          "value": 102
+        },
+        {
+          "count": 5,
+          "value": 103
+        },
+        {
+          "count": 1,
+          "value": 104
+        },
+        {
+          "count": 4,
+          "value": 105
+        },
+        {
+          "count": 5,
+          "value": 106
+        },
+        {
+          "count": 1,
+          "value": 107
+        },
+        {
+          "count": 4,
+          "value": 108
+        },
+        {
+          "count": 1,
+          "value": 109
+        },
+        {
+          "count": 1,
+          "value": 110
+        },
+        {
+          "count": 3,
+          "value": 111
+        },
+        {
+          "count": 1,
+          "value": 112
+        },
+        {
+          "count": 2,
+          "value": 113
+        },
+        {
+          "count": 1,
+          "value": 114
+        },
+        {
+          "count": 2,
+          "value": 116
+        },
+        {
+          "count": 1,
+          "value": 117
+        },
+        {
+          "count": 3,
+          "value": 118
+        },
+        {
+          "count": 1,
+          "value": 119
+        },
+        {
+          "count": 3,
+          "value": 120
+        },
+        {
+          "count": 1,
+          "value": 121
+        },
+        {
+          "count": 5,
+          "value": 122
+        },
+        {
+          "count": 1,
+          "value": 123
+        },
+        {
+          "count": 2,
+          "value": 124
+        },
+        {
+          "count": 4,
+          "value": 125
+        },
+        {
+          "count": 1,
+          "value": 126
+        },
+        {
+          "count": 3,
+          "value": 127
+        },
+        {
+          "count": 1,
+          "value": 128
+        },
+        {
+          "count": 1,
+          "value": 129
+        },
+        {
+          "count": 1,
+          "value": 130
+        },
+        {
+          "count": 1,
+          "value": 131
+        },
+        {
+          "count": 2,
+          "value": 132
+        },
+        {
+          "count": 3,
+          "value": 133
+        },
+        {
+          "count": 1,
+          "value": 134
+        },
+        {
+          "count": 3,
+          "value": 136
+        },
+        {
+          "count": 1,
+          "value": 137
+        },
+        {
+          "count": 1,
+          "value": 138
+        },
+        {
+          "count": 4,
+          "value": 139
+        },
+        {
+          "count": 5,
+          "value": 140
+        },
+        {
+          "count": 2,
+          "value": 141
+        },
+        {
+          "count": 1,
+          "value": 144
+        },
+        {
+          "count": 1,
+          "value": 145
+        },
+        {
+          "count": 3,
+          "value": 146
+        },
+        {
+          "count": 2,
+          "value": 148
+        },
+        {
+          "count": 1,
+          "value": 149
+        },
+        {
+          "count": 1,
+          "value": 151
+        },
+        {
+          "count": 3,
+          "value": 152
+        },
+        {
+          "count": 1,
+          "value": 153
+        },
+        {
+          "count": 2,
+          "value": 154
+        },
+        {
+          "count": 2,
+          "value": 155
+        },
+        {
+          "count": 2,
+          "value": 156
+        },
+        {
+          "count": 3,
+          "value": 157
+        },
+        {
+          "count": 1,
+          "value": 158
+        },
+        {
+          "count": 1,
+          "value": 160
+        },
+        {
+          "count": 2,
+          "value": 161
+        },
+        {
+          "count": 1,
+          "value": 162
+        },
+        {
+          "count": 2,
+          "value": 163
+        },
+        {
+          "count": 1,
+          "value": 164
+        },
+        {
+          "count": 1,
+          "value": 165
+        },
+        {
+          "count": 3,
+          "value": 166
+        },
+        {
+          "count": 1,
+          "value": 167
+        },
+        {
+          "count": 3,
+          "value": 168
+        },
+        {
+          "count": 2,
+          "value": 169
+        },
+        {
+          "count": 1,
+          "value": 170
+        },
+        {
+          "count": 1,
+          "value": 171
+        },
+        {
+          "count": 1,
+          "value": 172
+        },
+        {
+          "count": 2,
+          "value": 173
+        },
+        {
+          "count": 2,
+          "value": 174
+        },
+        {
+          "count": 1,
+          "value": 175
+        },
+        {
+          "count": 2,
+          "value": 177
+        },
+        {
+          "count": 4,
+          "value": 179
+        },
+        {
+          "count": 2,
+          "value": 180
+        },
+        {
+          "count": 1,
+          "value": 181
+        },
+        {
+          "count": 1,
+          "value": 183
+        },
+        {
+          "count": 1,
+          "value": 184
+        },
+        {
+          "count": 1,
+          "value": 185
+        },
+        {
+          "count": 1,
+          "value": 186
+        },
+        {
+          "count": 1,
+          "value": 188
+        },
+        {
+          "count": 1,
+          "value": 193
+        },
+        {
+          "count": 2,
+          "value": 194
+        },
+        {
+          "count": 1,
+          "value": 198
+        },
+        {
+          "count": 1,
+          "value": 208
+        },
+        {
+          "count": 1,
+          "value": 212
+        },
+        {
+          "count": 1,
+          "value": 213
+        },
+        {
+          "count": 1,
+          "value": 214
+        },
+        {
+          "count": 1,
+          "value": 215
+        },
+        {
+          "count": 1,
+          "value": 216
+        },
+        {
+          "count": 1,
+          "value": 218
+        },
+        {
+          "count": 2,
+          "value": 219
+        },
+        {
+          "count": 2,
+          "value": 220
+        },
+        {
+          "count": 2,
+          "value": 221
+        },
+        {
+          "count": 4,
+          "value": 223
+        },
+        {
+          "count": 1,
+          "value": 229
+        },
+        {
+          "count": 1,
+          "value": 230
+        },
+        {
+          "count": 1,
+          "value": 231
+        },
+        {
+          "count": 2,
+          "value": 232
+        },
+        {
+          "count": 1,
+          "value": 235
+        },
+        {
+          "count": 1,
+          "value": 237
+        },
+        {
+          "count": 1,
+          "value": 239
+        },
+        {
+          "count": 1,
+          "value": 254
+        },
+        {
+          "count": 1,
+          "value": 255
+        },
+        {
+          "count": 1,
+          "value": 261
+        },
+        {
+          "count": 2,
+          "value": 263
+        },
+        {
+          "count": 1,
+          "value": 265
+        },
+        {
+          "count": 1,
+          "value": 275
+        },
+        {
+          "count": 1,
+          "value": 276
+        },
+        {
+          "count": 1,
+          "value": 280
+        },
+        {
+          "count": 1,
+          "value": 281
+        },
+        {
+          "count": 1,
+          "value": 284
+        },
+        {
+          "count": 1,
+          "value": 286
+        },
+        {
+          "count": 1,
+          "value": 308
+        },
+        {
+          "count": 1,
+          "value": 314
+        },
+        {
+          "count": 1,
+          "value": 316
+        },
+        {
+          "count": 1,
+          "value": 327
+        },
+        {
+          "count": 1,
+          "value": 328
+        },
+        {
+          "count": 1,
+          "value": 332
+        },
+        {
+          "count": 2,
+          "value": 368
+        },
+        {
+          "count": 1,
+          "value": 378
+        },
+        {
+          "count": 1,
+          "value": 395
+        },
+        {
+          "count": 1,
+          "value": 397
+        },
+        {
+          "count": 2,
+          "value": 404
+        },
+        {
+          "count": 1,
+          "value": 435
+        },
+        {
+          "count": 2,
+          "value": 440
+        },
+        {
+          "count": 1,
+          "value": 446
+        },
+        {
+          "count": 1,
+          "value": 771
+        },
+        {
+          "count": 1,
+          "value": 776
+        },
+        {
+          "count": 1,
+          "value": 779
+        },
+        {
+          "count": 2,
+          "value": 1008
+        },
+        {
+          "count": 2,
+          "value": 1013
+        },
+        {
+          "count": 1,
+          "value": 1015
+        },
+        {
+          "count": 1,
+          "value": 1021
+        },
+        {
+          "count": 1,
+          "value": 1025
+        }
+      ],
+      "p90": 58,
+      "median": 24,
+      "variance": 3006.5718628125624,
+      "p10": 15,
+      "mean": 36.0534,
+      "confidence95": [
+        34.53352852726418,
+        37.573271472735826
+      ]
+    },
+    "setId": "base",
+    "packsPerBox": 12,
+    "calculatedAt": 1791557085,
+    "populationHeldConstant": true,
+    "clean": {
+      "max": 1015,
+      "samples": 5000,
+      "exact": true,
+      "min": 10,
+      "standardDeviation": 50.60458703051265,
+      "sampleMean": 24.3134,
+      "histogram": [
+        {
+          "count": 452,
+          "value": 10
+        },
+        {
+          "count": 326,
+          "value": 11
+        },
+        {
+          "count": 542,
+          "value": 12
+        },
+        {
+          "count": 331,
+          "value": 13
+        },
+        {
+          "count": 498,
+          "value": 14
+        },
+        {
+          "count": 200,
+          "value": 15
+        },
+        {
+          "count": 318,
+          "value": 16
+        },
+        {
+          "count": 219,
+          "value": 17
+        },
+        {
+          "count": 216,
+          "value": 18
+        },
+        {
+          "count": 131,
+          "value": 19
+        },
+        {
+          "count": 227,
+          "value": 20
+        },
+        {
+          "count": 149,
+          "value": 21
+        },
+        {
+          "count": 138,
+          "value": 22
+        },
+        {
+          "count": 101,
+          "value": 23
+        },
+        {
+          "count": 101,
+          "value": 24
+        },
+        {
+          "count": 74,
+          "value": 25
+        },
+        {
+          "count": 83,
+          "value": 26
+        },
+        {
+          "count": 77,
+          "value": 27
+        },
+        {
+          "count": 65,
+          "value": 28
+        },
+        {
+          "count": 36,
+          "value": 29
+        },
+        {
+          "count": 47,
+          "value": 30
+        },
+        {
+          "count": 35,
+          "value": 31
+        },
+        {
+          "count": 46,
+          "value": 32
+        },
+        {
+          "count": 19,
+          "value": 33
+        },
+        {
+          "count": 28,
+          "value": 34
+        },
+        {
+          "count": 16,
+          "value": 35
+        },
+        {
+          "count": 26,
+          "value": 36
+        },
+        {
+          "count": 10,
+          "value": 37
+        },
+        {
+          "count": 11,
+          "value": 38
+        },
+        {
+          "count": 12,
+          "value": 39
+        },
+        {
+          "count": 6,
+          "value": 40
+        },
+        {
+          "count": 6,
+          "value": 41
+        },
+        {
+          "count": 6,
+          "value": 42
+        },
+        {
+          "count": 3,
+          "value": 43
+        },
+        {
+          "count": 1,
+          "value": 44
+        },
+        {
+          "count": 1,
+          "value": 45
+        },
+        {
+          "count": 17,
+          "value": 46
+        },
+        {
+          "count": 15,
+          "value": 47
+        },
+        {
+          "count": 20,
+          "value": 48
+        },
+        {
+          "count": 10,
+          "value": 49
+        },
+        {
+          "count": 10,
+          "value": 50
+        },
+        {
+          "count": 3,
+          "value": 51
+        },
+        {
+          "count": 7,
+          "value": 52
+        },
+        {
+          "count": 8,
+          "value": 53
+        },
+        {
+          "count": 8,
+          "value": 54
+        },
+        {
+          "count": 27,
+          "value": 55
+        },
+        {
+          "count": 9,
+          "value": 56
+        },
+        {
+          "count": 29,
+          "value": 57
+        },
+        {
+          "count": 16,
+          "value": 58
+        },
+        {
+          "count": 22,
+          "value": 59
+        },
+        {
+          "count": 8,
+          "value": 60
+        },
+        {
+          "count": 3,
+          "value": 61
+        },
+        {
+          "count": 10,
+          "value": 62
+        },
+        {
+          "count": 10,
+          "value": 63
+        },
+        {
+          "count": 4,
+          "value": 64
+        },
+        {
+          "count": 2,
+          "value": 65
+        },
+        {
+          "count": 3,
+          "value": 66
+        },
+        {
+          "count": 2,
+          "value": 67
+        },
+        {
+          "count": 1,
+          "value": 68
+        },
+        {
+          "count": 1,
+          "value": 70
+        },
+        {
+          "count": 6,
+          "value": 72
+        },
+        {
+          "count": 6,
+          "value": 73
+        },
+        {
+          "count": 7,
+          "value": 74
+        },
+        {
+          "count": 8,
+          "value": 75
+        },
+        {
+          "count": 9,
+          "value": 76
+        },
+        {
+          "count": 2,
+          "value": 77
+        },
+        {
+          "count": 2,
+          "value": 78
+        },
+        {
+          "count": 3,
+          "value": 79
+        },
+        {
+          "count": 5,
+          "value": 80
+        },
+        {
+          "count": 1,
+          "value": 81
+        },
+        {
+          "count": 2,
+          "value": 82
+        },
+        {
+          "count": 1,
+          "value": 85
+        },
+        {
+          "count": 2,
+          "value": 100
+        },
+        {
+          "count": 4,
+          "value": 101
+        },
+        {
+          "count": 4,
+          "value": 102
+        },
+        {
+          "count": 5,
+          "value": 103
+        },
+        {
+          "count": 4,
+          "value": 104
+        },
+        {
+          "count": 3,
+          "value": 105
+        },
+        {
+          "count": 6,
+          "value": 106
+        },
+        {
+          "count": 3,
+          "value": 107
+        },
+        {
+          "count": 2,
+          "value": 108
+        },
+        {
+          "count": 1,
+          "value": 109
+        },
+        {
+          "count": 1,
+          "value": 110
+        },
+        {
+          "count": 3,
+          "value": 111
+        },
+        {
+          "count": 4,
+          "value": 119
+        },
+        {
+          "count": 4,
+          "value": 120
+        },
+        {
+          "count": 6,
+          "value": 121
+        },
+        {
+          "count": 4,
+          "value": 122
+        },
+        {
+          "count": 3,
+          "value": 123
+        },
+        {
+          "count": 1,
+          "value": 124
+        },
+        {
+          "count": 1,
+          "value": 125
+        },
+        {
+          "count": 4,
+          "value": 126
+        },
+        {
+          "count": 3,
+          "value": 127
+        },
+        {
+          "count": 7,
+          "value": 128
+        },
+        {
+          "count": 7,
+          "value": 129
+        },
+        {
+          "count": 8,
+          "value": 130
+        },
+        {
+          "count": 1,
+          "value": 131
+        },
+        {
+          "count": 6,
+          "value": 132
+        },
+        {
+          "count": 3,
+          "value": 133
+        },
+        {
+          "count": 7,
+          "value": 134
+        },
+        {
+          "count": 4,
+          "value": 135
+        },
+        {
+          "count": 2,
+          "value": 136
+        },
+        {
+          "count": 3,
+          "value": 137
+        },
+        {
+          "count": 1,
+          "value": 138
+        },
+        {
+          "count": 1,
+          "value": 139
+        },
+        {
+          "count": 1,
+          "value": 142
+        },
+        {
+          "count": 1,
+          "value": 146
+        },
+        {
+          "count": 4,
+          "value": 250
+        },
+        {
+          "count": 2,
+          "value": 251
+        },
+        {
+          "count": 2,
+          "value": 252
+        },
+        {
+          "count": 3,
+          "value": 253
+        },
+        {
+          "count": 2,
+          "value": 254
+        },
+        {
+          "count": 1,
+          "value": 257
+        },
+        {
+          "count": 2,
+          "value": 258
+        },
+        {
+          "count": 1,
+          "value": 260
+        },
+        {
+          "count": 1,
+          "value": 261
+        },
+        {
+          "count": 1,
+          "value": 263
+        },
+        {
+          "count": 2,
+          "value": 1005
+        },
+        {
+          "count": 1,
+          "value": 1009
+        },
+        {
+          "count": 1,
+          "value": 1010
+        },
+        {
+          "count": 1,
+          "value": 1011
+        },
+        {
+          "count": 1,
+          "value": 1013
+        },
+        {
+          "count": 1,
+          "value": 1015
+        }
+      ],
+      "p90": 36,
+      "median": 16,
+      "variance": 2560.824228528729,
+      "p10": 11,
+      "mean": 24.24734466708602,
+      "confidence95": [
+        23.089209264523284,
+        25.53759073547672
+      ]
+    },
+    "slots": [
+      {
+        "tier": "common",
+        "count": 3,
+        "mean": 5.909538461538462,
+        "label": "Common slots"
+      },
+      {
+        "tier": "uncommon",
+        "count": 1,
+        "mean": 3.160886172650879,
+        "label": "Uncommon-or-higher slot"
+      },
+      {
+        "count": 1,
+        "mean": 15.176920032896676,
+        "label": "Rare-or-higher slot"
+      }
+    ],
+    "gradeDistribution": [
+      {
+        "grade": 10,
+        "chance": 0.1056
+      },
+      {
+        "grade": 9.5,
+        "chance": 0.10824
+      },
+      {
+        "grade": 9,
+        "chance": 0.15824
+      },
+      {
+        "grade": 8.5,
+        "chance": 0.1612
+      },
+      {
+        "grade": 8,
+        "chance": 0.14928
+      },
+      {
+        "grade": 7.5,
+        "chance": 0.11928
+      },
+      {
+        "grade": 7,
+        "chance": 0.08196
+      },
+      {
+        "grade": 6.5,
+        "chance": 0.05468
+      },
+      {
+        "grade": 6,
+        "chance": 0.03
+      },
+      {
+        "grade": 5.5,
+        "chance": 0.01692
+      },
+      {
+        "grade": 5,
+        "chance": 0.008
+      },
+      {
+        "grade": 4.5,
+        "chance": 0.00372
+      },
+      {
+        "grade": 4,
+        "chance": 0.00184
+      },
+      {
+        "grade": 3.5,
+        "chance": 0.0006
+      },
+      {
+        "grade": 3,
+        "chance": 0.00032
+      },
+      {
+        "grade": 2.5,
+        "chance": 0.00012
+      }
+    ],
+    "buyerName": "Trading card buyer",
+    "setName": "Base Set",
+    "buyerIndex": 1
+  }
+]

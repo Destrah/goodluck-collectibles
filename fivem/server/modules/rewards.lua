@@ -41,11 +41,16 @@ resultTypes.container = { -- plushie boxes / cases, coin bags / bag boxes (the c
     label = function(result)
         local names = { plushie = { 'Plushie Box', 'Plushie Case' }, challenge_coin = { 'Coin Bag', 'Coin Bag Box' } }
         local pair = names[result.collectible] or { result.collectible .. ' container', result.collectible .. ' case' }
-        return ('%dx %s'):format(result.count or 1, pair[result.outer and 2 or 1])
+        local set = result.set and MetaComic.Objects.setOf and MetaComic.Objects.setOf(result.collectible, result.set)
+        return ('%dx %s%s'):format(result.count or 1, pair[result.outer and 2 or 1], set and (' (' .. set.name .. ')') or '')
     end,
-    validate = function(result) return MetaComic.Objects and MetaComic.Objects.types and MetaComic.Objects.types[result.collectible] ~= nil end,
+    -- result.set (optional): the collectible set it pulls from instead of the container's own
+    validate = function(result)
+        if not (MetaComic.Objects and MetaComic.Objects.types and MetaComic.Objects.types[result.collectible] ~= nil) then return false end
+        return result.set == nil or (MetaComic.Objects.setOf and MetaComic.Objects.setOf(result.collectible, result.set) ~= nil)
+    end,
     give = function(source, result, amount)
-        local ok, err = pcall(MetaComic.Objects.create, source, { typeId = result.collectible, outer = result.outer == true, amount = (result.count or 1) * amount })
+        local ok, err = pcall(MetaComic.Objects.create, source, { typeId = result.collectible, outer = result.outer == true, amount = (result.count or 1) * amount, setId = result.set })
         return ok, not ok and tostring(err) or nil
     end,
 }
