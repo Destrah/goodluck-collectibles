@@ -1,0 +1,618 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>[hidden]{display:none!important}:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}
+</style></head><body>
+<title>Shear Line Lockpick</title>
+
+
+<style>
+:root{
+  /* Layout: the lock bench on top as the hero, HUD strip under it, then rules / tuning / FiveM wiring in two columns */
+  --bg:#13140f; --panel:#1b1c16; --panel2:#22231c; --line:#35362d;
+  --fg:#e8e3d3; --muted:#a19f8f; --brass:#d1a84e; --steel:#8f9590; --ok:#8bb880; --bad:#d65b42;
+  --display:'Spectral SC', Georgia, serif; --body:'Barlow', system-ui, -apple-system, sans-serif; --mono:'JetBrains Mono', ui-monospace, Menlo, monospace;
+  color-scheme:dark;
+}
+html,body{background:var(--bg);color:var(--fg)}
+body{font-family:var(--body);font-size:15px;line-height:1.55}
+.wrap{max-width:1080px;margin:0 auto;padding-inline:18px;padding-block:28px 64px;display:grid;gap:28px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 24px}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(30px,5vw,46px);letter-spacing:.04em;margin:0;line-height:1.05;color:var(--brass);text-wrap:balance}
+.sub{color:var(--muted);margin:0;max-width:60ch}
+h2{font-family:var(--display);font-weight:500;font-size:22px;letter-spacing:.05em;margin:0 0 12px;color:var(--fg)}
+.label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+
+.bench{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.stage{position:relative}
+canvas{display:block;width:100%;aspect-ratio:800/440;max-width:100%;touch-action:none;cursor:crosshair}
+.overlay{position:absolute;inset:0;display:grid;place-items:center;background:rgba(14,15,10,.78);padding:16px}
+.card{text-align:center;display:grid;gap:14px;justify-items:center;max-width:420px}
+.card h3{font-family:var(--display);font-size:clamp(24px,4vw,34px);margin:0;color:var(--brass);letter-spacing:.05em}
+.card p{margin:0;color:var(--muted)}
+.diffs{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+button{font:600 14px var(--body);color:var(--fg);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 16px;cursor:pointer;letter-spacing:.03em}
+button:hover{border-color:var(--brass)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+button.primary{background:var(--brass);color:#1a1608;border-color:var(--brass)}
+
+.hud{display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:18px;padding:16px 18px;border-top:1px solid var(--line);align-items:end}
+.meter{display:grid;gap:6px;min-width:0}
+.bar{height:10px;border-radius:5px;background:#0e0f0a;border:1px solid var(--line);position:relative;overflow:hidden}
+.bar i{position:absolute;inset:0 auto 0 0;width:0;background:var(--brass);border-radius:4px}
+#strainBar i{background:linear-gradient(90deg,#b98a3a,var(--bad))}
+#feelBar i{background:var(--ok)}
+.tension{position:relative}
+.tension .band{position:absolute;top:0;bottom:0;background:rgba(139,184,128,.28);border-left:1px solid var(--ok);border-right:1px solid var(--ok);pointer-events:none}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:10px;background:#0e0f0a;border:1px solid var(--line);border-radius:5px;margin:0;display:block}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:22px;border-radius:4px;background:var(--brass);border:2px solid #1a1608;cursor:grab}
+input[type=range]::-moz-range-thumb{width:16px;height:20px;border-radius:4px;background:var(--brass);border:2px solid #1a1608;cursor:grab}
+.stats{display:flex;gap:18px;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.stats b{display:block;font-size:20px;font-weight:600;color:var(--fg)}
+.msg{padding:0 18px 14px;color:var(--muted);min-height:1.5em;font-size:14px}
+.msg.warn{color:var(--bad)} .msg.good{color:var(--ok)}
+.touch{display:none;gap:8px;padding:0 18px 16px}
+.touch button{flex:1;padding:14px 8px;user-select:none;-webkit-user-select:none}
+@media (pointer:coarse){.touch{display:flex}}
+.keys{display:flex;flex-wrap:wrap;gap:6px 18px;padding:0 18px 16px;color:var(--muted);font-size:13px}
+kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:var(--fg);background:var(--panel2)}
+
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:28px}
+.cols > section{min-width:0}
+ol.rules{margin:0;padding:0;list-style:none;display:grid;gap:12px;counter-reset:r}
+ol.rules li{display:grid;grid-template-columns:28px 1fr;gap:10px;counter-increment:r}
+ol.rules li::before{content:counter(r);font:600 13px var(--mono);color:var(--brass);border:1px solid var(--line);border-radius:50%;width:26px;height:26px;display:grid;place-items:center}
+ol.rules strong{color:var(--fg)}
+ol.rules p{margin:0;color:var(--muted)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--panel)}
+tr:last-child td{border-bottom:0}
+pre{margin:0;background:#0e0f0a;border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto;font:12.5px/1.55 var(--mono);color:#d8d3c0}
+.c{color:#7f8a6e}
+.notes{display:grid;gap:14px}
+.notes p{margin:0;color:var(--muted);max-width:65ch}
+.notes p strong{color:var(--fg)}
+@media (max-width:820px){.cols{grid-template-columns:1fr}.hud{grid-template-columns:1fr 1fr}.hud .tension-wrap{grid-column:1/-1}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<style>.wrap{padding:12px;gap:12px;max-width:min(100%,calc((100vh - 230px)*1.818));margin:auto}h1{font-size:28px}.sub{font-size:12px;max-width:380px}.hud{gap:12px;padding:12px}.keys{font-size:12px;padding-bottom:12px}</style>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="label">Shear Line · Lockpick</div>
+      <h1>Shear Line</h1>
+    </div>
+    <p class="sub">A pin-tumbler lockpick minigame. Hold tension in a hidden sweet spot, find the binding pin, lift it until its gap sits on the shear line, and release to set it.</p>
+  </header>
+
+  <div class="bench">
+    <div class="stage">
+      <canvas id="cv" aria-label="Lock cutaway"></canvas>
+      <div class="overlay" id="overlay">
+        <div class="card" id="card"><h3>Preparing the lock…</h3></div></div>
+      </div>
+    </div>
+    <div class="hud">
+      <div class="meter tension-wrap">
+        <span class="label">Tension (wrench)</span>
+        <div class="tension"><input type="range" id="tension" min="0" max="100" step="0.5" value="0" aria-label="Tension"><div class="band" id="band" hidden></div></div>
+      </div>
+      <div class="meter"><span class="label">Feel</span><div class="bar" id="feelBar"><i></i></div></div>
+      <div class="meter"><span class="label">Pick strain</span><div class="bar" id="strainBar"><i></i></div></div>
+      <div class="stats">
+        <div><span class="label">Set</span><b id="setTxt">0/0</b></div>
+        <div><span class="label">Time</span><b id="timeTxt">--</b></div>
+      </div>
+    </div>
+    <div class="msg" id="msg" aria-live="polite">Waiting for a lock.</div>
+    <div class="touch">
+      <button id="tPrev">◀ Pin</button>
+      <button id="tLift">Hold to lift</button>
+      <button id="tNext">Pin ▶</button>
+    </div>
+    <div class="keys">
+      <span><kbd>A</kbd> <kbd>D</kbd> or hover: choose pin</span>
+      <span><kbd>W</kbd> / <kbd>Space</kbd> / hold click: lift</span>
+      <span><kbd>Q</kbd> <kbd>E</kbd> / wheel / slider: tension</span>
+      <span><kbd>Esc</kbd> give up</span>
+    </div>
+  </div>
+
+
+</div>
+<script>
+(() => {
+const DIFF = {
+  easy:   { pins:4, tol:6,   band:26, time:50, showBand:true,  drift:3, shift:5,  spools:0 },
+  medium: { pins:5, tol:4,   band:17, time:50, showBand:false, drift:5, shift:8,  spools:1 },
+  hard:   { pins:6, tol:2.6, band:11, time:50, showBand:false, drift:7, shift:11, spools:2 }
+};
+const COUNTER = 12;   // how far below the window counts as "easing off" for a spool pin
+const W = 800, H = 440, SHEAR = 150, Y0 = 240, DRIVER = 44, CH_TOP = 56;
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+const slider = $('tension'), band = $('band'), overlay = $('overlay'), card = $('card');
+const msgEl = $('msg');
+let S = null, keys = {}, last = 0, actx = null, msgTimer = 0;
+let sessionId=null, options={};
+
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = W * dpr; cv.height = H * dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  draw();
+}
+window.addEventListener('resize', resize);
+
+function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]];} return a; }
+
+function start(key){
+  const d = {...(DIFF[key] || DIFF.medium)};
+  const limits={pins:[2,10,true],tol:[.5,15],band:[4,40],time:[5,300],spools:[0,9,true]};
+  for(const [field,[lo,hi,integer]] of Object.entries(limits)){
+    const value=Number(options[field]);if(Number.isFinite(value)){d[field]=Math.max(lo,Math.min(hi,value));if(integer)d[field]=Math.round(d[field]);}
+  }
+  if('showBand' in options)d.showBand=options.showBand===true;
+  if('spools' in d)d.spools=Math.min(d.pins-1,d.spools);
+  if('hard' in d)d.hard=Math.min(d.pins,d.hard);
+  if(!actx){ try{ actx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+  const n = d.pins, lo = 28 + Math.random()*(72 - 28 - d.band);
+  const pins = Array.from({length:n}, (_,i) => {
+    const L = 25 + Math.random()*45;
+    return { x: 270 + i*(330/(n-1)), L, target: (Y0-SHEAR) - L, lift:0, set:false, over:false, spool:false, caught:false };
+  });
+  shuffle([...Array(n).keys()]).slice(0, d.spools).forEach(i => pins[i].spool = true);
+  S = { key, d, pins, order: shuffle([...Array(n).keys()]), base: lo, lo, hi: lo + d.band, tol: d.tol,
+        tension:0, pickLift:0, sel:0, lifting:false, strain:0, feel:0, low:0, stack:[],
+        clock: Math.random()*10, rot:0, counterLift:0, grind:0, hinted:false,
+        time:d.time, t0: performance.now(), running:true, turning:false, turn:0 };
+  slider.value = 0;
+  band.hidden = !d.showBand;
+  band.style.left = S.lo + '%'; band.style.width = d.band + '%';
+  overlay.hidden = true;
+  say('Add tension, then probe each pin to find the one that binds.');
+}
+
+function binding(){ return S.order.find(i => !S.pins[i].set); }
+function inBand(){ return S.tension >= S.lo && S.tension <= S.hi; }
+function inCounter(){ return S.tension >= Math.max(3, S.lo - COUNTER) && S.tension < S.lo; }
+function setPin(i){
+  const p = S.pins[i];
+  p.set = true; p.caught = false; S.stack.push(i); sfx('click');
+  const left = S.pins.filter(q => !q.set).length;
+  say(left ? `Pin set. ${left} to go.` : 'All pins set. Hold tension.', 'good');
+}
+function setTension(v){ if(!S) return; S.tension = Math.max(0, Math.min(100, v)); slider.value = S.tension; }
+function select(i){
+  if(!S || !S.running || S.turning) return;
+  i = Math.max(0, Math.min(S.pins.length-1, i));
+  if(i === S.sel) return;
+  endLift(); S.sel = i; S.pickLift = 0;
+}
+function startLift(){ if(actx?.state==='suspended')actx.resume(); if(S && S.running && !S.turning){ S.lifting = true; S.counterLift = 0; } }
+function endLift(){
+  if(!S || !S.lifting) return;
+  S.lifting = false;
+  const p = S.pins[S.sel];
+  if(S.sel !== binding() || p.over || p.set) return;
+  const near = Math.abs(p.lift - p.target) <= S.tol;
+  if(!near) return;
+  if(p.caught){
+    // a caught spool only sets if you eased off and let the plug counter-rotate while lifting
+    if(S.counterLift > 0.2) setPin(S.sel);
+  } else if(inBand()){
+    if(p.spool){
+      p.caught = true; sfx('false');
+      say('The plug turned further than usual. Feels like a set…', '');
+    } else setPin(S.sel);
+  } else if(S.tension > S.hi){
+    say('Too much tension. The pin is bound too hard to set.', 'warn');
+  }
+}
+
+function say(t, cls){ msgEl.textContent = t; msgEl.className = 'msg' + (cls ? ' ' + cls : ''); msgTimer = 3; }
+
+function update(dt){
+  if(!S) return;
+  if(S.turning){
+    S.turn += dt;
+    if(S.turn >= SEQ_END && S.running) finish(true);
+    return;
+  }
+  if(!S.running) return;
+  S.time -= dt;
+  if(S.time <= 0){ S.time = 0; return finish(false, 'time'); }
+  if(keys.q) setTension(S.tension - 40*dt);
+  if(keys.e) setTension(S.tension + 40*dt);
+
+  
+  const t = S.tension, band_ = inBand(), counter = inCounter(), heavy = t > S.hi, bi = binding(), ap = S.pins[S.sel];
+  const isBinder = S.sel === bi && !ap.set && !ap.over;
+
+  let rate = 75;
+  if(isBinder){
+    if(ap.caught){
+      if(band_ || heavy) rate = 5;              // spool waist is wedged at the shear line
+      else if(counter) rate = 24;               // eased off: plug counter-rotates, pin can climb
+    } else if(t >= S.lo){
+      rate = heavy ? 10 : (S.key === 'hard' ? 24 : 30);
+    }
+  }
+  if(S.lifting && !ap.over) S.pickLift = Math.min(80, S.pickLift + rate*dt);
+  else S.pickLift = Math.max(0, S.pickLift - 170*dt);
+  S.pins.forEach((p,i) => {
+    if(p.over) return;
+    p.lift = i === S.sel ? S.pickLift : Math.max(0, p.lift - 170*dt);
+  });
+
+  // spool handling
+  const counterRot = isBinder && ap.caught && counter && S.lifting && ap.lift > 2;
+  if(counterRot){
+    if(S.counterLift === 0) sfx('counter');
+    S.counterLift += dt;
+  }
+  if(isBinder && ap.caught && S.lifting && (band_ || heavy)){
+    S.grind += dt; S.strain += 8*dt;
+    if(S.grind > 1.6 && !S.hinted && S.key !== 'hard'){ S.hinted = true; say('It feels set but the pin won\'t climb. Ease the wrench off a little and lift again.'); }
+  } else S.grind = Math.max(0, S.grind - dt);
+
+  // overset
+  if(isBinder && (t >= S.lo || (ap.caught && counter)) && ap.lift > ap.target + S.tol + 2){
+    ap.over = true; ap.caught = false; ap.lift = ap.target + S.tol + 9; S.lifting = false; S.pickLift = 0;
+    sfx('thud'); say('Overset. The key pin jammed. Ease tension to zero to reset.', 'warn');
+  }
+
+  // light tension: set pins slip; near zero: full reset
+  const anyCaught = S.pins.some(p => p.caught);
+  if(t < 3){
+    if(S.stack.length || anyCaught || S.pins.some(p => p.over)){
+      S.pins.forEach(p => { p.set = false; p.over = false; p.caught = false; });
+      S.stack = []; sfx('drop'); say('Tension released. All pins dropped.');
+    }
+    S.low = 0;
+  } else if(t < S.lo && (S.stack.length || anyCaught) && !counterRot){
+    S.low += dt;
+    const grace = counter ? 1.5 : 0.8;   // a light ease-off is allowed for a moment
+    if(S.low > grace){
+      const c = S.pins.find(p => p.caught);
+      if(c){ c.caught = false; say('The false set let go.', 'warn'); }
+      else { S.pins[S.stack.pop()].set = false; say('Tension too light. A pin slipped.', 'warn'); }
+      S.low = grace * 0.5; sfx('drop');
+    }
+  } else S.low = 0;
+
+  // strain
+  if(heavy) S.strain += (t - S.hi) * (S.lifting ? 4 : 1.4) * dt;
+  else if(S.grind === 0) S.strain = Math.max(0, S.strain - 18*dt);
+  if(S.strain >= 100){ S.strain = 100; return finish(false, 'snap'); }
+
+  // feel
+  let f = 0;
+  if(isBinder){
+    if(ap.caught){
+      if(counter) f = Math.max(0, 1 - Math.abs(ap.lift - ap.target) / 18);
+      else if(S.lifting) f = 0.45 + Math.random()*0.35;   // grinding on the spool
+    } else if(t >= S.lo){
+      f = heavy ? 0.25 : Math.max(0, 1 - Math.abs(ap.lift - ap.target) / 18);
+    }
+    if(!S.lifting && ap.lift < 1) f *= 0.35;
+  }
+  S.feel += (f - S.feel) * Math.min(1, dt*14);
+
+  // plug rotation feedback: false sets turn it further, easing off lets it kick back
+  const rotWant = (anyCaught ? 1 : 0) - (counterRot ? 0.9 : 0);
+  S.rot += (rotWant - S.rot) * Math.min(1, dt*10);
+
+  if(S.pins.every(p => p.set) && band_){
+    S.turning = true; S.lifting = false; S.turn = 0; sfx('win'); say('Plug turning…', 'good');
+  }
+  if(msgTimer > 0){ msgTimer -= dt; }
+}
+
+function finish(success, reason){
+  if(!S || !S.running)return;
+  S.running = false; S.lifting = false;
+  const time = +((performance.now() - S.t0)/1000).toFixed(2);
+  if(!success && reason === 'snap') sfx('snap');
+  const res = { success, reason: reason || 'unlocked', broke: reason === 'snap', time };
+  parent.postMessage({type:'metacomic:shearResult',id:sessionId,...res},'*');
+  const title = success ? 'Unlocked' : reason === 'snap' ? 'Pick snapped' : reason === 'time' ? 'Out of time' : 'Gave up';
+  const body = success ? `Opened in ${time.toFixed(1)} s on ${S.key}.` :
+    reason === 'snap' ? 'Too much tension for too long. That costs a lockpick.' :
+    reason === 'time' ? 'Someone heard you fiddling with the lock.' : 'You backed off the lock.';
+  const heading=document.createElement('h3'),detail=document.createElement('p');heading.textContent=title;detail.textContent=body;card.replaceChildren(heading,detail);
+  overlay.hidden = false;
+  say(success ? 'Lock opened.' : title + '.', success ? 'good' : 'warn');
+
+}
+
+/* ---------- drawing ---------- */
+function rr(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function lin(x0,y0,x1,y1,stops){ const g = ctx.createLinearGradient(x0,y0,x1,y1); stops.forEach((c,i)=>g.addColorStop(i/(stops.length-1),c)); return g; }
+
+function clamp01(v){ return Math.max(0, Math.min(1, v)); }
+
+function drawCutaway(alpha, retract = 0){
+  const c = ctx;
+  c.save(); c.globalAlpha = alpha;
+  const pins = S ? S.pins : Array.from({length:5},(_,i)=>({x:270+i*82.5,L:40+(i*17)%30,lift:0,set:false,over:false,spool:i===2,caught:false}));
+  const tension = S ? S.tension : 0, sel = S ? S.sel : -1, rot = S ? S.rot : 0;
+  const pickLift = (S ? S.pickLift : 0) * (1 - retract), feel = S && !S.turning ? S.feel : 0;
+
+
+  // housing
+  drawThemeHousing(c);
+  // plug (shifts with tension, more on a false set, less while counter-rotating)
+  const plugShift = Math.min(3, tension*0.03) + rot*3;
+  c.save(); c.translate(0, plugShift*0.4);
+  c.fillStyle = lin(0,SHEAR,0,Y0+26,['#9ea39d','#767b75','#5a5f59']);
+  rr(184,SHEAR,462,Y0+26-SHEAR,10); c.fill();
+  c.restore();
+
+  // keyway
+  c.fillStyle = '#15160f'; rr(184,Y0-4,462,30,4); c.fill();
+
+  // chambers
+  pins.forEach(p => { c.fillStyle = '#1a1b14'; c.fillRect(p.x-15, CH_TOP, 30, Y0-CH_TOP); });
+
+  // shear line
+  c.save(); c.setLineDash([6,5]); c.strokeStyle = 'rgba(209,168,78,.6)'; c.lineWidth = 1.2;
+  c.beginPath(); c.moveTo(176,SHEAR); c.lineTo(654,SHEAR); c.stroke(); c.restore();
+  c.fillStyle = 'rgba(209,168,78,.75)'; c.font = '600 10px "JetBrains Mono", monospace'; c.fillText('SHEAR', 186, SHEAR-5);
+
+  // pins
+  pins.forEach((p,i) => {
+    const kb = Y0 - p.lift, kt = kb - p.L;
+    const db = p.set ? SHEAR : p.caught ? Math.min(SHEAR + 14, kt) : kt, dt_ = db - DRIVER;
+    // spring
+    c.strokeStyle = '#c9cec7'; c.lineWidth = 2; c.beginPath();
+    const coils = 8, top = CH_TOP + 2, len = dt_ - top;
+    c.moveTo(p.x, top);
+    for(let k=1;k<=coils*2;k++){ c.lineTo(p.x + (k%2 ? 10 : -10), top + len*k/(coils*2)); }
+    c.lineTo(p.x, dt_); c.stroke();
+    // driver (spool pins have a waist)
+    c.fillStyle = lin(p.x-12,0,p.x+12,0,camTheme()?['#a12e32','#ef7171','#ad3438']:['#7d827c','#e2e6df','#8a8f89']);
+    if(p.spool){
+      c.beginPath();
+      c.moveTo(p.x-12, dt_); c.lineTo(p.x+12, dt_); c.lineTo(p.x+12, dt_+9); c.lineTo(p.x+6, dt_+13);
+      c.lineTo(p.x+6, dt_+31); c.lineTo(p.x+12, dt_+35); c.lineTo(p.x+12, db); c.lineTo(p.x-12, db);
+      c.lineTo(p.x-12, dt_+35); c.lineTo(p.x-6, dt_+31); c.lineTo(p.x-6, dt_+13); c.lineTo(p.x-12, dt_+9);
+      c.closePath(); c.fill();
+    } else { rr(p.x-12, dt_, 24, DRIVER, 3); c.fill(); }
+    // key pin
+    c.fillStyle = p.over ? lin(p.x-12,0,p.x+12,0,['#8a3b2a','#e07a5c','#8a3b2a']) : lin(p.x-12,0,p.x+12,0,camTheme()?['#225c9a','#72b3df','#245c98']:['#8a6a22','#f1cd74','#9a7628']);
+    c.beginPath(); c.moveTo(p.x-12, kt+2); c.lineTo(p.x+12, kt+2); c.lineTo(p.x+12, kb-9); c.lineTo(p.x+4, kb); c.lineTo(p.x-4, kb); c.lineTo(p.x-12, kb-9); c.closePath(); c.fill();
+    c.fillStyle = 'rgba(0,0,0,.25)'; c.fillRect(p.x-12, kt, 24, 3);
+    // status light (a false set lights the same as a real one on purpose; only the feel differs)
+    c.beginPath(); c.arc(p.x, 24, 5, 0, Math.PI*2);
+    c.fillStyle = p.over ? '#d65b42' : (p.set || p.caught) ? '#8bb880' : 'rgba(255,255,255,.12)'; c.fill();
+    // selection marker
+    if(i === sel){ c.fillStyle = '#d1a84e'; c.beginPath(); c.moveTo(p.x, 280); c.lineTo(p.x-8, 294); c.lineTo(p.x+8, 294); c.closePath(); c.fill(); }
+  });
+
+  // tension wrench
+  const ang = Math.PI*0.70 - (tension/100)*0.28 - rot*0.12;
+  c.save(); c.translate(192, 262);
+  c.lineCap = 'round';
+  c.strokeStyle = '#2d302b'; c.lineWidth = 7;
+  c.beginPath(); c.moveTo(18,0); c.lineTo(0,0); c.lineTo(Math.cos(ang)*120, Math.sin(ang)*120); c.stroke();
+  c.strokeStyle = '#9da29c'; c.lineWidth = 3.5;
+  c.beginPath(); c.moveTo(18,0); c.lineTo(0,0); c.lineTo(Math.cos(ang)*120, Math.sin(ang)*120); c.stroke();
+  c.restore();
+
+  // pick
+  if(sel >= 0 && retract < 1){
+    c.save(); c.translate(-retract * 560, 0);   // pick slides back out of the keyway
+    const p = pins[sel];
+    const jit = (Math.random()-.5) * feel * 3;
+    const tipX = p.x + jit, tipY = Y0 - pickLift + 1;
+    c.lineCap = 'round';
+    c.strokeStyle = '#3b2a1c'; c.lineWidth = 11;
+    c.beginPath(); c.moveTo(-10, 280); c.lineTo(120, 262); c.stroke();
+    c.strokeStyle = '#d1a84e'; c.lineWidth = 3; c.beginPath(); c.moveTo(112,256); c.lineTo(114,268); c.stroke();
+    c.strokeStyle = '#2e262c'; c.lineWidth = 5;
+    c.beginPath(); c.moveTo(120,262); c.lineTo(tipX-16, 256 - pickLift*0.55); c.quadraticCurveTo(tipX-2, 256 - pickLift*0.55, tipX, tipY); c.stroke();
+    c.strokeStyle = '#a9aea8'; c.lineWidth = 2.5;
+    c.beginPath(); c.moveTo(120,262); c.lineTo(tipX-16, 256 - pickLift*0.55); c.quadraticCurveTo(tipX-2, 256 - pickLift*0.55, tipX, tipY); c.stroke();
+    c.restore();
+  }
+
+  c.fillStyle = 'rgba(232,227,211,.35)'; c.font = '500 12px "Spectral SC", Georgia, serif';
+  c.fillText('SPRING · DRIVER PIN · KEY PIN', 270, 400);
+  c.restore();
+}
+
+const VARIANT = 'pick';
+/* ---------- padlock unlock sequence (shared by Shear Line and Shear Line Drill) ---------- */
+// t is seconds since the lock was beaten. VARIANT is 'pick' or 'drill'.
+const SEQ_END = 4.6;
+const FACE_C = { x:400, y:222, R:78 };
+const PS = { x0:150, x1:690, top:170, bot:420, shear:318, plugX0:172, plugX1:476, plugY0:320, plugY1:396,
+             legS:500, legL:620, legW:24, arcCY:150, shortBot:222, longBot:350, ballY:200, camX:560, pop:56 };
+function easeInOut(x){ return x < .5 ? 4*x*x*x : 1 - Math.pow(-2*x + 2, 3)/2; }
+function easeOutBack(x){ const c1 = 1.9, c3 = c1 + 1; return 1 + c3*Math.pow(x-1,3) + c1*Math.pow(x-1,2); }
+function seq(t){
+  const k = (a, d) => Math.max(0, Math.min(1, (t - a)/d));
+  return {
+    retract: easeInOut(k(0, 0.7)),     // tool comes out of the keyway
+    fade1:   k(0.7, 0.4),              // cutaway shrinks onto the end of the cylinder
+    turn:    easeInOut(k(1.1, 0.9)),   // end-on: cylinder turns a quarter
+    fade2:   k(2.0, 0.4),              // cut to the padlock cross-section
+    balls:   easeInOut(k(2.4, 0.25)),  // locking balls fall in off the turned cam
+    pop:     easeOutBack(k(2.65, 0.4)),// shackle springs up
+    swivel:  easeInOut(k(3.2, 0.85))   // shackle swings open on its long leg
+  };
+}
+const KW = [[-6,-16],[5,-16],[5,-6],[8,-2],[8,9],[3,13],[3,26],[-7,26],[-7,14],[-3,10],[-3,0],[-6,-4]];
+
+function draw(){
+  const c = ctx; c.globalAlpha = 1;
+  const g = c.createRadialGradient(420,190,30,420,220,480);
+  g.addColorStop(0,'#2b2c23'); g.addColorStop(1,'#0f100b');
+  c.fillStyle = g; c.fillRect(0,0,W,H);
+  const t = S && S.turning ? S.turn : 0, q = seq(t);
+  if(q.fade1 < 1){
+    // the cutaway shrinks onto the cylinder's end as it fades
+    const k = easeInOut(q.fade1), sc = 1 - 0.6*k, ox = 415, oy = 261;
+    c.save(); c.translate(ox + (FACE_C.x-ox)*k, oy + (FACE_C.y-oy)*k); c.scale(sc, sc); c.translate(-ox, -oy);
+    drawCutaway(1 - q.fade1, q.retract);
+    c.restore();
+  }
+  if(q.fade1 > 0 && q.fade2 < 1){
+    const z = 1 + 0.1*(1 - q.fade1) + 0.15*q.fade2;
+    c.save(); c.translate(FACE_C.x, FACE_C.y); c.scale(z, z); c.translate(-FACE_C.x, -FACE_C.y);
+    drawFaceView(q.fade1 * (1 - q.fade2), q);
+    c.restore();
+  }
+  if(q.fade2 > 0){
+    const z = 1 + 0.08*(1 - q.fade2);
+    c.save(); c.translate(400, 300); c.scale(z, z); c.translate(-400, -300);
+    drawSideSection(q.fade2, q);
+    c.restore();
+  }
+  c.globalAlpha = 1;
+}
+
+// end-on view of the cylinder, the way you'd see it looking into the keyway
+function drawFaceView(alpha, q){
+  const c = ctx, { x:cx, y:cy, R } = FACE_C, a = q.turn * Math.PI/2;
+  c.save(); c.globalAlpha = alpha;
+  drawThemeFaceBack(c,cx,cy);
+  // housing ring
+  c.beginPath(); c.arc(cx, cy, R+22, 0, Math.PI*2); c.fillStyle = lin(0,cy-R-22,0,cy+R+22,['#c9cec7','#8d928c','#5f645e']); c.fill();
+  c.beginPath(); c.arc(cx, cy, R+3, 0, Math.PI*2); c.fillStyle = '#16170f'; c.fill();
+  if(VARIANT === 'drill'){
+    // the housing half of the bore stays where it is
+    c.save(); c.beginPath(); c.rect(cx-60, cy-R-40, 120, 80); c.arc(cx, cy, R, 0, Math.PI*2, true); c.clip();
+    c.beginPath(); c.arc(cx, cy-R, 13, 0, Math.PI*2); c.fillStyle = '#0c0c08'; c.fill(); c.restore();
+  }
+  // plug
+  c.save(); c.translate(cx, cy); c.rotate(a);
+  const pg = c.createRadialGradient(-22,-26,8,0,0,R); pg.addColorStop(0,'#f0d68e'); pg.addColorStop(.6,'#c49a45'); pg.addColorStop(1,'#80622a');
+  c.beginPath(); c.arc(0,0,R,0,Math.PI*2); c.fillStyle = pg; c.fill();
+  c.strokeStyle = 'rgba(60,40,10,.4)'; c.lineWidth = 1; c.beginPath(); c.arc(0,0,R-12,0,Math.PI*2); c.stroke();
+  c.save(); c.scale(2.3, 2.3); c.beginPath(); KW.forEach(([x,y],i) => i ? c.lineTo(x,y) : c.moveTo(x,y)); c.closePath(); c.fillStyle = '#120f08'; c.fill(); c.restore();
+  if(VARIANT === 'drill'){
+    c.save(); c.beginPath(); c.arc(0,0,R,0,Math.PI*2); c.clip(); c.beginPath(); c.arc(0,-R,13,0,Math.PI*2); c.fillStyle = '#0c0c08'; c.fill(); c.restore();
+    // screwdriver handle points straight at you
+    c.beginPath(); c.arc(0, 0, 34, 0, Math.PI*2); c.fillStyle = 'rgba(30,32,27,.93)'; c.fill();
+    c.strokeStyle = '#d1a84e'; c.lineWidth = 3; c.beginPath(); c.arc(0, 0, 27, 0, Math.PI*2); c.stroke();
+    c.strokeStyle = 'rgba(255,255,255,.2)'; c.lineWidth = 3;
+    for(let i=0;i<6;i++){ const b = i*Math.PI/3; c.beginPath(); c.moveTo(Math.cos(b)*9, Math.sin(b)*9); c.lineTo(Math.cos(b)*22, Math.sin(b)*22); c.stroke(); }
+  } else {
+    // tension wrench in the bottom of the keyway, handle bent down and out
+    c.lineCap = 'round';
+    [['#2d302b',9],['#9da29c',5]].forEach(([col,w]) => { c.strokeStyle = col; c.lineWidth = w; c.beginPath(); c.moveTo(-4,36); c.lineTo(-4,58); c.lineTo(-4,R+44); c.lineTo(-70,R+86); c.stroke(); });
+  }
+  c.restore();
+  c.save(); c.setLineDash([5,5]); c.strokeStyle = 'rgba(209,168,78,.85)'; c.lineWidth = 1.2; c.beginPath(); c.arc(cx, cy, R+1, 0, Math.PI*2); c.stroke(); c.restore();
+  c.fillStyle = 'rgba(232,227,211,.85)'; c.font = '600 22px "JetBrains Mono", monospace';
+  c.fillText(`${Math.round(q.turn*90)}°`, cx+190, cy-10);
+  c.fillStyle = 'rgba(232,227,211,.5)'; c.font = '500 13px "Spectral SC", Georgia, serif';
+  c.fillText(q.turn >= 1 ? 'CYLINDER TURNED' : 'CYLINDER TURNING', cx+190, cy+10);
+  c.restore();
+}
+
+// padlock cross-section: plug along the bottom, pin stacks above it, locking balls and shackle to the right
+function unlockSounds(){
+  tone(520,.15,'triangle',.08); setTimeout(()=>tone(780,.25,'triangle',.08),130);
+  setTimeout(()=>{ noise(.6,.04); tone(90,.6,'sine',.07,60); }, 1100);           // cylinder grinding round
+  setTimeout(()=>{ tone(2200,.03,'square',.04); setTimeout(()=>tone(2000,.03,'square',.04),40); }, 2450); // balls drop
+  setTimeout(()=>{ tone(300,.15,'triangle',.09,700); noise(.06,.12); }, 2680);   // shackle springs
+  setTimeout(()=>{ noise(.35,.03); }, 3250);                                      // swing
+}
+
+function hud(){
+  if(!S) return;
+  $('feelBar').firstElementChild.style.width = (S.feel*100).toFixed(1) + '%';
+  $('strainBar').firstElementChild.style.width = S.strain.toFixed(1) + '%';
+  $('setTxt').textContent = `${S.pins.filter(p=>p.set).length}/${S.pins.length}`;
+  $('timeTxt').textContent = S.time.toFixed(1);
+}
+
+function loop(now){
+  const dt = Math.min(0.05, (now - last)/1000 || 0); last = now;
+  update(dt); draw(); hud();
+  requestAnimationFrame(loop);
+}
+
+/* ---------- audio ---------- */
+function tone(f, dur, type, vol, f2){
+  if(!actx) return;
+  const o = actx.createOscillator(), g = actx.createGain(), t = actx.currentTime;
+  o.type = type; o.frequency.setValueAtTime(f, t); if(f2) o.frequency.exponentialRampToValueAtTime(f2, t+dur);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+  o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t+dur);
+}
+function noise(dur, vol){
+  if(!actx) return;
+  const b = actx.createBuffer(1, actx.sampleRate*dur, actx.sampleRate), d = b.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i] = (Math.random()*2-1) * (1 - i/d.length);
+  const s = actx.createBufferSource(), g = actx.createGain(); g.gain.value = vol;
+  s.buffer = b; s.connect(g); g.connect(actx.destination); s.start();
+}
+function sfx(k){
+  try{
+    if(k==='click'){ tone(2600,.03,'square',.05); setTimeout(()=>tone(1500,.04,'square',.04),25); }
+    if(k==='thud') tone(160,.15,'sine',.2,70);
+    if(k==='drop') tone(900,.06,'triangle',.05,500);
+    if(k==='snap'){ noise(.18,.3); tone(3000,.08,'sawtooth',.05,400); }
+    if(k==='false'){ tone(1900,.03,'square',.045); setTimeout(()=>tone(420,.12,'triangle',.07,260),30); }
+    if(k==='counter') tone(240,.18,'sawtooth',.03,150);
+    if(k==='win') unlockSounds();
+  }catch(e){}
+}
+
+/* ---------- input ---------- */
+slider.addEventListener('input', () => setTension(+slider.value));
+
+const GAME_KEYS = ['a','d','w','q','e',' ','arrowleft','arrowright','arrowup','arrowdown'];
+window.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if(k==='escape' && S?.running)return finish(false,'cancel');
+  if(!S || !S.running || S.turning){ return; }
+  if(GAME_KEYS.includes(k) && e.target !== slider) e.preventDefault();
+  if(k==='escape') return finish(false, 'cancel');
+  if(k==='a' || k==='arrowleft') select(S.sel-1);
+  if(k==='d' || k==='arrowright') select(S.sel+1);
+  if((k==='w' || k===' ' || k==='arrowup') && !e.repeat) startLift();
+  if(k==='q' || k==='arrowdown') keys.q = true;
+  if(k==='e') keys.e = true;
+});
+window.addEventListener('keyup', e => {
+  const k = e.key.toLowerCase();
+  if(k==='w' || k===' ' || k==='arrowup') endLift();
+  if(k==='q' || k==='arrowdown') keys.q = false;
+  if(k==='e') keys.e = false;
+});
+function canvasX(e){ const r = cv.getBoundingClientRect(); return (e.clientX - r.left) / r.width * W; }
+cv.addEventListener('pointermove', e => {
+  if(!S || !S.running || e.pointerType === 'touch' || S.lifting) return;
+  const x = canvasX(e); let best = 0, bd = 1e9;
+  S.pins.forEach((p,i) => { const d = Math.abs(p.x - x); if(d < bd){ bd = d; best = i; } });
+  select(best);
+});
+cv.addEventListener('pointerdown', e => { if(e.button === 0) startLift(); });
+window.addEventListener('pointerup', endLift);
+window.addEventListener('blur', () => { endLift(); keys = {}; });
+cv.addEventListener('wheel', e => { if(!S || !S.running) return; e.preventDefault(); setTension(S.tension - Math.sign(e.deltaY) * 2); }, { passive:false });
+$('tPrev').addEventListener('click', () => S && select(S.sel-1));
+$('tNext').addEventListener('click', () => S && select(S.sel+1));
+const tl = $('tLift');
+tl.addEventListener('pointerdown', e => { e.preventDefault(); startLift(); });
+tl.addEventListener('pointerup', endLift); tl.addEventListener('pointerleave', endLift);
+tl.addEventListener('contextmenu', e => e.preventDefault());
+
+// FiveM NUI entry point
+window.addEventListener('message', e => {
+  const d=e.data;if(e.source!==parent || sessionId!==null || !d || d.action!=='lockpick:open')return;
+  sessionId=d.id;options=d.config || {};start(options.level || options.difficulty || 'medium',options);
+});
+
+/* SHEAR_THEME_RENDERER */
+/* SHEAR_FIT_LAYOUT */
+resize();
+requestAnimationFrame(loop);
+})();
+</script>
+</body></html>

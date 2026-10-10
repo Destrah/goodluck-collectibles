@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './minigame.css'
+import ShearLineLockpick from './ShearLineLockpick.jsx'
+import CraftingMinigame from './CraftingMinigame.jsx'
 
 // Built-in skill checks for FiveM (client/minigames.lua, Config.Minigames type 'builtin'). Each game calls
 // onResult(true | false) once. Escape gives up (fails).
-//   lockpick { pins, speed, zone, time, mistakes }   wires { wires, time, mistakes }
+//   lockpick { pins, tol, band, time, showBand, drift, shift, spools }   skimmer { wires, time, mistakes }
 //   keypad { length, show, time, rounds }            sequence { keys, perKey, rounds }
 //   simon { start, length, show, time }              grid { size, cells, rounds, show, time, mistakes }
 //   safe { numbers, tolerance, speed, time, mistakes }   reaction { grid, targets, life, traps, misses }
@@ -31,116 +33,6 @@ function Timer({ left, total }) {
 function Lives({ used, max }) {
   if (max == null) return null
   return <div className="mg-lives">{Array.from({ length: max + 1 }, (_, i) => <span key={i} className={i < max + 1 - used ? 'on' : ''} />)}</div>
-}
-
-/* lockpick: stop the moving pick inside the sweet spot, once per pin */
-function Lockpick({ config, done }) {
-  const pins = Math.max(1, Number(config.pins) || 4)
-  const zoneWidth = Math.min(0.6, Math.max(0.04, Number(config.zone) || 0.16))
-  const speed = Math.max(0.2, Number(config.speed) || 1)
-  const maxMistakes = Math.max(0, Number(config.mistakes ?? 3))
-  const total = Math.max(5, Number(config.time) || 25)
-  const [set, setSet] = useState(0)
-  const [mistakes, setMistakes] = useState(0)
-  const [zone, setZone] = useState(() => 0.15 + Math.random() * (0.7 - zoneWidth))
-  const [flash, setFlash] = useState('')
-  const pos = useRef(0)
-  const marker = useRef(null)
-  const timeout = useCallback(() => done(false), [done])
-  const [left] = useCountdown(total, timeout)
-
-  useEffect(() => {
-    let frame, last = performance.now(), t = 0
-    const tick = now => {
-      t += (now - last) / 1000 * speed * (1 + set * 0.12); last = now
-      pos.current = (Math.sin(t * 2.4) + 1) / 2
-      if (marker.current) marker.current.style.left = `${pos.current * 100}%`
-      frame = requestAnimationFrame(tick)
-    }
-    frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
-  }, [speed, set])
-
-  const attempt = useCallback(() => {
-    const hit = pos.current >= zone && pos.current <= zone + zoneWidth
-    setFlash(hit ? 'hit' : 'miss'); setTimeout(() => setFlash(''), 180)
-    if (hit) {
-      if (set + 1 >= pins) return done(true)
-      setSet(set + 1)
-      setZone(0.05 + Math.random() * (0.9 - zoneWidth))
-    } else {
-      if (mistakes + 1 > maxMistakes) return done(false)
-      setMistakes(mistakes + 1)
-    }
-  }, [zone, zoneWidth, set, pins, mistakes, maxMistakes, done])
-  useEffect(() => {
-    const onKey = event => { if (event.code === 'Space' || event.key === 'e' || event.key === 'E') { event.preventDefault(); attempt() } }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [attempt])
-
-  return (
-    <div className="mg-game">
-      <h3>Pick the lock</h3>
-      <p>Press <kbd>Space</kbd> or click when the pick is in the gold zone.</p>
-      <div className="mg-pins">{Array.from({ length: pins }, (_, i) => <span key={i} className={i < set ? 'set' : i === set ? 'current' : ''} />)}</div>
-      <div className={`mg-track ${flash}`} onMouseDown={attempt}>
-        <div className="mg-zone" style={{ left: `${zone * 100}%`, width: `${zoneWidth * 100}%` }} />
-        <div className="mg-marker" ref={marker} />
-      </div>
-      <Lives used={mistakes} max={maxMistakes} />
-      <Timer left={left} total={total} />
-    </div>
-  )
-}
-
-/* wires: connect each wire on the left to the same colour on the right */
-const WIRE_COLORS = ['#e5484d', '#3e9bff', '#ffd23c', '#30c46e', '#c069ff', '#ff8a3d', '#f2f2f2', '#1fd6d6', '#ff5fb3', '#8d6e4f']
-function Wires({ config, done }) {
-  const count = Math.min(WIRE_COLORS.length, Math.max(3, Number(config.wires) || 6))
-  const maxMistakes = Math.max(0, Number(config.mistakes ?? 1))
-  const total = Math.max(5, Number(config.time) || 20)
-  const colors = useMemo(() => WIRE_COLORS.slice(0, count), [count])
-  const right = useMemo(() => [...colors.keys()].sort(() => Math.random() - 0.5), [colors])
-  const [picked, setPicked] = useState(null)
-  const [linked, setLinked] = useState({})
-  const [mistakes, setMistakes] = useState(0)
-  const [wrong, setWrong] = useState(null)
-  const timeout = useCallback(() => done(false), [done])
-  const [left] = useCountdown(total, timeout)
-  const rowY = i => (i + 0.5) * (100 / count)
-
-  const connect = target => {
-    if (picked == null) return
-    if (target === picked) {
-      const next = { ...linked, [picked]: true }
-      setLinked(next); setPicked(null)
-      if (Object.keys(next).length >= count) done(true)
-    } else {
-      setWrong(target); setTimeout(() => setWrong(null), 250); setPicked(null)
-      if (mistakes + 1 > maxMistakes) return done(false)
-      setMistakes(mistakes + 1)
-    }
-  }
-  return (
-    <div className="mg-game">
-      <h3>Bypass the terminal</h3>
-      <p>Click a wire on the left, then its colour on the right.</p>
-      <div className="mg-wires">
-        <div className="mg-wire-col">{colors.map((color, i) => (
-          <button key={i} className={`mg-wire-end${picked === i ? ' picked' : ''}${linked[i] ? ' done' : ''}`} style={{ '--c': color }} disabled={linked[i]} onClick={() => setPicked(i)} aria-label={`wire ${i + 1}`} />
-        ))}</div>
-        <svg className="mg-wire-lines" viewBox="0 0 100 100" preserveAspectRatio="none">
-          {Object.keys(linked).map(i => <line key={i} x1="0" x2="100" y1={rowY(Number(i))} y2={rowY(right.indexOf(Number(i)))} stroke={colors[i]} strokeWidth="2.2" vectorEffect="non-scaling-stroke" />)}
-        </svg>
-        <div className="mg-wire-col">{right.map(i => (
-          <button key={i} className={`mg-wire-end${linked[i] ? ' done' : ''}${wrong === i ? ' wrong' : ''}`} style={{ '--c': colors[i] }} disabled={linked[i]} onClick={() => connect(i)} aria-label={`socket ${i + 1}`} />
-        ))}</div>
-      </div>
-      <Lives used={mistakes} max={maxMistakes} />
-      <Timer left={left} total={total} />
-    </div>
-  )
 }
 
 /* keypad: memorise the code, then type it */
@@ -583,27 +475,29 @@ function Circle({ config, done }) {
   )
 }
 
-const GAMES = { lockpick: Lockpick, wires: Wires, keypad: Keypad, sequence: Sequence,
+const GAMES = { crafting: CraftingMinigame, lockpick: ShearLineLockpick, drill: ShearLineLockpick, grinder: ShearLineLockpick, skimmer: ShearLineLockpick, keypad: Keypad, sequence: Sequence,
   simon: Simon, grid: MemoryGrid, safe: Safe, reaction: Reaction, order: NumberOrder, circle: Circle }
 
 export default function Minigame({ config, onResult }) {
   const [result, setResult] = useState(null)
   const sent = useRef(false)
-  const done = useCallback(success => {
+  const resultTimer = useRef(null)
+  useEffect(() => () => clearTimeout(resultTimer.current), [])
+  const done = useCallback((success, details) => {
     if (sent.current) return
     sent.current = true
     setResult(success)
-    setTimeout(() => onResult(success), 650)
+    resultTimer.current = setTimeout(() => onResult(success, details), 650)
   }, [onResult])
   useEffect(() => {
-    const onKey = event => { if (event.key === 'Escape') done(false) }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    const onKey = event => { if (event.key === 'Escape') { event.preventDefault(); done(false) } }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [done])
-  const Game = GAMES[config?.game] || Lockpick
+  const Game = GAMES[config?.game] || ShearLineLockpick
   return (
     <div className="mg-overlay" role="dialog">
-      <div className={`mg-card${result === true ? ' won' : result === false ? ' lost' : ''}`}>
+      <div className={`mg-card${config?.game==='crafting'?' mg-crafting-card':''}${['lockpick','drill','grinder','skimmer'].includes(config?.game) ? ' mg-shear-card' : ''}${result === true ? ' won' : result === false ? ' lost' : ''}`}>
         {result == null ? <Game config={config || {}} done={done} /> : <div className="mg-result">{result ? 'Success' : 'Failed'}</div>}
         {result == null && <button className="mg-quit" onClick={() => done(false)}>Give up (Esc)</button>}
       </div>

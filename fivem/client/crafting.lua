@@ -37,21 +37,22 @@ RegisterNetEvent('meta_comic:client:craftingOpen', function(stationIndex, title,
             ready = ready and enough
             lines[#lines + 1] = ('%s %dx %s%s (have %d)'):format(enough and '✓' or '✗', entry.count, entry.item, entry.keep and ' [tool]' or '', entry.have or 0)
         end
+        if recipe.interactive and (recipe.bulkBonusPacks or 0) > 0 and (recipe.bulkBonusMax or 0) > 0 then
+            lines[#lines + 1] = ('Bulk order: +%d extra pack(s) every %d completed (maximum +%d). Mistakes do not remove this bonus.'):format(recipe.bulkBonusPacks, recipe.bulkBonusEvery, recipe.bulkBonusMax)
+        end
         if (recipe.money or 0) > 0 then lines[#lines + 1] = ('%s (%s)'):format(money(recipe.money), recipe.account == 'bank' and 'bank' or 'cash') end
         return {
             title = recipe.label,
-            description = ('Makes %s · %.1fs'):format(recipe.result, (recipe.time or 0) / 1000),
+            description = recipe.interactive and ('Print, cut, fold and seal · %d packs per batch'):format(recipe.rewardPacks or 3) or ('Makes %s · %.1fs'):format(recipe.result, (recipe.time or 0) / 1000),
             icon = ready and 'hammer' or 'lock',
             iconColor = ready and '#4ade80' or '#f87171',
             metadata = lines,
             onSelect = function()
-                local amount = 1
-                if (maxAmount or 1) > 1 then
-                    local result = exports.ox_lib:inputDialog(recipe.label, { { type = 'number', label = 'How many', default = 1, min = 1, max = maxAmount, required = true } })
-                    if not result then return end
-                    amount = math.floor(tonumber(result[1]) or 1)
-                end
-                TriggerServerEvent('meta_comic:server:craftingStart', stationIndex, recipe.id, amount)
+                local fields = { { type = 'number', label = recipe.interactive and 'Packs requested (bonuses are extra)' or 'How many', default = recipe.interactive and math.min(recipe.rewardPacks or 3, maxAmount or 1) or 1, min = 1, max = maxAmount or 1, required = true } }
+                if recipe.sets then fields[#fields + 1] = { type = 'select', label = 'Card set', options = recipe.sets, default = recipe.defaultSet, required = true, searchable = true } end
+                local result = exports.ox_lib:inputDialog(recipe.label, fields)
+                if not result then return end
+                TriggerServerEvent('meta_comic:server:craftingStart', stationIndex, recipe.id, math.floor(tonumber(result[1]) or 1), result[2])
             end,
         }
     end
@@ -76,6 +77,15 @@ RegisterNetEvent('meta_comic:client:craftingOpen', function(stationIndex, title,
     if #options == 0 then options[1] = { title = 'Nothing you can craft here', disabled = true } end
     exports.ox_lib:registerContext({ id = 'meta_comic_crafting', title = title or 'Crafting', options = options })
     exports.ox_lib:showContext('meta_comic_crafting')
+end)
+
+RegisterNetEvent('meta_comic:client:craftingGame', function(config)
+    if crafting then TriggerServerEvent('meta_comic:server:craftingCancel'); return end
+    crafting = true
+    local ok, success, details = pcall(function() return exports[GetCurrentResourceName()]:CraftingMinigame(config) end)
+    crafting = false
+    if ok and success then TriggerServerEvent('meta_comic:server:craftingFinish', details)
+    else TriggerServerEvent('meta_comic:server:craftingCancel'); notify('Card production cancelled or failed.', 'info') end
 end)
 
 -- the server set the timer; finishing early is rejected there anyway
@@ -141,6 +151,11 @@ end)
 
 -- other scripts: exports['<resource>']:OpenCrafting(stationIndex) (the player still has to stand at that station)
 exports('OpenCrafting', function(stationIndex) TriggerServerEvent('meta_comic:server:craftingOpen', tonumber(stationIndex) or 1) end)
+
+-- Starts the authoritative recipe workflow; amount is requested packs for production, item count otherwise.
+exports('StartCrafting', function(stationIndex, recipeId, amount, setId)
+    TriggerServerEvent('meta_comic:server:craftingStart', tonumber(stationIndex) or 1, recipeId, tonumber(amount) or 1, setId)
+end)
 
 AddEventHandler('onResourceStop', function(name)
     if name ~= GetCurrentResourceName() then return end

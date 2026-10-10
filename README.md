@@ -314,9 +314,6 @@ To import the optional Sample card set, configure an artwork upload key and run 
 
 | Default command | Purpose |
 | --- | --- |
-| `/collectibles` | Main interface |
-| `/collectiblespack` | Pack opening; requires an item when configured |
-| `/collectiblesbox` | Box lab/action; item requirements depend on configuration |
 | `/collectiblesoptions` | Per-player opening preferences |
 | `/collectiblesadmin` | Restricted editing, sets, and production |
 | `/collectiblesicons` | Refresh inventory icons; console use retries missing icons |
@@ -325,7 +322,7 @@ To import the optional Sample card set, configure an artwork upload key and run 
 | `/placevending` | Place a machine; management permission required |
 | `/removevending` | Remove the nearest machine in range; management permission required |
 
-Main command names are configurable. Legacy `/cards`, `/cardpack`, `/cardbox`, `/cardoptions`, `/cardadmin`, and `/cardicons` aliases remain available. Recovery/artwork-maintenance commands are documented in the [integration guide](fivem/README.md).
+Admin command names are configurable. The legacy `/cardicons` alias remains available. Player opening actions use inventory items or client exports. Recovery/artwork-maintenance commands are documented in the [integration guide](fivem/README.md).
 
 ## Vending setup
 

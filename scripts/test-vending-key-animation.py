@@ -55,10 +55,10 @@ class KeyAnimationTests(unittest.TestCase):
             function AttachEntityToEntity(_,_,bone,x,y,z,rx,ry,rz) attached=true;attachedBone=bone;keyRotation=vec3(rx,ry,rz) end
             function SetIkTarget(_,part,_,_,x,y,z,flags) ikPart=part;ikTarget=vec3(x,y,z);ikFlags=flags end
             function CreateThread(fn) threads[#threads+1]=coroutine.create(fn) end
-            function TriggerServerEvent(name,id,mode)
-                server[#server+1]={name=name,id=id,mode=mode,at=timer}
+            function TriggerServerEvent(name,id,mode,result)
+                server[#server+1]={name=name,id=id,mode=mode,result=result,at=timer}
                 if name=='meta_comic:server:vendingKeyCloseForLock' and not rejectClose then
-                    source=65535;handlers['meta_comic:client:vendingKeyCloseForLock'](id);source=nil
+                    source=65535;handlers['meta_comic:client:vendingKeyCloseForLock'](id,mode,'close-token');source=nil
                     doorClosingUntil=timer+1200
                     lidClosingUntil=timer+2600
                 elseif mode==false and (name=='meta_comic:server:vendingCashboxKey' or name=='meta_comic:server:vendingRackKey') and not rejectClose then
@@ -187,12 +187,10 @@ class KeyAnimationTests(unittest.TestCase):
             self.lua.execute("handlers['meta_comic:client:vendingKeyMenu']({id=1,serial='VM',lockId='C1',condition='intact',session=true,cabinetOpen=true,fullSession=true,boxEnabled=true,rackEnabled=true,boxOpen=true,rackOpen=true});menu.options[" + str(index) + "].onSelect()")
             self.assertEqual(self.lua.eval('modelName'), prop)
             self.assertEqual(self.lua.eval('requestsBefore'), 1)
-            self.assertEqual(self.lua.eval('server[#server].name'), event)
-            if index < 4:
-                self.assertFalse(self.lua.eval('server[1].mode'))
-                self.assertEqual(self.lua.eval('#server'), 1)  # no duplicate close after the pose
-            else:
-                self.assertEqual(self.lua.eval('server[1].name'), 'meta_comic:server:vendingKeyCloseForLock')
+            self.assertEqual(self.lua.eval('server[#server].name'), 'meta_comic:server:vendingKeyCloseFinish')
+            self.assertEqual(self.lua.eval('server[1].name'), 'meta_comic:server:vendingKeyCloseForLock')
+            self.assertEqual(self.lua.eval('#server'), 2)
+            self.assertTrue(self.lua.eval('server[2].result'))
             self.assertGreaterEqual(self.lua.eval('snapAt'), 3600)  # waits for lids, not just the front door
 
     def test_unconfirmed_close_never_starts_cabinet_key_pose_or_locks(self):
@@ -202,10 +200,12 @@ class KeyAnimationTests(unittest.TestCase):
         self.assertFalse(self.lua.eval('objects[100]==true'))
         self.assertFalse(self.lua.eval('MetaComic.VendingKeyWorkBusy()'))
 
-    def test_canceled_lock_pose_leaves_only_confirmed_close_request(self):
+    def test_canceled_lock_pose_sends_rollback_for_confirmed_close(self):
         self.lua.execute("canceled=true;MetaComic.VendingUseKeyAtLock(1,'cylinder','lock')")
         self.assertTrue(self.lua.eval('keyDuringProgress'))
-        self.assertEqual(self.lua.eval('#server'), 1)
+        self.assertEqual(self.lua.eval('#server'), 2)
+        self.assertEqual(self.lua.eval('server[2].name'),'meta_comic:server:vendingKeyCloseFinish')
+        self.assertFalse(self.lua.eval('server[2].result'))
         self.assertFalse(self.lua.eval('objects[100]==true'))
 
     def test_canceled_padlock_install_never_requests_consumption(self):

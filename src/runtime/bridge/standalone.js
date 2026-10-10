@@ -5,7 +5,7 @@ import { isEmbedded } from '../env'
 
 // demo data so the Crafting tab can be tried outside FiveM (nothing is saved)
 const demoCrafting = () => {
-    return { ok: true, custom: false, resultTypes: ['container', 'crate', 'item', 'sealed', 'vending'], collectibles: ['challenge_coin', 'plushie'],
+    return { ok: true, custom: false, canEditMinigame: true, resultTypes: ['container', 'crate', 'item', 'sealed', 'vending'], collectibles: ['challenge_coin', 'plushie'],
       stations: [{ id: 'shop_bench', label: 'Collectibles workbench' }], crates: [{ id: 'mixed', label: 'Mixed shipment' }],
       recipes: [
         { id: 'booster_pack', label: 'Booster Pack', category: 'Cards', time: 4000, money: 0, account: 'cash', enabled: true, jobs: {}, result: { type: 'sealed', kind: 'pack', count: 1 }, ingredients: [{ item: 'paper', count: 2 }, { item: 'plastic', count: 1 }] },

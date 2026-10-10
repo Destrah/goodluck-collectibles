@@ -30,6 +30,7 @@ resultTypes.sealed = { -- booster packs / boxes of a card set (no set: the defau
     end,
     validate = function(result) return result.set == nil or (MetaComic.Sets and MetaComic.Sets.get(result.set) ~= nil) end,
     canGive = function(source, result, amount)
+        if MetaComic.CanCarrySealed then return MetaComic.CanCarrySealed(source, result.kind == 'box' and 'box' or 'pack', result.set, (result.count or 1) * amount) end
         local item = result.kind == 'box' and Config.Items.BoosterBox or Config.Items.BoosterPack
         return not MetaComic.Inventory.canCarry or MetaComic.Inventory.canCarry(source, item, (result.count or 1) * amount)
     end,

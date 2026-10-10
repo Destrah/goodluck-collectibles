@@ -3,6 +3,7 @@ import { bridge, isFiveM } from '../runtime'
 import Minigame from './Minigame'
 import { scalePreset } from './presets'
 import './minigameTest.css'
+import { loadCraftingPrints } from './craftingPrints'
 
 // Admin "Minigames" tab: try every Config.Minigames preset at a chosen speed. Built-in games play right here;
 // presets from other resources (ox_lib, ps-ui, ...) run in game: the menu closes, the game runs, and the menu
@@ -14,11 +15,18 @@ const writeLog = log => { try { sessionStorage.setItem(LOG_KEY, JSON.stringify(l
 const describe = params => Object.entries(params || {}).filter(([key]) => !['type', 'level', 'game', 'name', 'available', 'id'].includes(key))
   .map(([key, value]) => `${key} ${typeof value === 'object' ? JSON.stringify(value) : Math.round(Number(value) * 100) / 100 || value}`).join(' · ')
 
-export default function MinigameTestPanel() {
+export default function MinigameTestPanel({ sets = [], cards = [] }) {
   const [presets, setPresets] = useState([])
   const [message, setMessage] = useState('')
   const [speed, setSpeed] = useState(1)
+  const [theme, setTheme] = useState('configured')
+  const [solderMode, setSolderMode] = useState('configured')
+  const [drift, setDrift] = useState('configured')
   const [filter, setFilter] = useState('')
+  const [testSet, setTestSet] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [availableSets, setAvailableSets] = useState(sets)
+  useEffect(() => { if (sets.length) setAvailableSets(sets); else bridge.getSets().then(result => setAvailableSets(result.sets || [])).catch(error => setMessage(error.message)) }, [sets])
   const [playing, setPlaying] = useState(null)
   const [log, setLog] = useState(readLog)
 
@@ -46,7 +54,15 @@ export default function MinigameTestPanel() {
   const test = async preset => {
     setMessage('')
     if ((preset.type || 'builtin') === 'builtin') {
-      setPlaying({ preset, config: { ...scalePreset(preset, speed), id: `test-${Date.now()}` }, started: performance.now() })
+      let prints = {}
+      if (preset.game === 'crafting') {
+        setLoading(true)
+        try { prints = await loadCraftingPrints(testSet, availableSets, cards, preset) }
+        catch (error) { setMessage(error.message); return }
+        finally { setLoading(false) }
+      }
+      const themed=['lockpick','drill'].includes(preset.game) && theme!=='configured' ? {theme} : {}
+      setPlaying({ preset, config: { ...scalePreset(preset, speed), ...prints, ...themed, ...(preset.game==='skimmer'?{...(solderMode==='configured'?{}:{solderMode}),...(drift==='configured'?{}:{drift:drift==='on'})}:{}), id: `test-${Date.now()}` }, started: performance.now() })
       return
     }
     if (!isFiveM) { setMessage(`${preset.name} uses ${preset.type}, which only runs in game.`); return }
@@ -67,6 +83,10 @@ export default function MinigameTestPanel() {
       {message && <div className="management-message">{message}</div>}
 
       <div className="management-card mgt-speed">
+        <label>Production card set <select disabled={loading || !!playing} value={testSet} onChange={e=>setTestSet(e.target.value)}><option value="">Default set</option>{availableSets.map(set=><option key={set.id} value={set.id}>{set.name}</option>)}</select></label>
+        <label>Lock appearance <select value={theme} onChange={event=>setTheme(event.target.value)}><option value="configured">As configured</option><option value="padlock">Brass padlock</option><option value="camlock">Silver cam lock</option></select></label>
+        <label>Wiring solder step <select value={solderMode} onChange={e=>setSolderMode(e.target.value)}><option value="configured">As configured</option><option value="heat_feed">Heat and feed</option><option value="trace">Trace the joint</option><option value="steady">Steady hand</option></select></label>
+        <label>Wiring drift <select value={drift} onChange={e=>setDrift(e.target.value)}><option value="configured">As configured</option><option value="off">Off</option><option value="on">On</option></select></label>
         <div className="mgt-speed-row">
           <strong>Speed {speed}×</strong>
           <input type="range" min="0.25" max="4" step="0.05" value={speed} onChange={event => setSpeed(Number(event.target.value))} aria-label="Speed" />
@@ -90,7 +110,7 @@ export default function MinigameTestPanel() {
                   <span>{preset.type || 'builtin'}{preset.game ? ` · ${preset.game}` : ''}{preset.level ? ` · ${preset.level}` : ''}{(preset.type || 'builtin') !== 'builtin' && !preset.available ? ' · not running' : ''}</span>
                   <em>{describe(scaled)}</em>
                 </div>
-                <button className="primary" disabled={!!playing} onClick={() => test(preset)}>Test</button>
+                <button className="primary" disabled={!!playing || loading} onClick={() => test(preset)}>Test</button>
               </div>
             )
           })}

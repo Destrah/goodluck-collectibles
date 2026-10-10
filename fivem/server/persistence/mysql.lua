@@ -461,7 +461,7 @@ MetaComic.PersistenceAdapters.mysql = function()
                 repeat Wait(0) until not refreshing
                 return refreshOk, refreshError
             end
-            if writing then return false, 'Another database operation is in progress. Reopen /cardadmin to retry.' end
+            if writing then return false, 'Another database operation is in progress. Reopen /collectiblesadmin to retry.' end
             writing, refreshing = true, true
             local ok, err = pcall(hydrate)
             refreshOk, refreshError = ok, err

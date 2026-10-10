@@ -15,7 +15,7 @@ class RestockTests(unittest.TestCase):
         self.lua.execute('''
             cfg={Work={Enabled=true,Restock={PackBatch=2,BoxBatch=1,BaseMs=2000,PerUnitMs=1500,MaxMs=45000,FullStockMs=0}}}
             Config={Items={BoosterPack='pack',BoosterBox='box'}}
-            source=1;timer=1000;ready=true;held=10;room=100;notices={};messages={};handlers={};events={};saves=0;broadcasts=0;accounted=0
+            source=1;timer=1000;ready=true;held=10;room=100;notices={};messages={};clientEvents={};handlers={};events={};saves=0;broadcasts=0;accounted=0
             entry={id=1,serial='serial',products={{set='base',kind='pack',stock=0}}};machines={[1]=entry};stockTransfers={}
             MetaComic={Inventory={slotsOf=function(_,item) return {{slot=4,count=held,metadata={setId=inventorySet or 'base'}}} end,
                 remove=function(_,_,count) if failRemove then return false end;held=held-count;return true end},
@@ -23,7 +23,7 @@ class RestockTests(unittest.TestCase):
                 GiveSealed=function(_,_,_,count) held=held+count;return true end}
             Registry={sensor=function() end}
             function RegisterNetEvent(n,f) handlers[n]=f end;function AddEventHandler(n,f) events[n]=f end
-            function TriggerClientEvent(name,_,data) if name=='meta_comic:client:vendingWork' then messages[#messages+1]=data end end
+            function TriggerClientEvent(name,_,data) clientEvents[#clientEvents+1]={name=name,data=data,stock=entry.products[1].stock};if name=='meta_comic:client:vendingWork' then messages[#messages+1]=data end end
             function TriggerEvent() end;function GetGameTimer() return timer end
             function notify(_,message) notices[#notices+1]=message end
             function canRestock() return not closed and not expiredAccess end
@@ -71,6 +71,27 @@ class RestockTests(unittest.TestCase):
         self.assertEqual(self.lua.globals().accounted,5)
         self.assertEqual(self.lua.globals().broadcasts,3)
         self.assertFalse(self.lua.eval('workIsBusy(entry)'))
+
+    def test_menu_refresh_waits_for_full_run_and_uses_final_stock(self):
+        self.start(5)
+        self.assertEqual(self.lua.eval("#clientEvents"), 1)
+        self.finish();self.finish()
+        self.assertEqual(self.lua.eval("#clientEvents"), 3)
+        self.finish()
+        self.assertEqual(self.lua.eval("clientEvents[#clientEvents-1].name"), 'meta_comic:client:vendingWorkStop')
+        self.assertEqual(self.lua.eval("clientEvents[#clientEvents].name"), 'meta_comic:client:vendingMenuRefresh')
+        self.assertEqual(self.lua.eval("clientEvents[#clientEvents].stock"), 5)
+
+    def test_rejection_cancellation_and_untimed_completion_refresh_menu(self):
+        self.lua.execute('held=1');self.start(5)
+        self.assertEqual(self.lua.eval("clientEvents[#clientEvents].name"), 'meta_comic:client:vendingMenuRefresh')
+        self.lua.execute('held=10;clientEvents={}');self.start(5);self.finish()
+        self.lua.execute("handlers['meta_comic:server:vendingWorkCancel'](messages[#messages].token)")
+        self.assertEqual(self.lua.eval("clientEvents[#clientEvents].name"), 'meta_comic:client:vendingMenuRefresh')
+        self.assertEqual(self.lua.eval("clientEvents[#clientEvents].stock"), 2)
+        self.lua.execute('cfg.Work.Enabled=false;clientEvents={}');self.start(3)
+        self.assertEqual(self.lua.eval("clientEvents[#clientEvents].name"), 'meta_comic:client:vendingMenuRefresh')
+        self.assertEqual(self.lua.eval("clientEvents[#clientEvents].stock"), 5)
 
     def test_configurable_box_batches(self):
         self.lua.execute("entry.products[1].kind='box';cfg.Work.Restock.BoxBatch=2")

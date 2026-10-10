@@ -1,0 +1,2 @@
+# Lua runtime used by the Python server/client regression tests.
+lupa==2.8

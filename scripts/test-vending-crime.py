@@ -28,8 +28,12 @@ class CrimeTests(unittest.TestCase):
           function TriggerEvent(name,_,_,reason,action) if name=='meta_comic:server:vendingDoorSuccess' and reason=='crime' and action=='breakin' then doorOpen=true end end
           MetaComic.VendingCashbox={cabinetOpen=function() return doorOpen end,allows=function() return true end}
           function TriggerClientEvent(name,_,data) if name=='meta_comic:client:crimeStart' then startData=data elseif name=='meta_comic:client:lootInspect' then inspectData=data end end
+          function TriggerLatentClientEvent(name,target,_,data) TriggerClientEvent(name,target,data) end
           MetaComic.Inventory.count=function() return 100 end
           MetaComic.Police.count=function() return 0 end
+          MetaComic.Police.attempt=function(src,job,entry,action,stage) return MetaComic.Police.alert(src,{action=action,stage=stage}) end
+          MetaComic.Police.watch=function() end
+          MetaComic.Police.unwatch=function() end
           MetaComic.Vending.canManage=function() return false end
           MetaComic.Vending.sendAccessAll=function() end
           MetaComic.Vending.get=function() return entry end
@@ -47,6 +51,17 @@ class CrimeTests(unittest.TestCase):
         self.lua.execute("Config.VendingMachines.Crime.BreakIn.Loot=nil;handlers['meta_comic:server:crimeStart'](1,'breakin')")
         self.assertIsNone(self.lua.eval('startData'))
         self.assertEqual(self.lua.eval('paid'), 0)
+
+    def test_skimmer_install_runs_wiring_and_failed_game_does_not_install(self):
+        self.lua.execute("""
+            installs=0
+            MetaComic.VendingSecurity={cutOf=function() return 10 end,install=function() installs=installs+1;return true end}
+            handlers['meta_comic:server:crimeStart'](1,'installskimmer')
+        """)
+        self.assertEqual(self.lua.eval('startData.minigame'), 'skimmer_medium')
+        self.assertEqual(self.lua.eval('startData.duration'), 30000)
+        self.lua.execute("timer=30000;handlers['meta_comic:server:crimeFinish'](startData.token,false)")
+        self.assertEqual(self.lua.eval('installs'), 0)
 
     def test_missing_loot_module_at_completion_preserves_contents(self):
         self.lua.execute("""
@@ -221,7 +236,7 @@ class CrimeTests(unittest.TestCase):
         self.lua.execute('record.gpsDisabled=true')
         self.start()
         self.assertEqual(self.lua.eval('startData.duration'), 180000)
-        self.assertEqual(self.lua.eval('#startData.minigame'), 3)
+        self.assertEqual(self.lua.eval('startData.minigame'), 'grinder_bolts')
 
     def test_early_completion_does_not_grant_machine(self):
         self.lua.execute('record.gpsDisabled=true')

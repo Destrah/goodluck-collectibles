@@ -1,0 +1,175 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box}body{margin:0;background:#13140f;color:#e8e3d3;font:14px system-ui}.wrap{padding:12px;width:850px}h1{font:28px Georgia;color:#d1a84e;margin:0}p{font-size:12px;color:#aaa99a;margin:8px 0}.bench{border:1px solid #424238;border-radius:12px;overflow:hidden;background:#1b211c}canvas{display:block;width:100%;aspect-ratio:800/440;touch-action:none}.hud{display:flex;gap:14px;align-items:center;padding:12px;background:#262a20}.meter{flex:1}.bar{height:12px;position:relative;background:#101611;border-radius:5px;margin-top:7px;overflow:hidden}.band{position:absolute;height:100%;background:#668a55}.fill{position:absolute;height:100%;background:#d1a84e;opacity:.55}.needle{position:absolute;top:0;height:100%;width:3px;background:#f5e9be}.readout{display:flex;justify-content:space-between;font-size:12px}button{background:#d1a84e;border:0;border-radius:7px;color:#1c1b12;font-weight:700;padding:12px;min-width:160px;touch-action:none}button:disabled{opacity:.55}.stats,#msg{padding:8px 12px;font-size:13px}.stats{color:#dfc88f}#msg{min-height:36px;color:#c9cfbb}small{display:block;margin-top:8px;font-size:11px;color:#aaa99a}
+</style></head><body><div class="wrap"><h1>Shear Line · Skimmer Wiring</h1><p>Cut the requested keypad wire, strip its insulation, match the skimmer terminal, then solder the joint.</p><div class="bench"><canvas id="cv" tabindex="0" aria-label="Keypad wiring harness and skimmer terminals"></canvas><div class="hud"><div class="meter"><div class="readout"><span id="meterTitle">Strip length</span><span id="meterValue">—</span></div><div class="bar"><i class="band" id="band"></i><i class="fill" id="fill"></i><i class="needle" id="needle"></i></div></div><button id="tool" disabled>Waiting…</button></div><div class="stats" id="stats">Preparing the bench…</div><div id="msg" aria-live="polite">Waiting for a wiring job.</div></div><small>Mouse: cutters / stripper / drag wire / iron · Click: cut or close stripper · Pull: remove insulation · Hold left / Space: heat · Right / F: feed solder · R: reposition · Esc: cancel</small></div>
+<script>
+(()=>{
+const $=id=>document.getElementById(id),cv=$('cv'),c=cv.getContext('2d'),tool=$('tool');
+const COLORS=[{name:'RED',hex:'#e55a55'},{name:'BLUE',hex:'#6c9fe4'},{name:'YELLOW',hex:'#edcf5a'},{name:'GREEN',hex:'#83bd73'},{name:'WHITE',hex:'#e2e5d9'},{name:'VIOLET',hex:'#b585d7'}];
+const DIFF={easy:{wires:2,time:100,mistakes:4,stripTol:13,stripSpeed:30,solderTime:1.1,heatRate:28,coolRate:25,heatLow:42,heatHigh:78},medium:{wires:3,time:120,mistakes:3,stripTol:9,stripSpeed:38,solderTime:1.5,heatRate:34,coolRate:27,heatLow:48,heatHigh:75},hard:{wires:4,time:150,mistakes:2,stripTol:6,stripSpeed:46,solderTime:1.9,heatRate:42,coolRate:29,heatLow:52,heatHigh:72}};
+let S=null,id=null,last=0,spaceDown=false,pointerDown=false;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+function current(){return S.order[S.index]}
+function say(text){$('msg').textContent=text}
+function endPoint(){return {x:370,y:137+current()*38}}
+function pad(){return {x:560,y:137+S.terminals.indexOf(current())*38}}
+function start(config){
+ const d={...(DIFF[config.level]||DIFF.medium)};
+ for(const [k,[lo,hi]] of Object.entries({wires:[1,6],time:[15,300],mistakes:[1,10],stripTol:[3,20],stripSpeed:[10,80],solderTime:[.5,5],heatRate:[10,80],coolRate:[10,60],heatLow:[25,65],heatHigh:[66,90],stripClick:[3,20],snapRelease:[25,120],placementTol:[5,20],driftStrength:[0,35]})){const v=Number(config[k]);if(Number.isFinite(v))d[k]=clamp(v,lo,hi)}
+ d.wires=Math.round(d.wires);d.mistakes=Math.round(d.mistakes);
+ d.solderMode=['heat_feed','trace','steady'].includes(config.solderMode)?config.solderMode:'heat_feed';
+ d.drift=config.drift===true;d.driftStrength??=12;d.stripClick??=8;d.snapRelease??=65;d.placementTol??=12;
+ S={d,order:shuffle([0,1,2,3,4,5]).slice(0,d.wires),terminals:shuffle([0,1,2,3,4,5]),index:0,stage:'cut',selected:-1,done:[],connections:[],strip:0,stripTarget:50+Math.random()*15,heat:0,joint:0,trace:Array(8).fill(0),errors:0,time:d.time,holding:false,feeding:false,running:true,cursor:{x:400,y:400},offset:{x:0,y:0},snapped:false,dragging:false,wireEnd:null,clock:0};
+ spaceDown=false;pointerDown=false;say('Place the cutter jaws over the requested wire and click.');hud();
+}
+function finish(success,reason){if(!S?.running)return;S.running=false;S.holding=false;S.feeding=false;say(success?'Wiring complete. All joints connected.':reason==='time'?'Out of time.':reason==='cancel'?'Wiring cancelled.':'Too many damaged wires or bad joints.');parent.postMessage({type:'metacomic:shearResult',id,success,reason:reason||'wired'},'*');hud()}
+function mistake(text){if(!S?.running)return;S.errors++;S.holding=false;S.feeding=false;spaceDown=false;pointerDown=false;if(S.errors>=S.d.mistakes)return finish(false,'wiring');say(text+` ${S.d.mistakes-S.errors} mistakes left.`)}
+function cut(row){
+ if(!S?.running||S.stage!=='cut'||row<0||row>5)return;
+ if(row!==current()){mistake('Wrong wire. Check its label before cutting.');return}
+ S.selected=row;S.stage='strip';S.strip=0;say('Hover over the wire end to seat the stripper. Click to close its jaws into the green depth band, then pull away.');
+}
+function stripClick(){if(!S?.running||S.stage!=='strip'||!S.snapped)return;S.strip+=S.d.stripClick;if(S.strip>S.stripTarget+S.d.stripTol){S.strip=0;mistake('Copper nicked. Close the stripper less deeply.')}}
+function releaseStrip(){
+ if(!S?.running||S.stage!=='strip'||!S.snapped)return;
+ S.snapped=false;
+ if(Math.abs(S.strip-S.stripTarget)<=S.d.stripTol){S.stage='place';S.wireEnd=endPoint();say('Drag the bare wire end onto its matching solder pad. Its position stays where you release it.')}
+ else{S.strip=0;mistake('Insulation did not strip cleanly. Seat the jaws and try again.')}
+}
+function beginDrag(){if(!S?.running||!['place','solder'].includes(S.stage)||distance(S.cursor,S.wireEnd)>22)return;S.stage='place';S.dragging=true;S.holding=false;S.feeding=false;S.heat=0;S.joint=0;S.trace.fill(0)}
+function dropWire(){
+ if(!S?.dragging)return;S.dragging=false;
+ const row=Math.round((S.wireEnd.y-137)/38);
+ if(row>=0&&row<6&&distance(S.wireEnd,{x:560,y:137+row*38})<=S.d.placementTol){
+  if(S.terminals[row]!==current()){mistake('Wrong pad. Move the wire onto the matching label.');return}
+  S.stage='solder';S.heat=0;S.joint=0;S.trace.fill(0);S.offset={x:0,y:0};
+  say(S.d.solderMode==='trace'?'Heat and trace the ring evenly around the joint.':S.d.solderMode==='steady'?'Keep the iron tip centered and heat the joint steadily.':'Heat the wire and pad together; hold right mouse or F to feed solder once warm.');
+ }else say('Wire left where released. Drag it onto the matching pad before soldering.');
+}
+function iron(){return {x:S.cursor.x+S.offset.x,y:S.cursor.y+S.offset.y}}
+function hold(on){if(S?.running&&S.stage==='solder')S.holding=on}
+function feed(on){if(S?.running&&S.stage==='solder')S.feeding=on}
+function completed(){
+ S.done.push(current());S.connections.push({color:current(),end:{...S.wireEnd}});S.index++;S.holding=false;S.feeding=false;spaceDown=false;pointerDown=false;
+ if(S.index===S.order.length)return finish(true);
+ S.stage='cut';S.selected=-1;S.strip=0;S.stripTarget=50+Math.random()*15;S.heat=0;S.joint=0;S.snapped=false;S.wireEnd=null;S.offset={x:0,y:0};say('Joint cooled and secure. Cut the next requested wire.');
+}
+function update(dt){
+ if(!S?.running)return;S.time-=dt;S.clock+=dt;if(S.time<=0)return finish(false,'time');
+ if(S.stage==='cool'){S.heat=Math.max(0,S.heat-dt*S.d.coolRate);if(S.heat<=20)completed();return}
+ if(S.stage!=='solder')return;
+ if(S.d.drift&&S.holding){S.offset.x=clamp(S.offset.x+(.45+Math.sin(S.clock*2.7)*.55)*dt*S.d.driftStrength,-30,30);S.offset.y=clamp(S.offset.y+(-.35+Math.cos(S.clock*2.1)*.65)*dt*S.d.driftStrength,-30,30)}
+ const tip=iron(),center=pad(),dist=distance(tip,center),trace=S.d.solderMode==='trace';
+ const contact=trace?dist>=8&&dist<=22:dist<=14;
+ const heating=S.holding&&contact;
+ S.heat=clamp(S.heat+dt*(heating?S.d.heatRate:-S.d.coolRate),0,100);
+ if(S.heat>S.d.heatHigh+8){S.heat=0;S.joint=0;S.trace.fill(0);mistake('Joint overheated. Release the iron to cool.');return}
+ if(S.feeding&&heating&&S.heat<S.d.heatLow){S.joint=0;mistake('Cold joint. Heat both surfaces before feeding solder.');return}
+ const warm=S.heat>=S.d.heatLow&&S.heat<=S.d.heatHigh;
+ if(heating&&warm){
+  if(trace){const sector=Math.floor(((Math.atan2(tip.y-center.y,tip.x-center.x)+Math.PI*2)%(Math.PI*2))/(Math.PI/4));S.trace[sector]=Math.min(1,S.trace[sector]+dt*8/S.d.solderTime);S.joint=S.trace.reduce((a,b)=>a+b,0)/8}
+  else if(S.d.solderMode==='steady'||S.feeding)S.joint=Math.min(1,S.joint+dt/S.d.solderTime);
+ }
+ if(S.joint>=1){S.stage='cool';S.holding=false;S.feeding=false;say('Good bead. Let the solder cool before moving to the next wire.')}
+}
+function move(x,y){
+ if(!S?.running)return;S.cursor={x:clamp(x,0,800),y:clamp(y,0,440)};
+ if(S.stage==='strip'){
+  if(S.snapped){if(distance(S.cursor,endPoint())>=S.d.snapRelease)releaseStrip()}
+  else if(distance(S.cursor,endPoint())<=22)S.snapped=true;
+ }
+ if(S.dragging)S.wireEnd={...S.cursor};
+}
+function press(button=0){
+ if(!S?.running)return;
+ if(button===2){feed(true);return}
+ if(S.stage==='cut'){const row=Math.round((S.cursor.y-137)/38);if(S.cursor.x>=280&&S.cursor.x<=405&&Math.abs(S.cursor.y-(137+row*38))<=12)cut(row)}
+ else if(S.stage==='strip')stripClick();
+ else if(S.stage==='place')beginDrag();
+ else if(S.stage==='solder')hold(true)
+}
+function release(button=0){if(button===2)feed(false);else{if(S?.dragging)dropWire();hold(false)}}
+function rect(x,y,w,h,color,r=7){c.fillStyle=color;c.beginPath();c.roundRect(x,y,w,h,r);c.fill()}
+function wire(x0,y0,x1,y1,color,width=6){c.strokeStyle=color;c.lineWidth=width;c.lineCap='round';c.beginPath();c.moveTo(x0,y0);c.bezierCurveTo(x0+90,y0,x1-90,y1,x1,y1);c.stroke()}
+function draw(){
+  c.fillStyle='#152633';c.fillRect(0,0,800,440);c.strokeStyle='#28424f';c.lineWidth=1;
+  for(let x=0;x<800;x+=20){c.beginPath();c.moveTo(x,0);c.lineTo(x,440);c.stroke()}for(let y=0;y<440;y+=20){c.beginPath();c.moveTo(0,y);c.lineTo(800,y);c.stroke()}
+  rect(22,68,142,314,'#66737a');rect(32,77,122,60,'#202d29');c.fillStyle='#bbd3a7';c.font='bold 12px system-ui';c.fillText('CARD KEYPAD',47,102);c.font='11px system-ui';c.fillText('SERVICE HARNESS',42,121);
+  for(let i=0;i<12;i++){rect(43+i%3*34,154+Math.floor(i/3)*37,26,27,'#263237');c.fillStyle='#c9d0c8';c.fillText(String(i+1),51+i%3*34,172+Math.floor(i/3)*37)}
+  rect(566,68,214,314,'#293e31');rect(580,83,186,27,'#1b2a20');c.fillStyle='#e6c97e';c.font='bold 13px system-ui';c.fillText('SKIMMER · INPUTS',596,101);
+  for(let i=0;i<3;i++){rect(692,131+i*73,63,43,'#18241e');c.strokeStyle='#78985b';c.lineWidth=2;c.strokeRect(699,139+i*73,49,27)}
+  const active=S?.running?current():-1;
+  for(let i=0;i<6;i++){
+    const y=137+i*38,color=COLORS[i],connected=S?.done.includes(i),cutWire=S&&S.index<S.order.length&&i===active&&S.stage!=='cut';
+    c.globalAlpha=connected ? .55 : 1;
+    wire(154,y,cutWire?336:405,y,color.hex);rect(174,y-12,91,24,'#182b32');c.fillStyle=color.hex;c.font='bold 12px system-ui';c.fillText(`${i+1} ${color.name}`,183,y+4);
+    if(S?.selected===i&&S.stage==='cut'){c.strokeStyle='#f4d184';c.lineWidth=2;c.strokeRect(171,y-16,237,32)}
+    if(cutWire){
+      wire(336,y,370,y,color.hex,6);
+      const exposed=S.stage==='strip'?34*S.strip/100:34;wire(370-exposed,y,370,y,'#daac73',5);
+      c.fillStyle='#a3c780';c.font='12px system-ui';c.fillText(S.stage==='strip'?'STRIP →':'BARE COPPER',350,y-16);
+      if(S.stage==='strip'&&S.snapped){rect(342,y-8,13,16,'#a0adb3');wire(348,y-10,383,y-35,'#d7a64d',7);wire(348,y+10,383,y+35,'#d7a64d',7)}
+    }
+    c.globalAlpha=1;
+  }
+  for(let row=0;row<6;row++){
+    const index=S?S.terminals[row]:row,color=COLORS[index],y=137+row*38;
+    rect(541,y-11,38,22,'#b5944e');rect(548,y-6,23,12,'#d4bb7f');c.fillStyle=color.hex;c.font='bold 11px system-ui';c.fillText(`${row+1} ${color.name}`,592,y+4);
+    const connection=S?.connections.find(v=>v.color===index);
+    if(connection){wire(370,137+index*38,connection.end.x,connection.end.y,color.hex);c.fillStyle='#cdd8d5';c.beginPath();c.arc(connection.end.x,connection.end.y,5,0,Math.PI*2);c.fill()}
+    if(index===active&&S?.wireEnd){
+      wire(370,137+index*38,S.wireEnd.x,S.wireEnd.y,color.hex);
+      c.fillStyle='#daac73';c.beginPath();c.arc(S.wireEnd.x,S.wireEnd.y,4,0,Math.PI*2);c.fill();
+      if(['solder','cool'].includes(S.stage)){
+        c.strokeStyle=S.heat>S.d.heatHigh?'#ff8963':'#f1dc9c';c.lineWidth=2;c.beginPath();c.arc(560,y,15,0,Math.PI*2);c.stroke();
+        if(S.d.solderMode==='trace')for(let k=0;k<8;k++){c.strokeStyle=S.trace[k]>=1?'#9acb7c':'#a48e53';c.lineWidth=5;c.beginPath();c.arc(560,y,15,k*Math.PI/4+.05,(k+1)*Math.PI/4-.05);c.stroke()}
+        c.fillStyle='#cad4d3';c.beginPath();c.arc(S.wireEnd.x,S.wireEnd.y,2+S.joint*5,0,Math.PI*2);c.fill();
+      }
+    }
+  }
+  if(S?.running){
+    let tip=S.stage==='strip'&&S.snapped?endPoint():S.stage==='solder'?iron():S.cursor;
+    if(['cut','strip'].includes(S.stage)){
+      c.save();c.translate(tip.x,tip.y);const gap=S.stage==='strip'?Math.max(2,12-S.strip/7):7;
+      c.strokeStyle='#c7d1d4';c.lineWidth=7;c.beginPath();c.moveTo(-13,-gap);c.lineTo(12,0);c.lineTo(-13,gap);c.stroke();
+      c.strokeStyle=S.stage==='cut'?'#df8d47':'#6aa8b3';c.lineWidth=10;c.beginPath();c.moveTo(-12,-gap);c.lineTo(-45,-22);c.moveTo(-12,gap);c.lineTo(-45,22);c.stroke();c.restore();
+      if(S.stage==='strip'&&S.snapped){c.fillStyle='#e4cb82';c.font='11px system-ui';c.fillText('SEATED · CLICK TO CLOSE · PULL TO STRIP',tip.x-100,tip.y-32)}
+    }else if(S.stage==='solder'){
+      c.save();c.translate(tip.x,tip.y);c.rotate(-.7);rect(0,-3,42,6,'#c2c9cb');rect(42,-10,65,20,'#de9b47');rect(102,-8,35,16,'#34414a');c.restore();
+      if(S.feeding){wire(650,410,pad().x,pad().y,'#c7d1d4',2)}
+    }
+  }
+  c.fillStyle='#eadcaf';c.font='bold 15px system-ui';c.fillText(S?.running?`WIRE ${S.index+1}/${S.order.length} · ${COLORS[active].name} · ${S.stage.toUpperCase()}`:'SKIMMER WIRING BENCH',24,36);
+  c.font='12px system-ui';c.fillStyle='#b6c2b3';c.fillText('KEYPAD WIRES',176,396);c.fillText('MATCH COLOR AND LABEL',548,396);
+}
+function hud(){
+  if(!S)return;
+  const strip=S.stage==='strip',solder=['solder','cool'].includes(S.stage),value=strip?S.strip:solder?S.heat:0;
+  $('meterTitle').textContent=strip?'Stripper jaw depth':solder?`Joint temperature · ${S.d.solderMode.replace('_',' + ')}${S.d.drift?' · drift ON':''}`:'Wire preparation';
+  $('meterValue').textContent=strip?`${Math.round(value)}%`:solder?`${Math.round(value)}% heat · ${Math.min(100,Math.round(S.joint*100))}% soldered`:'Select by color and label';
+  $('band').style.left=(strip?S.stripTarget-S.d.stripTol:S.d.heatLow)+'%';$('band').style.width=(strip?S.d.stripTol*2:S.d.heatHigh-S.d.heatLow)+'%';$('band').style.display=strip||solder?'block':'none';
+  $('fill').style.width=value+'%';$('needle').style.left=Math.min(99,value)+'%';
+  tool.textContent=!S.running?'Finished':strip?'Click seated stripper':solder?'Hold Space to heat':'Use mouse on the bench';tool.disabled=!S.running||!strip;
+  $('stats').textContent=`Joints ${S.done.length}/${S.order.length} · Mistakes ${S.errors}/${S.d.mistakes} · ${Math.max(0,Math.ceil(S.time))}s`;
+}
+function loop(now){const dt=Math.min(.05,(now-last)/1000||0);last=now;update(dt);draw();hud();requestAnimationFrame(loop)}
+function resize(){const ratio=Math.min(window.devicePixelRatio||1,2);cv.width=800*ratio;cv.height=440*ratio;c.setTransform(ratio,0,0,ratio,0,0)}
+window.addEventListener('message',e=>{if(e.source!==parent||id!==null||e.data?.action!=='skimmer:open')return;id=e.data.id;start(e.data.config||{})});
+window.addEventListener('keydown',e=>{if(e.key==='Escape')return finish(false,'cancel');if(!S?.running)return;
+ if(e.key===' '){e.preventDefault();if(!e.repeat){spaceDown=true;hold(true)}}
+ if(e.key.toLowerCase()==='r'&&S.stage==='solder'){S.stage='place';S.holding=false;S.feeding=false;say('Drag the wire end to reposition it.')}
+ if(e.key.toLowerCase()==='f'){e.preventDefault();feed(true)}
+});
+window.addEventListener('keyup',e=>{if(e.key===' '){spaceDown=false;hold(false)}if(e.key.toLowerCase()==='f')feed(false)});
+tool.addEventListener('click',stripClick);
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect();move((e.clientX-r.left)/r.width*800,(e.clientY-r.top)/r.height*440)});
+cv.addEventListener('pointerdown',e=>{e.preventDefault();cv.focus();const r=cv.getBoundingClientRect();move((e.clientX-r.left)/r.width*800,(e.clientY-r.top)/r.height*440);cv.setPointerCapture(e.pointerId);press(e.button)});
+window.addEventListener('pointerup',e=>release(e.button));
+function resetInput(){spaceDown=false;pointerDown=false;if(S){S.holding=false;S.feeding=false;S.dragging=false}}
+window.addEventListener('pointercancel',resetInput);window.addEventListener('blur',resetInput);
+/* SHEAR_FIT_LAYOUT */
+window.addEventListener('resize',resize);resize();requestAnimationFrame(loop);
+})();
+</script></body></html>

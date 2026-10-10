@@ -71,18 +71,21 @@ export default function VendingMapPanel() {
   const [message, setMessage] = useState('')
   const viewport = useRef(null)
   const drag = useRef(null)
+  const loadRevision = useRef(0)
 
   const load = useCallback(async () => {
+    const revision = ++loadRevision.current
     setLoading(true); setError('')
     try {
       const result = await bridge.getVendingMachines()
+      if (revision !== loadRevision.current) return
       setData(result)
       setSelectedId(current => result.machines?.some(machine => machine.id === current) ? current : null)
     } catch (err) {
-      setError(err?.message || String(err))
-    } finally { setLoading(false) }
+      if (revision === loadRevision.current) setError(err?.message || String(err))
+    } finally { if (revision === loadRevision.current) setLoading(false) }
   }, [])
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(); return () => { loadRevision.current++ } }, [load])
   useEffect(() => {
     const refresh = event => { if (event.data?.type === 'metaComic:vendingRemoteAccessChanged') load() }
     window.addEventListener('message', refresh)

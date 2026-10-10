@@ -20,13 +20,6 @@
 .mg-zone{position:absolute;top:0;bottom:0;background:linear-gradient(180deg,#ffd23c,#c99a00);opacity:.85}
 .mg-marker{position:absolute;top:-4px;bottom:-4px;width:4px;margin-left:-2px;background:#fff;box-shadow:0 0 8px #fff}
 @keyframes mg-shake{0%,100%{transform:translateX(0)}30%{transform:translateX(-5px)}70%{transform:translateX(5px)}}
-.mg-wires{position:relative;display:grid;grid-template-columns:44px 1fr 44px;height:min(46vh,300px)}
-.mg-wire-col{display:flex;flex-direction:column;justify-content:space-around;align-items:center}
-.mg-wire-end{width:36px;height:22px;border-radius:6px;border:2px solid #0006;background:var(--c);cursor:pointer;padding:0}
-.mg-wire-end.picked{outline:3px solid #fff;outline-offset:2px}
-.mg-wire-end.done{opacity:.45;cursor:default}
-.mg-wire-end.wrong{animation:mg-shake .2s;outline:3px solid #e5484d}
-.mg-wire-lines{width:100%;height:100%}
 .mg-code{display:flex;gap:6px;justify-content:center}
 .mg-code span{width:34px;height:44px;border-radius:8px;background:#1a2130;border:1px solid #ffffff20;display:flex;align-items:center;justify-content:center;font:700 22px/1 "Courier New",monospace;color:#4df3ff}
 .mg-keypad{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
@@ -75,3 +68,5 @@
 .mg-needle{position:absolute;inset:0;pointer-events:none}
 .mg-needle i{position:absolute;left:50%;top:6%;width:4px;height:44%;margin-left:-2px;border-radius:2px;background:#fff;box-shadow:0 0 8px #fff}
 .mg-needle::after{content:'';position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:#fff}
+
+.mg-card.mg-shear-card{box-sizing:border-box;width:min(880px,100%);padding:8px;max-height:calc(100dvh - 32px);overflow:hidden}.mg-shear-frame{display:block;flex-shrink:0;width:100%;height:min(700px,calc(100dvh - 110px));border:0;border-radius:10px;background:#13140f}

@@ -128,6 +128,33 @@ class VendingStateTests(unittest.TestCase):
         self.lua.execute("MetaComic.VendingState.stage('vending_registry',data);assert(MetaComic.RuntimeSaves.flush())")
         self.assertEqual(self.transactions,2)
 
+    def test_prepend_history_writes_only_new_event_and_compact_order(self):
+        self.lua.execute("legacy.serials.VM.history={};for i=1,75 do legacy.serials.VM.history[i]={at=i,event='Event '..i} end;data=MetaComic.VendingState.load('vending_registry',legacy);table.insert(data.serials.VM.history,1,{at=100,event='Closed'});MetaComic.VendingState.stage('vending_registry',data)")
+        self.assertEqual(self.transactions,1)
+        self.lua.execute('assert(MetaComic.RuntimeSaves.flush())')
+        self.assertEqual(len([row for row in self.touched if row[0]=='entries']),1)
+        self.assertEqual(len([row for row in self.touched if row[0]=='state']),1)
+        self.lua.execute(STORE)
+        self.assertEqual(self.lua.eval("MetaComic.VendingState.load('vending_registry',nil).serials.VM.history[1].event"),'Closed')
+        self.assertEqual(self.lua.eval("MetaComic.VendingState.load('vending_registry',nil).serials.VM.history[76].event"),'Event 75')
+
+    def test_stable_history_pruning_duplicates_and_restart(self):
+        self.lua.execute("legacy.serials.VM.history={{at=1,event='Same'},{at=1,event='Same'},{at=0,event='Old'}};data=MetaComic.VendingState.load('vending_registry',legacy);table.remove(data.serials.VM.history);table.insert(data.serials.VM.history,1,{at=2,event='New'});assert(MetaComic.VendingState.saveNow('vending_registry',data))")
+        self.assertEqual(len([row for row in self.touched if row[0]=='entries']),2) # one insert, one deletion
+        self.lua.execute(STORE)
+        self.assertEqual(self.convert(self.lua.eval("MetaComic.VendingState.load('vending_registry',nil).serials.VM.history")),[{'at':2,'event':'New'},{'at':1,'event':'Same'},{'at':1,'event':'Same'}])
+
+    def test_legacy_positional_history_upgrades_without_rewriting_events(self):
+        self.lua.execute("data=MetaComic.VendingState.load('vending_registry',legacy)")
+        for row in self.storage['state'].values():
+            if row['section']=='machines':
+                value=json.loads(row['data_json']);value['history']={};row['data_json']=json.dumps(value)
+        self.lua.execute(STORE)
+        self.lua.execute("data=MetaComic.VendingState.load('vending_registry',nil);table.insert(data.serials.VM.history,1,{at=3,event='Closed'});assert(MetaComic.VendingState.saveNow('vending_registry',data))")
+        self.assertEqual(len([row for row in self.touched if row[0]=='entries']),1)
+        self.lua.execute(STORE)
+        self.assertEqual(self.lua.eval("MetaComic.VendingState.load('vending_registry',nil).serials.VM.history[2].event"),'Open')
+
     def test_failed_migration_keeps_legacy_and_retry_succeeds(self):
         self.fail=True
         ok=self.lua.execute("return pcall(MetaComic.VendingState.load,'vending_registry',legacy)")[0]

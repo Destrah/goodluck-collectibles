@@ -1,0 +1,98 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box}body{margin:0;background:#13140f;color:#e8e3d3;font:14px system-ui}.wrap{padding:22px}h1{margin:0;color:#d1a84e;font:30px Georgia}p{color:#aaa899}.bench{border:1px solid #424238;border-radius:12px;overflow:hidden}canvas{display:block;width:100%;aspect-ratio:800/440;touch-action:none;background:#152633}.hud{display:flex;gap:18px;align-items:center;padding:16px;flex-wrap:wrap;background:#22231c}.hud label{flex:1;min-width:120px}input{width:100%;accent-color:#d1a84e}progress{width:100%;accent-color:#d1a84e}.stats{padding:12px 16px;color:#dfc88f}#msg{padding:0 16px 12px}button{padding:10px;background:#d1a84e;border:0;border-radius:6px}small{display:block;margin-top:14px;color:#aaa899}
+.wrap{padding:12px;max-width:min(100%,calc((100vh - 240px)*1.818));margin:auto}h1{font-size:28px}p{font-size:12px;margin:8px 0}.hud{padding:12px}.stats{padding:8px 12px}#msg{padding:0 12px 8px}small{font-size:11px;margin-top:8px}</style></head><body><div class="wrap"><h1>Shear Line Grinder</h1><p>Hold position against drift, keep the handle horizontal, and release to cool.</p><div class="bench"><canvas id="cv" tabindex="0" aria-label="Angle grinder and cutting target"></canvas><div class="hud"><label>Pressure<input id="pressure" type="range" min="0" max="100" value="45"></label><label>Heat<progress id="heat" max="100" value="0"></progress></label><label>Disc wear<progress id="wear" max="100" value="0"></progress></label><button id="run">Hold to cut</button></div><div class="stats" id="stats">Preparing the tool…</div><div id="msg" aria-live="polite">Waiting for a target.</div></div><small>A/D or mouse left/right: position · Mouse up/down or Q/E: level handle · Hold Space/click: cut · Wheel/slider: pressure · Release: cool · Esc: cancel</small></div>
+<script>
+(()=>{
+const cv=document.getElementById('cv'),c=cv.getContext('2d'),pressure=document.getElementById('pressure');
+const DIFF={easy:{cuts:1,time:60,tol:18,feed:22,heatRate:12,wob:2,wearRate:8,drift:14,angleDrift:6,angleTol:12},medium:{cuts:1,time:60,tol:12,feed:18,heatRate:17,wob:4,wearRate:12,drift:22,angleDrift:10,angleTol:9},hard:{cuts:2,time:60,tol:8,feed:14,heatRate:22,wob:6,wearRate:18,drift:30,angleDrift:15,angleTol:6}};
+let S=null,id=null,last=0,keys={},parts=[],audio=null,motor=null,gain=null;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function start(config){
+  const d={...(DIFF[config.level]||DIFF.medium)};
+  d.mouseTilt=.25;
+  for(const [k,[lo,hi]] of Object.entries({cuts:[1,8],time:[5,300],tol:[3,35],feed:[1,80],heatRate:[1,60],wob:[0,15],wearRate:[1,60],drift:[0,60],angleDrift:[0,30],angleTol:[2,25],mouseTilt:[0,1]})){const v=Number(config[k]);if(Number.isFinite(v))d[k]=clamp(v,lo,hi)}
+  const bolts=config.target==='bolts'||config.theme==='bolts';d.cuts=Math.round(d.cuts);if(!bolts)d.cuts=Math.min(2,d.cuts);
+  const targets=Array.from({length:d.cuts},(_,i)=>({x:bolts?(d.cuts===1?400:220+i*(360/(d.cuts-1))):i?510:290,y:bolts?230:155,cut:0}));
+  S={d,bolts,targets,index:0,x:400,angle:0,vx:0,angleVelocity:0,forceTime:0,forcePhase:Math.random()*Math.PI*2,heat:0,wear:0,time:d.time,run:false,running:true,spin:0,turn:0,turning:false};say('Stay on the gold mark and keep the handle horizontal. Mouse up/down or Q/E adjusts tilt.');
+}
+function say(text){document.getElementById('msg').textContent=text}
+function sound(on){
+  if(on&&!audio){try{audio=new(window.AudioContext||window.webkitAudioContext)();motor=audio.createOscillator();gain=audio.createGain();motor.type='sawtooth';motor.frequency.value=95;gain.gain.value=0;motor.connect(gain);gain.connect(audio.destination);motor.start()}catch{}}
+  if(on)audio?.resume();if(gain)gain.gain.setTargetAtTime(on?.018:0,audio.currentTime,.08);
+}
+function finish(success,reason){if(!S?.running)return;S.running=false;S.run=false;sound(false);say(success?'Cut complete.':({time:'Out of time.',heat:'Disc overheated.',wear:'Disc broke.',cancel:'Cut cancelled.'}[reason]||'Cut stopped.'));parent.postMessage({type:'metacomic:shearResult',id,success,reason:reason||'cut'},'*')}
+function update(dt){
+  if(!S?.running)return;
+  if(S.turning){S.turn+=dt;if(S.turn>=1.2)finish(true);return}
+  S.time-=dt;if(S.time<=0)return finish(false,'time');
+  const target=S.targets[S.index],p=clamp(Number(pressure.value)/100,0,1),loaded=S.run&&p>.02;
+  // Smooth load forces accumulate actual displacement; holding the cursor still does not anchor the disc.
+  S.forceTime+=dt;
+  const force=S.forceTime+S.forcePhase,load=loaded?p*(.5+p):0;
+  const damping=1-Math.exp(-4*dt);
+  S.vx+=(Math.sin(force*1.1)*S.d.drift*load-S.vx)*damping;
+  S.angleVelocity+=(Math.sin(force*.83+1.7)*S.d.angleDrift*load-S.angleVelocity)*damping;
+  S.x=clamp(S.x+(S.vx+((keys.d?1:0)-(keys.a?1:0))*110)*dt,100,700);
+  S.angle=clamp(S.angle+(S.angleVelocity+((keys.e?1:0)-(keys.q?1:0))*42)*dt,-40,40);
+  const aim=S.x+Math.sin(S.spin*1.3)*S.d.wob,aligned=Math.abs(aim-target.x)<=S.d.tol,square=Math.abs(S.angle)<=S.d.angleTol;
+  S.spin+=dt*(S.run?30:3);
+  if(S.run){
+    S.heat+=dt*S.d.heatRate*(.35+p*p*1.7);S.wear+=dt*S.d.wearRate*(Math.max(0,p-.7)*3+(aligned?0:.8)+(square?0:p*1.2));
+    if(aligned&&square){target.cut=Math.min(100,target.cut+dt*S.d.feed*p);if(parts.length<100)for(let i=0;i<3;i++)parts.push({x:aim,y:target.y,vx:100+Math.random()*180,vy:-120+Math.random()*240,life:.2+Math.random()*.3})}
+    say(!aligned?'Disc slipping off the cut — correct position.':!square?'Disc binding — level the handle with mouse up/down or Q/E.':p>.7?'Heavy pressure: faster drift, heat and disc wear.':'On the cut. Keep the handle level and position steady.');
+    if(S.heat>=100)return finish(false,'heat');if(S.wear>=100)return finish(false,'wear');
+    if(target.cut>=100){S.index++;S.run=false;sound(false);if(S.index===S.targets.length){S.turning=true;say('Cut through.')}else say('Move to the next marked cut.')}
+  }else S.heat=Math.max(0,S.heat-dt*25);
+  for(const p of parts){p.x+=p.vx*dt;p.y+=p.vy*dt;p.life-=dt}parts=parts.filter(p=>p.life>0);
+}
+function rounded(x,y,w,h,r){c.beginPath();c.roundRect(x,y,w,h,r);c.fill();c.stroke()}
+function draw(){
+  c.clearRect(0,0,800,440);c.strokeStyle='#28424f';c.lineWidth=1;for(let i=0;i<800;i+=20){c.beginPath();c.moveTo(i,0);c.lineTo(i,440);c.stroke()}for(let i=0;i<440;i+=20){c.beginPath();c.moveTo(0,i);c.lineTo(800,i);c.stroke()}
+  if(!S)return;
+  if(S.bolts){c.fillStyle='#606b72';c.strokeStyle='#b4bec4';rounded(170,170,460,125,8);for(const t of S.targets){if(t.cut===100)continue;c.fillStyle='#b4bec4';c.beginPath();for(let i=0;i<6;i++){const a=i*Math.PI/3;c.lineTo(t.x+26*Math.cos(a),t.y+26*Math.sin(a))}c.closePath();c.fill();c.stroke()}}
+  else{
+    c.save();c.translate(0,-S.turn*36);c.strokeStyle='#aab7bd';c.lineWidth=27;c.lineCap='round';c.beginPath();c.moveTo(290,265);c.lineTo(290,135);c.arc(400,135,110,Math.PI,0);c.lineTo(510,265);c.stroke();
+    for(const t of S.targets){c.strokeStyle='#132631';c.lineWidth=2+t.cut*.22;c.beginPath();c.moveTo(t.x-17,t.y);c.lineTo(t.x+17,t.y);c.stroke()}c.restore();
+    const g=c.createLinearGradient(240,245,570,420);g.addColorStop(0,'#efd790');g.addColorStop(.5,'#a58035');g.addColorStop(1,'#d4b766');c.fillStyle=g;c.strokeStyle='#6b542a';rounded(235,245,330,160,12);
+  }
+  const t=S.targets[Math.min(S.index,S.targets.length-1)];
+  if(!S.turning){c.strokeStyle='#ffda75';c.lineWidth=3;c.strokeRect(t.x-20,t.y-25,40,50);c.fillStyle='#ffda75';c.font='14px system-ui';c.fillText('CUT '+(S.index+1),t.x-20,t.y-36);
+    const x=S.x+Math.sin(S.spin*1.3)*S.d.wob,y=t.y;
+    // No cosmetic angle offset: a zero-degree handle is parallel to the bottom of the scene.
+    c.save();c.translate(x,y);c.rotate(S.angle*Math.PI/180);c.translate(0,-45);
+    c.fillStyle='#d57232';c.strokeStyle='#413529';rounded(-140,-48,130,48,8);
+    c.fillStyle='#252c32';rounded(-170,-41,42,34,6);
+    const level=Math.abs(S.angle)<=S.d.angleTol,color=level?'#bfe4a5':'#ffba83';
+    c.fillStyle='#17201d';c.strokeStyle=color;c.lineWidth=1;rounded(-124,-42,96,27,4);
+    c.fillStyle=color;c.font='bold 14px system-ui';c.fillText(`${Math.round(S.angle)}° ${level?'LEVEL':'TILT'}`,-115,-23);
+    c.fillStyle='#38463d';c.fillRect(-122,-8,92,4);
+    c.fillStyle='#83b56d';c.fillRect(-76-S.d.angleTol, -8,S.d.angleTol*2,4);
+    c.strokeStyle=color;c.lineWidth=2;c.beginPath();c.moveTo(-76+S.angle,-12);c.lineTo(-76+S.angle,-1);c.stroke();
+    c.fillStyle='#859097';c.strokeStyle='#413529';c.lineWidth=2;c.beginPath();c.arc(0,0,48,0,Math.PI*2);c.fill();c.stroke();
+    c.rotate(S.spin);c.strokeStyle='#d0d8d8';c.lineWidth=2;for(let i=0;i<8;i++){c.rotate(Math.PI/4);c.beginPath();c.moveTo(16,0);c.lineTo(43,0);c.stroke()}c.restore();
+  }
+  c.strokeStyle='#ffcc62';c.lineWidth=2;for(const p of parts){c.beginPath();c.moveTo(p.x,p.y);c.lineTo(p.x+8,p.y+3);c.stroke()}
+  document.getElementById('heat').value=S.heat;document.getElementById('wear').value=S.wear;
+  document.getElementById('stats').textContent=`Cuts ${S.index}/${S.targets.length} · Current ${Math.floor(t.cut)}% · ${Math.max(0,Math.ceil(S.time))}s`;
+}
+function loop(now){const dt=Math.min(.05,(now-last)/1000||0);last=now;update(dt);draw();requestAnimationFrame(loop)}
+function resize(){const dpr=Math.min(window.devicePixelRatio||1,2);cv.width=800*dpr;cv.height=440*dpr;c.setTransform(dpr,0,0,dpr,0,0)}
+function run(on){if(S?.running&&!S.turning){S.run=on;sound(on)}}
+window.addEventListener('message',e=>{if(e.source!==parent||id!==null||e.data?.action!=='grinder:open')return;id=e.data.id;start(e.data.config||{})});
+window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(k==='escape')return finish(false,'cancel');if(['a','d','q','e',' '].includes(k)){e.preventDefault();keys[k]=true;if(k===' ')run(true)}});
+window.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;if(e.key===' ')run(false)});
+window.addEventListener('blur',()=>{keys={};run(false)});
+cv.addEventListener('pointermove',e=>{
+  if(!S?.running||S.turning)return;
+  const r=cv.getBoundingClientRect(),dx=Number(e.movementX)||0,dy=Number(e.movementY)||0;
+  S.x=clamp(S.run?S.x+dx/Math.max(1,r.width)*800:(e.clientX-r.left)/Math.max(1,r.width)*800,100,700);
+  // Raising the mouse raises the rear handle. Relative input preserves load drift.
+  S.angle=clamp(S.angle-dy/Math.max(1,r.height)*440*S.d.mouseTilt,-40,40);
+});
+cv.addEventListener('pointerdown',e=>{if(e.button===0)run(true)});window.addEventListener('pointerup',()=>run(false));window.addEventListener('pointercancel',()=>run(false));
+const button=document.getElementById('run');button.addEventListener('pointerdown',()=>run(true));button.addEventListener('pointerleave',()=>run(false));
+cv.addEventListener('wheel',e=>{e.preventDefault();pressure.value=clamp(Number(pressure.value)-Math.sign(e.deltaY)*3,0,100)},{passive:false});
+/* SHEAR_FIT_LAYOUT */
+window.addEventListener('resize',resize);resize();requestAnimationFrame(loop);
+})();
+</script></body></html>

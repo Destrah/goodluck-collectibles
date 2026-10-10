@@ -69,3 +69,36 @@ RegisterNetEvent('meta_comic:client:policeAlert', function(alert)
         if area then RemoveBlip(area) end
     end)
 end)
+
+-- Dispatch's getNearPed is private and distance-only. Only ambient human peds with actual sight qualify here.
+function MetaComic.WatchCrimeWitness(token, active)
+    local settings=(Config.Police or {}).Witness or {}
+    local stopped=false
+    if settings.Enabled==false or (Config.Police or {}).Enabled==false or (Config.Police or {}).System=='none' then return function() end end
+    CreateThread(function()
+        while not stopped and active() do
+            local actor=PlayerPedId()
+            local position=GetEntityCoords(actor)
+            local radius=math.max(1,math.min(100,tonumber(settings.Radius) or 25))
+            for _,ped in ipairs(GetGamePool('CPed')) do
+                local population=GetEntityPopulationType(ped)
+                if ped~=actor and population>=1 and population<=5 and not IsPedAPlayer(ped)
+                    and IsPedHuman(ped) and not IsEntityDead(ped) and not IsEntityAMissionEntity(ped) then
+                    local origin=GetEntityCoords(ped)
+                    local delta=position-origin
+                    local distance=#delta
+                    if distance<=radius and distance>0.01 then
+                        local forward=GetEntityForwardVector(ped)
+                        local facing=(forward.x*delta.x+forward.y*delta.y)/math.max(0.01,math.sqrt(delta.x*delta.x+delta.y*delta.y))
+                        if facing>=(tonumber(settings.FacingDot) or 0.25) and HasEntityClearLosToEntity(ped,actor,17) then
+                            if not stopped and active() then TriggerServerEvent('meta_comic:server:crimeWitness',token) end
+                            return
+                        end
+                    end
+                end
+            end
+            Wait(math.max(250,tonumber(settings.Interval) or 1000))
+        end
+    end)
+    return function() stopped=true end
+end

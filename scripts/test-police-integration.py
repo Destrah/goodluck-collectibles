@@ -56,6 +56,24 @@ class PoliceIntegrationTests(unittest.TestCase):
     def send(self):
         return self.lua.execute('return MetaComic.Police.alert(99,alert)')
 
+    def test_witness_and_outcome_rules_deduplicate_without_suppressing_phone(self):
+        self.lua.execute("""
+          Config.Police.CrimeRules={default={witness=100,fail=100,success=100},pickpadlock={witness=100,fail=100,success=0},installskimmer={witness=100,fail=100,success=0}}
+          job={action='pickpadlock'};entry={serial='VM-1',x=1,y=2,z=3}
+          assert(not MetaComic.Police.attempt(99,job,entry,'breakin','start'))
+          assert(not MetaComic.Police.attempt(99,job,entry,'breakin','success'))
+          assert(MetaComic.Police.attempt(99,job,entry,'breakin','witness'))
+          assert(not MetaComic.Police.attempt(99,job,entry,'breakin','fail'))
+          assert(#serverEvents==1)
+          job={action='installskimmer'}
+          assert(not MetaComic.Police.attempt(99,job,entry,'installskimmer','success'))
+          assert(MetaComic.Police.attempt(99,job,entry,'installskimmer','fail'))
+          job={action='breakin'}
+          assert(MetaComic.Police.attempt(99,job,entry,'breakin','success'))
+          Config.Police.CrimeRules.default.fail=0
+          assert(not MetaComic.Police.attempt(99,{},entry,'breakin','fail'))
+        """)
+
     def test_rush_export_payload_matches_fork(self):
         self.assertTrue(self.send())
         self.lua.execute("local e=serverEvents[1];clientHandlers[e.name](e.args[1],e.args[2])")

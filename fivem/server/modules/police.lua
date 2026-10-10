@@ -109,9 +109,15 @@ function service.alert(source, data)
         blip = blip, jobs = jobs(), dispatchJobs = cfg.DispatchJobs, rushDispatchJobs = cfg.RushDispatchJobs,
     }
     service.phone(source, alert)
-    if alert.action ~= 'gps' and alert.stage ~= (cfg.CrimeAlertStage or 'start') then return false end
+    if data.suppressDispatch then return false end
+    local rules = cfg.CrimeRules
+    local rule = type(rules)=='table' and data.ruleAction and (rules[data.ruleAction] or rules.default)
+    if alert.action ~= 'gps' and not rule and alert.stage ~= (cfg.CrimeAlertStage or 'start') then return false end
     if cfg.Enabled == false or system() == 'none' or preset.enabled == false then return false end
-    local chance = tonumber((preset.chance or {})[alert.stage]) or (alert.stage == 'start' and 100 or 0)
+    local chance
+    if alert.action ~= 'gps' and rule then
+        chance=tonumber(rule[alert.stage]) or tonumber((rules.default or {})[alert.stage]) or 0
+    else chance=tonumber((preset.chance or {})[alert.stage]) or (alert.stage == 'start' and 100 or 0) end
     if chance <= 0 or math.random() * 100 >= chance then return false end
     local name = system()
     if name == 'custom' then
@@ -157,3 +163,27 @@ end
 
 -- other scripts: exports['<resource>']:PoliceAlert(source, { action = 'breakin', coords = vector3(...), stage = 'start' })
 exports('PoliceAlert', function(source, data) return service.alert(tonumber(source), data or {}) end)
+
+-- One dispatch per server-authorized attempt; outcome rolls remain on the server.
+local witnesses = {}
+function service.attempt(source, job, entry, action, stage)
+    if stage=='fail' or stage=='success' then witnesses[source]=nil end
+    local sent=service.alert(source,{action=action,ruleAction=job.action or action,stage=stage,serial=entry.serial,
+        coords={x=entry.x,y=entry.y,z=entry.z},suppressDispatch=job.policeDispatched})
+    if sent then job.policeDispatched=true end
+    return sent
+end
+function service.watch(source, job, entry, action, active)
+    witnesses[source]={job=job,entry=entry,action=action,active=active,expires=GetGameTimer()+math.max(300000,(job.duration or 0)+300000)}
+end
+function service.unwatch(source) witnesses[source]=nil end
+if RegisterNetEvent then RegisterNetEvent('meta_comic:server:crimeWitness',function(token)
+    local actor=source
+    if (cfg.Witness or {}).Enabled==false then return end
+    local session=witnesses[actor]
+    if not session or session.job.token~=token or session.reported or GetGameTimer()>session.expires then return end
+    if not session.active() or not MetaComic.Vending.near(actor,session.entry,MetaComic.Vending.reach()+2.0) then return end
+    session.reported=true
+    service.attempt(actor,session.job,session.entry,session.action,'witness')
+end) end
+if AddEventHandler then AddEventHandler('playerDropped',function() witnesses[source]=nil end) end

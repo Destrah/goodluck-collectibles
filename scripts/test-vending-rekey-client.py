@@ -50,7 +50,7 @@ class RekeyClientTests(unittest.TestCase):
         self.lua.execute((ROOT / 'fivem/client/vending_keys.lua').read_text(encoding='utf-8'))
 
     def run_rekey(self):
-        self.lua.execute("handlers['meta_comic:client:vendingRekeyStart']({id=1,token='job',duration=180000,minigame={'lockpick_hard','wires_hard'}})")
+        self.lua.execute("handlers['meta_comic:client:vendingRekeyStart']({id=1,token='job',duration=180000,minigame={'lockpick_hard','skimmer_hard'}})")
 
     def test_right_side_and_looping_pose_continue_through_minigames_and_timer(self):
         self.run_rekey()

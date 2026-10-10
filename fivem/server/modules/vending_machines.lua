@@ -943,17 +943,19 @@ RegisterNetEvent('meta_comic:server:vendingOwner', function(id, action, data) ow
 -- Map of every machine for managers (admin UI "Vending machines" tab) ------------------------------------------------
 if MetaComic.RpcHandlers then
     MetaComic.RpcHandlers.getVendingMachines = function(source, payload)
-        local forensic = canManage(source) and type(payload) == 'table' and payload.forensic == true
+        local manager = canManage(source)
+        local actorId = playerId(source)
+        local forensic = manager and type(payload) == 'table' and payload.forensic == true
         -- managers see every machine; owners using the portal (Config.Portal) only their own
-        local ownerId = not canManage(source) and MetaComic.Portal and MetaComic.Portal.ownerScope(source, 'vending')
-        if not canManage(source) and not ownerId and not Registry.hasOSAccess(source) then return { ok = false, error = 'You are not allowed to manage vending machines.' } end
+        local ownerId = not manager and MetaComic.Portal and MetaComic.Portal.ownerScope(source, 'vending')
+        if not manager and not ownerId and not Registry.hasOSAccess(source) then return { ok = false, error = 'You are not allowed to manage vending machines.' } end
         local list = {}
         for _, id in ipairs(order) do
             local entry = machines[id]
             local record = recordOf(entry)
-            if record and (forensic or record.systemController and Registry.osMember(record, playerId(source))
-                or not record.systemController and (canManage(source) or ownerId and record.owner == ownerId)) then
-                local view = (forensic and Registry.view(record) or Registry.viewFor(record, source)) or {}
+            if record and (forensic or record.systemController and Registry.osMember(record, actorId)
+                or not record.systemController and (manager or ownerId and record.owner == ownerId)) then
+                local view = Registry.mapSummary(record, source, forensic)
                 list[#list + 1] = { id = entry.id, x = entry.x, y = entry.y, z = entry.z, products = clientProducts(entry, false, forensic), serial = entry.serial,
                     ownerName = view.ownerName, tampered = view.tampered, cash = forensic and entry.cash or accounting(entry).cash }
             end
@@ -964,10 +966,10 @@ if MetaComic.RpcHandlers then
             local n = 0
             for _, record in ipairs(Registry.all()) do
                 local fix = record.status ~= 'removed' and not record.gpsDisabled and security.gpsPosition(record.serial)
-                if fix and (forensic or record.systemController and Registry.osMember(record, playerId(source))
-                    or not record.systemController and (canManage(source) or ownerId and record.owner == ownerId)) then
+                if fix and (forensic or record.systemController and Registry.osMember(record, actorId)
+                    or not record.systemController and (manager or ownerId and record.owner == ownerId)) then
                     n = n + 1
-                    local view = Registry.viewFor(record, source) or {}
+                    local view = Registry.mapSummary(record, source, false)
                     list[#list + 1] = { id = -n, x = fix.x, y = fix.y, z = fix.z, serial = record.serial, ownerName = view.ownerName,
                         tampered = view.tampered, tracked = fix.how, holderName = forensic and fix.holder or nil, seenAt = fix.at }
                 end
@@ -1066,7 +1068,12 @@ local function restock(source, id, setId, kind, amount, timed, progress)
     stockTransfers[entry.id] = nil
     return true
 end
-RegisterNetEvent('meta_comic:server:vendingRestock', function(id, setId, kind, amount) restock(source, id, setId, kind, amount, false) end)
+RegisterNetEvent('meta_comic:server:vendingRestock', function(id, setId, kind, amount)
+    local src = source
+    restock(src, id, setId, kind, amount, false)
+    -- Immediate rejection or untimed completion also answers the waiting management menu.
+    if not working[src] then TriggerClientEvent('meta_comic:client:vendingMenuRefresh', src, tonumber(id)) end
+end)
 
 -- Timed restocking and cash collection (Config.VendingMachines.Work): the player plays it out (loading packs / taking
 -- the cash) behind a progress bar, and the server only applies it once that time has really passed.
@@ -1081,6 +1088,13 @@ end
 local function finishWork(source, job)
     if job.kind == 'cash' then return ownerAction(source, job.args[1], job.args[2], job.args[3], true) end
     return restock(source, job.args[1], job.args[2], job.args[3], job.args[4], true)
+end
+local function stopWork(source, job)
+    TriggerClientEvent('meta_comic:client:vendingWorkStop', source, job.token)
+    if job.kind == 'restock' then
+        -- Request a fresh authoritative snapshot only after the complete run ends, never between batches.
+        TriggerClientEvent('meta_comic:client:vendingMenuRefresh', source, tonumber(job.args[1]))
+    end
 end
 startWork = function(source, entry, kind, units, args, productKind, progress)
     if work.Enabled == false then return finishWork(source, { kind = kind, args = args }) end
@@ -1110,19 +1124,19 @@ end
 RegisterNetEvent('meta_comic:server:vendingWorkFinish', function(token)
     local source, job = source, working[source]
     if not job or job.token ~= token then return end
-    if GetGameTimer() - job.at >= job.duration + 10000 then working[source] = nil;return notify(source, 'The action expired. Please try again.', 'error') end
-    if GetGameTimer() - job.at < job.duration then working[source] = nil;return notify(source, 'You stopped too early.', 'error') end
+    if GetGameTimer() - job.at >= job.duration + 10000 then working[source] = nil;stopWork(source, job);return notify(source, 'The action expired. Please try again.', 'error') end
+    if GetGameTimer() - job.at < job.duration then working[source] = nil;stopWork(source, job);return notify(source, 'You stopped too early.', 'error') end
     local success = finishWork(source, job)
     if working[source] == job then working[source] = nil end
     if success == true and not job.canceled and job.kind == 'restock' and job.remaining > 0 then
         restock(source, job.args[1], job.args[2], job.args[3], job.remaining, false,
             { loaded = job.loaded + job.args[4], total = job.total, run = job.run })
     end
-    if not working[source] then TriggerClientEvent('meta_comic:client:vendingWorkStop', source, job.token) end
+    if not working[source] then stopWork(source, job) end
 end)
 RegisterNetEvent('meta_comic:server:vendingWorkCancel', function(token)
     local job = working[source]
-    if job and job.token == token then job.canceled = true;working[source] = nil end
+    if job and job.token == token then job.canceled = true;working[source] = nil;stopWork(source, job) end
 end)
 AddEventHandler('playerDropped', function() working[source] = nil end)
 

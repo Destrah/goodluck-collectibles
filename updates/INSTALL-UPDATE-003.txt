@@ -10,7 +10,7 @@ INSTALL
    the new table and imports existing catalog.json and sets.json automatically.
    If false, apply the included data/mysql.sql first. Adjust table names for
    custom Config.Database.Table / Config.Database.DefinitionsTable values.
-6. Open /cardadmin, save a test edit, restart the resource, and verify the edit.
+6. Open /collectiblesadmin, save a test edit, restart the resource, and verify the edit.
 
 STORAGE
 The default new table is rush_trading_card_instances_definitions. It contains

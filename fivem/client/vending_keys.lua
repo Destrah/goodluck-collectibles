@@ -4,10 +4,11 @@ if cfg.Enabled == false or keys.Enabled ~= true then return end
 local replacing = false
 local keyUsing, keyGeneration, handKey = false, 0, nil
 local openingId, openingUntil
-local closingForLock
-RegisterNetEvent('meta_comic:client:vendingKeyCloseForLock', function(id, kind)
+local closingForLock, activeClose
+RegisterNetEvent('meta_comic:client:vendingKeyCloseForLock', function(id, kind, token)
     if source == 65535 and closingForLock and closingForLock.id == id and closingForLock.kind == (kind or 'cylinder') then
         closingForLock.confirmed = true
+        closingForLock.token = token
     end
 end)
 MetaComic.VendingKeyWorkBusy = function() return replacing or keyUsing or MetaComic.PropTuneBusy and MetaComic.PropTuneBusy() end
@@ -62,8 +63,11 @@ local function useKeyAtLock(id, kind, mode, alreadyOpen)
             and not IsEntityDead(ped) and not HasEntityBeenDamagedByAnyPed(ped)
             and not IsPedRagdoll(ped) and not IsPedBeingStunned(ped, 0)
     end
+    local closeToken, closeCommitted
     local function finish()
         if keyGeneration ~= generation then return end
+        if closeToken and not closeCommitted then TriggerServerEvent('meta_comic:server:vendingKeyCloseFinish',id,closeToken,false);closeToken=nil end
+        activeClose=nil
         closingForLock = nil
         clearHandKey()
         ClearPedTasks(ped)
@@ -73,10 +77,11 @@ local function useKeyAtLock(id, kind, mode, alreadyOpen)
     if locking then
         if not installing then
             closingForLock = { id = id, kind = kind }
-            if kind == 'cylinder' then TriggerServerEvent('meta_comic:server:vendingKeyCloseForLock', id)
-            else request() end
+            TriggerServerEvent('meta_comic:server:vendingKeyCloseForLock', id, kind)
             local confirmDeadline = GetGameTimer() + 5000
             while current() and not closingForLock.confirmed and GetGameTimer() < confirmDeadline do Wait(0) end
+            closeToken=closingForLock and closingForLock.token
+            if closeToken then activeClose={id=id,token=closeToken} end
             if not current() or not closingForLock or not closingForLock.confirmed then
                 finish()
                 return notify('The door or lid could not be closed for locking.', 'error')
@@ -181,11 +186,15 @@ local function useKeyAtLock(id, kind, mode, alreadyOpen)
         disable = { move = true, car = true, combat = true },
         anim = anim }) == true
     local valid = current()
+    if closeToken and done and valid then
+        closeCommitted=true
+        TriggerServerEvent('meta_comic:server:vendingKeyCloseFinish',id,closeToken,true)
+    end
     finish()
     if not done or not valid then return notify('Key use stopped.', 'info') end
     -- Inventory, key validity, padlock removal and opening remain server-authoritative.
     if kind == 'cylinder' and not locking then openingId, openingUntil = id, GetGameTimer() + 4000 end
-    if not closedInterior then request() end
+    if not closedInterior and not closeCommitted then request() end
 end
 MetaComic.VendingUseKeyAtLock = useKeyAtLock
 RegisterNetEvent('meta_comic:client:vendingKeyUnlocked', function(data)
@@ -206,6 +215,7 @@ RegisterNetEvent('meta_comic:client:vendingKeyUnlocked', function(data)
 end)
 AddEventHandler('onResourceStop', function(resource)
     if resource ~= GetCurrentResourceName() then return end
+    if activeClose then TriggerServerEvent('meta_comic:server:vendingKeyCloseFinish',activeClose.id,activeClose.token,false);activeClose=nil end
     if keyUsing then ClearPedTasks(PlayerPedId()) end
     keyUsing = false; keyGeneration = keyGeneration + 1; openingId = nil; closingForLock = nil
     clearHandKey()
@@ -264,11 +274,11 @@ RegisterNetEvent('meta_comic:client:vendingKeyMenu', function(data)
                 or { title = 'Open server rack', description = 'Board, operating system, payment and GPS work', icon = 'server',
                     onSelect = function() useKeyAtLock(data.id, 'rack') end }
         end
-    elseif not data.damagedUnsealed and not data.padlock then
-        options[#options + 1] = { title = data.cabinetOpen and 'Authenticate cabinet key' or withBox and 'Open machine only' or 'Unlock cabinet with key', icon = 'unlock', disabled = data.sealText ~= nil or not data.hasKey,
-            description = data.sealText or (not data.hasKey and 'Requires a matching current cylinder key.' or data.cabinetOpen and 'The cabinet is already open. Use your key to access its controls.' or withBox and 'The cash box stays shut' or nil),
-            onSelect = function() useKeyAtLock(data.id, 'cylinder', 'door', data.cabinetOpen) end }
-        if withBox and not data.cabinetOpen then
+    elseif (not data.damagedUnsealed or data.hasKey) and not data.padlock then
+        options[#options + 1] = { title = (data.cabinetOpen or data.damagedUnsealed) and 'Authenticate cabinet key' or withBox and 'Open machine only' or 'Unlock cabinet with key', icon = 'unlock', disabled = data.sealText ~= nil or not data.hasKey,
+            description = data.sealText or (not data.hasKey and 'Requires a matching current cylinder key.' or data.damagedUnsealed and 'Use your current key for cash box and server rack access. The damaged cabinet remains unsecured.' or data.cabinetOpen and 'The cabinet is already open. Use your key to access its controls.' or withBox and 'The cash box stays shut' or nil),
+            onSelect = function() useKeyAtLock(data.id, 'cylinder', 'door', data.cabinetOpen or data.damagedUnsealed) end }
+        if withBox and not data.cabinetOpen and not data.damagedUnsealed then
             options[#options + 1] = { title = 'Open machine and cash box', icon = 'box-open', disabled = data.sealText ~= nil or not data.hasKey, description = data.sealText,
                 onSelect = function() useKeyAtLock(data.id, 'cylinder', 'both') end }
         end
@@ -319,8 +329,12 @@ RegisterNetEvent('meta_comic:client:vendingKeyMenu', function(data)
             end
         end
     end
-    exports.ox_lib:registerContext({ id = 'meta_comic_vending_keys', title = 'Cabinet lock and keys', options = options })
-    exports.ox_lib:showContext('meta_comic_vending_keys')
+    if MetaComic.VendingContextMenu then
+        MetaComic.VendingContextMenu('meta_comic_vending_keys','Cabinet lock and keys',options,'meta_comic_vending_manage_root')
+    else
+        exports.ox_lib:registerContext({ id = 'meta_comic_vending_keys', title = 'Cabinet lock and keys', options = options })
+        exports.ox_lib:showContext('meta_comic_vending_keys')
+    end
 end)
 RegisterNetEvent('meta_comic:client:vendingRekeyStart', function(data)
     if replacing or keyUsing then return TriggerServerEvent('meta_comic:server:vendingRekeyCancel') end
@@ -398,13 +412,4 @@ RegisterNetEvent('meta_comic:client:vendingRepairStart', function(data)
         disable = { move = true, car = true, combat = true }, anim = { dict = 'mini@repair', clip = 'fixing_a_ped' } })
     TriggerServerEvent(completed and 'meta_comic:server:vendingRepairFinish' or 'meta_comic:server:vendingRepairCancel', completed and data.token or nil)
     replacing = false
-end)
-CreateThread(function()
-    local deadline = GetGameTimer() + 30000
-    while GetResourceState('ox_target') ~= 'started' do if GetGameTimer() > deadline then return end; Wait(500) end
-    exports.ox_target:addModel(cfg.Model or 'metacomics_vending_machine', {
-        { name = 'meta_comic_vending_keys', label = 'Cabinet lock / keys', icon = 'fas fa-key', distance = (cfg.Shop or {}).TargetDistance or 2,
-            canInteract = function(entity) return not replacing and not keyUsing and MetaComic.VendingMachineOf(entity) ~= nil end,
-            onSelect = function(data) local machine = MetaComic.VendingMachineOf(data.entity); if machine then TriggerServerEvent('meta_comic:server:vendingKeyMenu', machine.id) end end },
-    })
 end)

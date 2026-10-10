@@ -148,8 +148,8 @@ MetaComic.InventoryAdapters.ox_inventory = function()
             local success = exports.ox_inventory:AddItem(source, item, count or 1, metadata)
             return success == true
         end,
-        canCarry = function(source, item, count)
-            return exports.ox_inventory:CanCarryItem(source, item, count) == true
+        canCarry = function(source, item, count, metadata)
+            return exports.ox_inventory:CanCarryItem(source, item, count, metadata) == true
         end,
     }
 end

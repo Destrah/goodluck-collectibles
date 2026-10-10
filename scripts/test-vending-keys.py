@@ -48,6 +48,9 @@ class KeyTests(unittest.TestCase):
             MetaComic.Vending.giveSealed=function() return true end
             MetaComic.Police.isPolice=function(src) return src==55 end
             MetaComic.Police.count=function() return 0 end
+            MetaComic.Police.attempt=function(src,job,entry,action,stage) return MetaComic.Police.alert(src,{action=action,stage=stage}) end
+            MetaComic.Police.watch=function() end
+            MetaComic.Police.unwatch=function() end
             MetaComic.RpcHandlers={}
             MetaComic.Settings.get=function(key) if key=='vending_key_reports' then return savedReports end;return records end
             MetaComic.Settings.set=function(key,value) if not saveOK then return false end;if key=='vending_key_reports' then savedReports=MetaComic.CopyTable(value) end;if revokeIssuerOnSave then bags[44]={} end;return true end
@@ -979,10 +982,13 @@ class PadlockTests(unittest.TestCase):
             localEvents={};exported={}
             function AddEventHandler(name,fn) localEvents[name]=fn end
             function TriggerEvent(name,...) if localEvents[name] then localEvents[name](...) end end
-            function SetTimeout() end
+            timeouts={}
+            function SetTimeout(ms,fn) timeouts[#timeouts+1]=fn end
             function exports(name,fn) exported[name]=fn end
             local originalClientEvent=TriggerClientEvent
-            function TriggerClientEvent(name,src,data,state)
+            function TriggerClientEvent(name,src,data,state,token)
+                if name=='meta_comic:client:vendingKeyCloseForLock' then closeToken=token end
+                if name=='meta_comic:client:vendingAjar' then lastAjar=state end
                 if name=='meta_comic:client:vendingDoor' then lastDoorState=state end
                 originalClientEvent(name,src,data)
             end
@@ -1003,7 +1009,7 @@ class PadlockTests(unittest.TestCase):
         self.assertTrue(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
         self.lua.execute("while coroutine.status(closeJob) ~= 'dead' do assert(coroutine.resume(closeJob)) end")
         self.assertFalse(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
-        self.assertEqual(self.lua.eval('events[#events].name'), 'meta_comic:client:vendingDoor')
+        self.assertEqual(self.lua.eval('events[#events].name'), 'meta_comic:client:vendingMenuRefresh')
         self.assertFalse(self.lua.eval('lastDoorState'))
 
     def test_failed_lock_save_does_not_close_door(self):
@@ -1016,12 +1022,98 @@ class PadlockTests(unittest.TestCase):
         self.lua.execute("exported.SetVendingDoor(1,true,30);source=22;handlers['meta_comic:server:vendingKeyLock'](1)")
         self.assertTrue(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
 
-    def test_close_before_lock_shuts_door_without_invalidating_key_session(self):
+    def test_menu_waits_for_pending_server_lock_response(self):
+        self.issue(); self.load_real_door(); self.unlock()
+        self.lua.execute("handlers['meta_comic:server:vendingKeyCloseForLock'](1,'cylinder');events={};handlers['meta_comic:server:vendingKeyMenu'](1)")
+        self.assertEqual(self.lua.eval('#events'),0)
+        self.lua.execute("snapshot=timeouts[#timeouts];handlers['meta_comic:server:vendingKeyCloseFinish'](1,closeToken,false);snapshot()")
+        self.assertEqual(self.lua.eval('events[#events].name'),'meta_comic:client:vendingKeyMenu')
+        self.assertTrue(self.lua.eval('events[#events].data.cabinetOpen'))
+        self.assertFalse(self.lua.eval('events[#events].data.busy'))
+
+    def test_map_summary_preserves_visibility_without_copying_key_archives(self):
+        self.issue()
+        self.lua.execute("local original=MetaComic.VendingRegistry.keyRecords;MetaComic.VendingRegistry.keyRecords=function() error('Unexpected archive copy') end;local view=MetaComic.VendingRegistry.view(record,false);local summary=MetaComic.VendingRegistry.mapSummary(record,11,true);assert(summary.ownerName==view.ownerName and summary.tampered==view.tampered);MetaComic.VendingRegistry.keyRecords=original")
+        self.lua.execute("record.systemController=MetaComic.VendingRegistry.identifierOf(11);assert(MetaComic.VendingRegistry.ensureOS(record));for _,src in ipairs({11,44}) do local view=MetaComic.VendingRegistry.viewFor(record,src,false);local summary=MetaComic.VendingRegistry.mapSummary(record,src,false);assert(summary.ownerName==view.ownerName and summary.tampered==view.tampered) end")
+
+    def test_recovered_key_authenticates_damaged_cabinet_and_interiors(self):
+        self.issue(); self.load_real_door(); self.unlock()
+        self.lua.execute("record.lockCondition='damaged';record.unlockedUntil=now+600;Keys.invalidate(record);savedBag=bags[11];bags[11]={};handlers['meta_comic:server:vendingDamagedDoor'](1,false)")
+        self.assertFalse(self.lua.eval("Keys.access(11,entry,'full')"))
+        self.lua.execute("bags[11]=savedBag;handlers['meta_comic:server:vendingKeyUnlock'](1,'door')")
+        self.assertTrue(self.lua.eval("Keys.access(11,entry,'full')"))
+        self.assertEqual(self.lua.eval('record.lockCondition'),'damaged')
+        self.lua.execute("handlers['meta_comic:server:vendingRackKey'](1,true);handlers['meta_comic:server:vendingCashboxKey'](1,true);handlers['meta_comic:server:vendingKeyMenu'](1)")
+        self.assertTrue(self.lua.eval('events[#events].data.rackOpen'))
+        self.assertTrue(self.lua.eval('events[#events].data.boxOpen'))
+        self.assertTrue(self.lua.eval('events[#events].data.fullSession'))
+
+    def test_unlock_menu_snapshot_includes_completed_door_state(self):
+        self.issue(); self.load_real_door()
+        self.lua.execute("handlers['meta_comic:server:vendingKeyUnlock'](1,'door');handlers['meta_comic:server:vendingKeyMenu'](1)")
+        self.assertTrue(self.lua.eval('events[#events].data.cabinetOpen'))
+        self.assertFalse(self.lua.eval('events[#events].data.canPadlock'))
+        self.assertFalse(self.lua.eval('events[#events].data.boxOpen'))
+        self.assertTrue(self.lua.eval('events[#events].data.session'))
+        self.lua.execute("handlers['meta_comic:server:vendingKeyUnlock'](1,'both');handlers['meta_comic:server:vendingKeyMenu'](1)")
+        self.assertTrue(self.lua.eval('events[#events].data.boxOpen'))
+
+    def test_close_preview_preserves_state_then_cancel_leaves_ajar(self):
         self.issue(); self.load_real_door(); self.unlock()
         self.lua.execute("exported.SetVendingDoor(1,true,30);handlers['meta_comic:server:vendingKeyCloseForLock'](1)")
-        self.assertFalse(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+        self.assertTrue(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+        self.assertFalse(self.lua.eval('lastDoorState'))
         self.assertTrue(self.lua.eval("Keys.access(11,entry,'service')"))
-        self.assertEqual(self.lua.eval('events[#events].name'), 'meta_comic:client:vendingKeyCloseForLock')
+        self.lua.execute("handlers['meta_comic:server:vendingKeyCloseFinish'](1,closeToken,false)")
+        self.assertTrue(self.lua.eval('lastAjar.cabinet'))
+        self.assertTrue(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+        self.assertFalse(self.lua.eval('Keys.busy(entry)'))
+        self.lua.execute("source=22;handlers['meta_comic:server:vendingOpenAjar'](1)")
+        self.assertIsNone(self.lua.eval('lastAjar'))
+        self.assertTrue(self.lua.eval('lastDoorState'))
+
+    def test_close_commit_requires_matching_actor_token_and_completed_duration(self):
+        self.issue(); self.load_real_door(); self.unlock()
+        self.lua.execute("exported.SetVendingDoor(1,true,30);handlers['meta_comic:server:vendingKeyCloseForLock'](1);savedToken=closeToken;source=22;handlers['meta_comic:server:vendingKeyCloseFinish'](1,savedToken,true)")
+        self.assertTrue(self.lua.eval('Keys.busy(entry)'))
+        self.lua.execute("source=11;handlers['meta_comic:server:vendingKeyCloseFinish'](1,'wrong',true)")
+        self.assertTrue(self.lua.eval('Keys.busy(entry)'))
+        self.lua.execute("timer=10000;handlers['meta_comic:server:vendingKeyCloseFinish'](1,savedToken,true)")
+        self.assertFalse(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+        self.assertFalse(self.lua.eval("Keys.access(11,entry,'service')"))
+
+    def test_interior_cancel_does_not_commit_closed_lid_or_rack(self):
+        for kind, getter in [('cashbox','isOpen'),('rack','rackOpen')]:
+            self.setUp(); self.issue(); self.load_real_door(); self.unlock()
+            self.lua.execute("exported.SetVendingDoor(1,true,30);exported.SetVendingCashbox(1,true);exported.SetVendingRack(1,true);handlers['meta_comic:server:vendingKeyCloseForLock'](1,'"+kind+"')")
+            self.assertTrue(self.lua.eval('MetaComic.VendingCashbox.'+getter+'(1)'))
+            self.lua.execute("handlers['meta_comic:server:vendingKeyCloseFinish'](1,closeToken,false)")
+            self.assertTrue(self.lua.eval('lastAjar.'+kind))
+            self.assertFalse(self.lua.eval('lastAjar.cabinet'))
+            self.lua.execute("lastDoorState='untouched';handlers['meta_comic:server:vendingOpenAjar'](1)")
+            self.assertEqual(self.lua.eval('lastDoorState'),'untouched')
+            self.assertTrue(self.lua.eval('MetaComic.VendingCashbox.'+getter+'(1)'))
+            self.assertTrue(self.lua.eval("Keys.access(11,entry,'full')"))
+
+    def test_pending_lock_timeout_and_early_finish_reopen_without_locking(self):
+        for early in [True,False]:
+            self.setUp(); self.issue(); self.load_real_door(); self.unlock()
+            self.lua.execute("exported.SetVendingDoor(1,true,30);handlers['meta_comic:server:vendingKeyCloseForLock'](1)")
+            if early:
+                self.lua.execute("handlers['meta_comic:server:vendingKeyCloseFinish'](1,closeToken,true)")
+            else:
+                self.lua.execute("timeouts[#timeouts]()")
+            self.assertTrue(self.lua.eval('lastAjar.cabinet'))
+            self.assertTrue(self.lua.eval("Keys.access(11,entry,'service')"))
+            self.assertFalse(self.lua.eval('Keys.busy(entry)'))
+
+    def test_completed_interior_lock_closes_only_that_part(self):
+        self.issue(); self.load_real_door(); self.unlock()
+        self.lua.execute("exported.SetVendingDoor(1,true,30);exported.SetVendingCashbox(1,true);exported.SetVendingRack(1,true);handlers['meta_comic:server:vendingKeyCloseForLock'](1,'rack');timer=10000;handlers['meta_comic:server:vendingKeyCloseFinish'](1,closeToken,true)")
+        self.assertFalse(self.lua.eval('MetaComic.VendingCashbox.rackOpen(1)'))
+        self.assertTrue(self.lua.eval('MetaComic.VendingCashbox.isOpen(1)'))
+        self.assertTrue(self.lua.eval('MetaComic.VendingCashbox.cabinetOpen(1)'))
+        self.assertTrue(self.lua.eval("Keys.access(11,entry,'full')"))
 
     def test_close_before_lock_rejects_unauthorized_and_looting_machine(self):
         self.issue(); self.load_real_door(); self.unlock()

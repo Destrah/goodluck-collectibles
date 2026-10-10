@@ -8,6 +8,8 @@ Physical packs/boxes in the machine window use separate server-provided `display
 
 `goodluck_collectibles_settings` now remains for small named settings such as recipes. On MySQL, the unbounded `vending_registry` and `vending_key_reports` values migrate to **`goodluck_collectibles_vending_state`** (one row per person, machine, balance or report) and **`goodluck_collectibles_vending_entries`** (individual history, sale and archive entries, including nested OS snapshots). Only changed rows are written, in bulk transactions, through the runtime save queue. Printed evidence snapshots still save immediately before the item is given. The compatibility objects in server memory and the existing records pagination are preserved.
 
+Vending history and sales entries retain stable row positions in MySQL. A compact order index in the machine state keeps the newest-first display order; opening or closing a door adds its new events without rewriting the existing history rows. Existing positional rows upgrade automatically on the next save. Runtime changes still use the periodic save queue and shutdown checkpoint.
+
 Migration runs automatically on startup/first access. It writes `data/vending_registry-legacy-backup.json` and `data/vending_key_reports-legacy-backup.json`, commits the normalized transaction, then removes the corresponding old settings rows. A failed migration leaves those old rows intact. Keep the backups and pending runtime checkpoint when deploying updates. With `Config.Database.AutoCreateSchema = false`, run [`sql/vending-state.sql`](sql/vending-state.sql) before starting the resource. JSON persistence retains its existing file format and uses the same periodic save queue.
 
 Key holders approach the external padlock, cabinet cylinder, cashbox or server-rack lock, hold a key prop, and animate before requesting access. The padlock and interior locks use `tr_prop_tr_car_keys_01a`; the main cylinder uses `h4_prop_h4_key_desk_01`. Padlock/cylinder profiles use the GTA jailor key-turn animation, the server rack uses the janitor unlock clip, and the cashbox uses a crouched mechanic reach into the bottom/back-right cabinet recess. Right-arm IK targets each physical lock during contact, then releases for the hand withdrawal. Canceling, being hit, or moving away from the player's actual settled position cancels the interaction without sending an unlock request. Existing server checks still validate the current physical key and control item returns and door access. A confirmed cabinet unlock triggers a brief reach/open gesture alongside the existing machine door animation. Closing and locking first requests a server-validated physical close, waits for the door to finish swinging shut, then turns the key and requests the final lock. Canceling that key turn leaves the door closed and the access session valid. Both the key menu and management menu use this sequence. `Config.VendingMachines.Keys.UseAnimation.Profiles` configures each lock's approach spot, target height/depth, hand attachment, duration, clip and contact phase; the global settings remain fallbacks. Final key rotation and hand alignment should be checked with the actual ped/model in FiveM. Clips were checked against the [GTA animation dump](https://github.com/DurtyFree/gta-v-data-dumps/blob/master/animDictsCompact.json), and IK follows the [Cfx native reference](https://github.com/citizenfx/natives/blob/master/PED/SetIkTarget.md).
@@ -62,11 +64,11 @@ For grading troubleshooting, add `Debug = true` inside your existing `Config.Gra
 
 New card conditions use independent text offsets for subtitle, title, HP, type/rarity, description, attacks, and footer. Each out-of-tolerance section is a separate finding and must be marked on that text. Existing acquired cards with the older text-layer array keep their original condition and single finding. Off-centre borders now confirm only centering; use the artwork and text tools for their respective shifts. Deploy `server/modules/grading.lua`, `server/main.lua`, and rebuilt `web/` together.
 
-The main commands are now `/collectibles`, `/collectiblesadmin`, `/collectiblesoptions`, `/collectiblespack`, `/collectiblesbox`, and `/collectiblesicons`. Existing `/card...` commands remain aliases, and older configuration files still work. `/collectiblesrestoreseed` is console-only. These commands used to be spelled `/collectables...`; if your `config.lua` still has the old names, change them there. Items, saved data and the MySQL `collectable_type` columns from before the spelling change keep working: the column is renamed to `collectible_type` on the next start.
+Admin and maintenance commands include `/collectiblesadmin` and `/collectiblesicons`; `/collectiblesrestoreseed` is console-only. Main UI and pack/box openings use inventory items or client exports. Player preferences use `/collectiblesoptions` or the `OpenPackOptions` export. Older configuration files still work. Items, saved data and legacy MySQL `collectable_type` columns keep working: the column is renamed to `collectible_type` on the next start.
 
 Coin bags, plushie boxes, and outer cases roll and consume their container on the server, but deliver the frozen contents only after everything is revealed or the opening is closed. Pending deliveries use `goodluck_collectibles_openings` in MySQL (or `data/collectible_openings.json` with JSON persistence). Restart recovery uses the character identifier. Full inventories keep their pending delivery for retry. With `AutoCreateSchema = true`, the new table is created at resource startup; otherwise apply the updated `data/collectibles.sql` first.
 
-Deploy the updated `client/main.lua`, `server/main.lua`, `server/modules/objects.lua`, `data/collectibles.sql`, and rebuilt `web` folder together. Container animation preferences are per player in `/collectiblesoptions`; Random is the default for bags, plushie boxes, and cases. The sealed design and inventory snapshot are preserved.
+Deploy the updated `client/main.lua`, `server/main.lua`, `server/modules/objects.lua`, `data/collectibles.sql`, and rebuilt `web` folder together. Container animation preferences are per player through the `OpenPackOptions` client export; Random is the default for bags, plushie boxes, and cases. The sealed design and inventory snapshot are preserved.
 
 Keep your existing resource folder name during the upgrade to preserve resource-scoped JSON files and player KVP preferences. New installations can use `meta-comic` as shown below. Preserve your configured framework, inventory, commands, item names, and gameplay values.
 
@@ -173,7 +175,7 @@ Each print belongs to one base card. Set membership refers to base cards, so a s
 
 **Migration:** On first startup, the adapter migrates update 003's `catalog` and `sets` records from the legacy definitions table, if present. Otherwise it imports your configured JSON seed files. The marker and all imported rows commit in one transaction. Existing legacy database documents and local JSON files are preserved. Stale memberships referencing already deleted cards are skipped with a server log message. Invalid seed data or database failures stop the migration instead of falling back to JSON. If populated relational tables have no migration marker, the adapter refuses to overwrite them. Once initialized, restarts use the relational tables; seed files no longer override them.
 
-**FiveM runtime:** Four bulk reads populate the catalog/set cache at startup, avoiding per-card queries and joins that repeat large artwork or effect data. Pack rolling, previews and set selection use that cache. Admin Save/Delete compares against the cache and writes only changed rows and columns in a single [oxmysql transaction](https://coxdocs.dev/oxmysql/Functions/transaction). A crop-only edit updates framing columns without resending unchanged artwork or mask JSON. Cache updates happen only after commit; failed transactions leave both the cache and rows unchanged. Overlapping admin writes receive a retry message. Acquired cards from a pack are inserted together in a separate transaction. Changes made directly in SQL require a resource restart to refresh the cache; use `/cardadmin` for normal edits. One running resource should manage a given set of tables.
+**FiveM runtime:** Four bulk reads populate the catalog/set cache at startup, avoiding per-card queries and joins that repeat large artwork or effect data. Pack rolling, previews and set selection use that cache. Admin Save/Delete compares against the cache and writes only changed rows and columns in a single [oxmysql transaction](https://coxdocs.dev/oxmysql/Functions/transaction). A crop-only edit updates framing columns without resending unchanged artwork or mask JSON. Cache updates happen only after commit; failed transactions leave both the cache and rows unchanged. Overlapping admin writes receive a retry message. Acquired cards from a pack are inserted together in a separate transaction. Changes made directly in SQL require a resource restart to refresh the cache; use `/collectiblesadmin` for normal edits. One running resource should manage a given set of tables.
 
 Existing `Config.Database.Table`, `Resource` and `AutoCreateSchema` values are preserved. Optional table-name overrides are `CardsTable`, `PrintsTable`, `SetsTable`, `SetCardsTable`, and `StorageTable`. Default names derive from `Config.Database.Table` with a trailing `_instances` removed; the standard instance table uses the names above. `DefinitionsTable` selects the legacy migration source only. For manual schema installation with custom names, adjust the SQL table names and foreign-key references consistently. Names must be distinct and contain only letters, digits and underscores, up to 55 characters.
 
@@ -185,7 +187,7 @@ Switching back to JSON mode reads the old JSON files; it does not export current
 
 FiveM displays only the server's persisted catalog. Bundled standalone demo cards/prints are not inserted into the FiveM editor, and a failed or empty catalog load does not fall back to demo data. Saving one card uses the persistence adapter's current catalog to preserve unrelated records, even if the editor/domain cache is stale. Full JSON Import and the confirmed demo Reset remain explicit catalog replacements.
 
-If cards were missing from the database while the old UI still showed bundled demos, rebuild/deploy the updated NUI and restart the resource. Then run `cardrestoreseed` in the **server console**, and reopen `/cardadmin`. This MySQL-only command merges missing cards, prints, sets and membership links from the preserved legacy definitions table and configured JSON seeds in one transaction. Existing relational IDs, card/print edits, set details, and new cards are kept; no records are deleted. It prints the recovery counts, and repeating it does not duplicate records. It can also restore deliberately deleted seed entries, so recovery is explicit rather than automatic. Recovery depends on those preserved sources containing the missing records.
+If cards were missing from the database while the old UI still showed bundled demos, rebuild/deploy the updated NUI and restart the resource. Then run `cardrestoreseed` in the **server console**, and reopen `/collectiblesadmin`. This MySQL-only command merges missing cards, prints, sets and membership links from the preserved legacy definitions table and configured JSON seeds in one transaction. Existing relational IDs, card/print edits, set details, and new cards are kept; no records are deleted. It prints the recovery counts, and repeating it does not duplicate records. It can also restore deliberately deleted seed entries, so recovery is explicit rather than automatic. Recovery depends on those preserved sources containing the missing records.
 
 ## JSON persistence
 `Config.Persistence = 'json'` stores owned card instances in `data/collections.json`.
@@ -223,12 +225,12 @@ The pack roll is always done on the FiveM server. The NUI only receives the resu
 - **Booster pack set filtering:** a produced pack carries its series/set metadata. When that exact inventory slot is used, the server removes that exact pack and rolls only cards assigned to that set in `data/sets.json`. Pulled card items also record the source set.
 - **Trading cards:** with `GiveCardItems = true` (default) every pulled card becomes a `tradingcard` item: 5 per pack, labelled
   with the card name / print / rarity (ox_inventory also shows the card art). They're handed over once all five are flipped or the
-  opening is closed (2-minute fallback), so inventory pop-ups don't spoil the reveal. Free `/cardpack` test opens give no items.
+  opening is closed (2-minute fallback), so inventory pop-ups don't spoil the reveal. Free pack test opens give no items.
   Using a card item shows that card large in the centre of the screen.
 - The character holds the pack prop from the rip until the cards have fanned out (`Config.Props.Pack.MaxDuration` is a safety limit).
 - On start the console prints one line, e.g. `framework=qbcore inventory=ox_inventory itemUse=ox_export cardItems=true`.
   If `inventory` says `none`, item use can't work: set `Config.Inventory` or start your inventory before this resource.
-- Using an item always takes it, whatever `RequireForOpen` says. `RequireForOpen` only affects `/cardpack`, `/cardbox` and the lab.
+- Using an item always takes it, whatever `RequireForOpen` says. `RequireForOpen` only affects free opening tests through exports and the lab.
 
 How item use is wired (`Config.Items.UseMethod`, default `'auto'` = both routes):
 
@@ -300,20 +302,7 @@ compartment to put it in, drag a case card onto the hand to take it out (when yo
 between compartments to move / swap.
 
 ## Commands
-Defaults:
-
-```text
-/cards
-/cardpack
-/cardbox
-/cardoptions
-/cardadmin
-```
-
-`/cardpack` opens a pack in the centre-screen overlay (same as using the item). `/cardbox` opens the lab and starts a box.
-`/cardoptions` opens the player's saved pack-opening preferences: tear style, card fan-out, and speed. New players default to **Random** tear + **Random** fan. Preferences are stored per player in client KVP.
-`/cardadmin` opens the restricted **Sets & production** screen. It is available only when the server-side management permission check passes.
-Without `RequireForOpen = true` the pack/box commands are free test commands and `/cardbox` only shows a virtual box (no inventory items).
+`/collectiblesadmin` opens the restricted **Sets & production** screen after server management authorization. `/collectiblesoptions` opens player opening preferences. There are no player chat commands for the main UI or pack/box opening. Use inventory items and the client exports below. Opening preferences remain saved per player in client KVP; new players default to Random tear and fan styles.
 
 ## Exports
 Client:
@@ -395,7 +384,7 @@ Set definitions live in:
 data/sets.json
 ```
 
-Each set contains an `id`, `name`, optional code/description, and `cardIds` array. `/cardadmin` provides checkboxes for this list.
+Each set contains an `id`, `name`, optional code/description, and `cardIds` array. `/collectiblesadmin` provides checkboxes for this list.
 
 Produced packs and boxes store `setId`, `setName`, and `setCode` metadata. Opening a box gives packs with the **same set metadata**. Opening a set-bound pack filters the server catalog to the cards assigned to that set; the resulting physical cards keep `setId` / `setName` metadata so their origin can be inspected later.
 
@@ -405,7 +394,7 @@ For QBCore/qb-inventory, keep the supplied `boosterpack` and `boosterbox` exampl
 
 ### Manual prints
 
-`/cardadmin` can create a chosen card + print variant directly as an inventory item. Manual prints include metadata such as `manualPrint`, `printType = 'MANUAL PRINT'`, `acquisitionSource = 'manual_print'`, `printedBy`, `printedByIdentifier`, and `printedAt`. Their inventory label/description and card viewer visibly show **MANUAL PRINT**, so they can be distinguished from normal booster pulls even after the item is transferred.
+`/collectiblesadmin` can create a chosen card + print variant directly as an inventory item. Manual prints include metadata such as `manualPrint`, `printType = 'MANUAL PRINT'`, `acquisitionSource = 'manual_print'`, `printedBy`, `printedByIdentifier`, and `printedAt`. Their inventory label/description and card viewer visibly show **MANUAL PRINT**, so they can be distinguished from normal booster pulls even after the item is transferred.
 
 ## Streamed models restored
 The supplied GTA/FiveM assets are back under `stream/`:
@@ -483,11 +472,11 @@ Players holding the configured items get extra ox_target options (`Config.Vendin
 | Action | Tools and checks in the current config | Progress time | Result |
 | --- | --- | --- | --- |
 | Break in | Lockpick; hard lockpick and safe games | 45 seconds | Unlocks the cabinet and reveals rough cash/stock levels; opens a choice to loot cash, stock, or both gradually. |
-| Hack payment terminal | Laptop and electronic kit; hard keypad, simon and wires games | 90 seconds | Consumes the electronic kit, reroutes card payments to the hacker and grants management/control access. The laptop is retained. Original ownership remains. |
-| Take over machine operating system | Laptop and electronic kit; six hard games (keypad, simon, grid, wires, safe and order) | 300 seconds | Consumes the kit and grants operating-system control while keeping the registered owner and existing payment routing unchanged. GPS can be switched off directly in Manage without tools or another minigame. |
-| Disable machine GPS | Electronic kit, retained; hard wires game | 30 seconds | Persists GPS disabling against the serial. Required before theft when GPS is enabled. Owners can also disable their GPS. |
-| Unbolt machine | Drill; hard sequence, wires and order games; the same player's recent successful break-in; disabled GPS | 180 seconds | Gives a machine item with the same serial, remaining stock and cash; marks its record stolen. Ownership and payment routing remain attached to the serial. |
-| Install card skimmer | One configured skimmer item, consumed; medium wires game; available custom prop | 30 seconds | Installs a persistent device that copies the card of every card purchase (and optionally keeps part of the payment from the owner). No tamper cooldown. |
+| Hack payment terminal | Laptop and electronic kit; hard keypad, simon and skimmer wiring games | 90 seconds | Consumes the electronic kit, reroutes card payments to the hacker and grants management/control access. The laptop is retained. Original ownership remains. |
+| Take over machine operating system | Laptop and electronic kit; six hard games (keypad, simon, grid, skimmer wiring, safe and order) | 300 seconds | Consumes the kit and grants operating-system control while keeping the registered owner and existing payment routing unchanged. GPS can be switched off directly in Manage without tools or another minigame. |
+| Disable machine GPS | Electronic kit, retained; hard skimmer wiring game | 30 seconds | Persists GPS disabling against the serial. Required before theft when GPS is enabled. Owners can also disable their GPS. |
+| Unbolt machine | Drill; bolt grinder game; the same player's recent successful break-in; disabled GPS | 180 seconds | Gives a machine item with the same serial, remaining stock and cash; marks its record stolen. Ownership and payment routing remain attached to the serial. |
+| Install card skimmer | One configured skimmer item, consumed; medium skimmer wiring game; available custom prop | 30 seconds | Installs a persistent device that copies the card of every card purchase (and optionally keeps part of the payment from the owner). No tamper cooldown. |
 | Read card skimmer | Installer only (only they see it) | 3 seconds | Gives a `skimmer_card_data` item with the copied purchases and empties the skimmer. Sell the data to a buyer ped for `Buyers.Percent` of every copied purchase. |
 | Remove card skimmer | Installer only (only they see it) | 3 seconds | Returns the skimmer item with captured data in metadata; using it (or **Read skimmer**) gives one card-data item and an empty reusable skimmer. **Check coin panel for tampering** also preserves the captured data on the seized device. Failed inventory delivery leaves the installed device intact. |
 | Replace machine control board | Registered owner/business at a compromised placed machine; replacement board consumed | 60 seconds | Restores owner OS control and payment routing; rearms GPS. |
@@ -505,7 +494,7 @@ Existing management capabilities (cash collection, restocking and pickup subject
 
 The server validates range, tools, police requirements, cooldowns and an active attempt before starting; completion checks the attempt token, elapsed time, range and tools before granting the result. Inventory removals, rewards, ownership changes and skimmer balances run on the server. Minigames run on the client. Configure each action's `Items`, `Minigame`, `Duration`, `Cooldown`, `FailCooldown`, animation and messages without replacing the rest of the config.
 
-Each action has its own items (`remove`, `breakChance`), minigames, animation and hand prop, duration, cooldowns and failure message. Timers and item checks run on the server. `Config.Minigames` holds the skill-check presets: the built-in games at three difficulties (lockpick, wires, keypad, sequence, plus simon: repeat a growing colour signal, grid: click the squares that flashed, safe: turn a combination dial by feel, reaction: hit green nodes and avoid red ones, order: click numbers in order while they move, circle: stop a speeding, reversing needle on each arc), plus presets for ox_lib skill checks, ps-ui, bl_ui, memorygame, qb-minigames, utk_fingerprint and glow_minigames. If a preset's resource isn't running, the built-in lockpick of the same level is used. Other scripts can call `exports['<resource>']:Minigame('lockpick_hard')` (or a list of names), which returns true or false. Lists require every game to pass; an entry can be `{ random = { ... } }` to pick from alternatives. The principal crime actions currently use fixed lists of hard games. Managers can try every preset at different speeds in the admin UI **Minigames** tab.
+Each action has its own items (`remove`, `breakChance`), minigames, animation and hand prop, duration, cooldowns and failure message. Timers and item checks run on the server. `Config.Minigames` holds the skill-check presets: the built-in games at three difficulties (lockpick, drill, grinder, skimmer wiring, keypad, sequence, plus simon: repeat a growing colour signal, grid: click the squares that flashed, safe: turn a combination dial by feel, reaction: hit green nodes and avoid red ones, order: click numbers in order while they move, circle: stop a speeding, reversing needle on each arc), plus presets for ox_lib skill checks, ps-ui, bl_ui, memorygame, qb-minigames, utk_fingerprint and glow_minigames. If a preset's resource isn't running, the built-in lockpick of the same level is used. Other scripts can call `exports['<resource>']:Minigame('lockpick_hard')` (or a list of names), which returns true or false. Lists require every game to pass; an entry can be `{ random = { ... } }` to pick from alternatives. The principal crime actions currently use fixed lists of hard games. Managers can try every preset at different speeds in the admin UI **Minigames** tab.
 
 ### Unlocked cabinets and incremental looting
 
@@ -644,6 +633,8 @@ The physical **Collect cash** menu always displays the actual cashbox balance an
 `Config.Money` decides how each account is paid. `'framework'` uses QBCore / Qbox `player.Functions.AddMoney` / `RemoveMoney` (cash, bank or any other account) and the ox_core bank account; `'item'` uses an inventory item (`CashItem`, default the ox_inventory `money` item). `Cash = 'auto'` uses the item on ox_core and the framework cash everywhere else. `Custom = { add = ..., remove = ..., balance = ... }` plugs in any other money system.
 
 ## Crafting
+
+Interactive pack production (printing, inspection, strip/card cutting, wrapper folding and sealing), dashboard settings, bonuses and the `CraftingMinigame` client export are documented in [CRAFTING-MINIGAME.md](CRAFTING-MINIGAME.md). Existing saved recipes can enable it per pack recipe without resetting other recipes.
 
 `Config.Crafting` sets up workbenches (ox_target, optional prop) and recipes for any item: inventory items, booster packs and boxes, plushie and coin containers, shipping crates and vending machines. Each recipe can have a time, money cost, jobs, stations, managers-only and tools that aren't used up. Packs and boxes are made from `card_blank`, plushie boxes and cases from `generic_plushie`, coin bags and coin bag boxes from `coin_blank`; the blanks themselves are crafted from paper and plastic, fabric, and copper. Recipes saved in the admin UI replace the config ones, so press **Reset** in the Crafting tab to pick up new default recipes. Managers edit the recipes in the admin UI **Crafting** tab (Save / Revert, Reset goes back to the config) and can craft anywhere with `/collectiblescraft`. Other scripts: `exports['<resource>']:OpenCrafting(stationIndex)` (client) and `GetCraftingRecipes()` (server).
 
@@ -808,3 +799,31 @@ A `shipping_crate` item (crafted, or `/givecrate [crate id]` for managers, or th
 Open the admin dashboard's Pack pricing tab, choose a buyer and set, then change **Set buyback payout (%)**. 100% uses configured pricing; 50% reduces automatic offers and 150% increases them. **Preview payout** recalculates whole-dollar card offers and pack/box averages without saving. **Save set payout** applies the change to that set at every card buyer. **Revert** restores the saved adjustment. Employees and business managers can see pricing analysis but cannot change payouts without the admin ACE. The required permission is `Config.CardBuyers.Analysis.PayoutAce` if set, otherwise `Config.Management.Ace` (default `metacomic.manage`). Only that ACE authorizes previews/adjustments; framework admin groups, jobs, identifiers and test roles do not bypass it.
 
 Minimum/maximum offers, defects, recorded grades and population still apply; explicit fixed card prices are unchanged. Consequently average returns do not always scale exactly by the percentage. Pull odds and guaranteed slots do not change. With MySQL, each adjustment is saved as its own scalar `card_set_payout:<setId>` row in the settings table; file persistence uses the existing settings store. Values are cached server-side and survive restarts. New quotes use saved prices; existing sale selections are revalidated before payment.
+
+### Shear Line lockpicking
+
+All built-in lockpick checks, the `qb_lockpick` preset and external presets with `game = 'Lockpick'` now use the bundled Shear Line pin-tumbler game. No extra resource is required. Other games keep their existing adapters. Padlock, security seal, rack, cashbox and forced-cylinder actions still name their existing difficulty presets.
+
+Tune `Config.Minigames.lockpick_easy`, `lockpick_medium`, and `lockpick_hard`: `pins` (2-10), `time` (5-300 seconds), `tol` (shear-line tolerance in pixels), `band` (tension window percentage), `spools` (false-set pins), and `showBand` (visible tension hint). Existing pin/time settings were preserved. The tension window is fixed for each lock, matching the updated Shear Line version. Preserved `drift` and `shift` values are now unused, as are the older moving-bar fields `zone`, `mistakes`, and `speed`; the admin test-speed control still shortens its time limit. Defaults for omitted new fields come from the selected `level`.
+
+A/D or mouse hover selects a pin; W/Space or holding the left mouse button lifts it; Q/E, the wheel or slider adjusts tension. Release at the shear line to set the binding pin. Ease tension slightly below the window to clear a false spool set. Escape/Give up, timeout or full pick strain fails. Unlocking completes after the cylinder turn. The Minigames admin tab also previews it in standalone mode. Results use the existing callback; server inventory checks, configured lockpick break chances, cooldowns and unlock authority remain in the existing action handlers.
+
+
+### Vending crime witnesses and outcome alerts
+
+`Config.Police.CrimeRules` controls percentages per actual action (`witness`, `fail`, `success`). Padlock/seal/rack picking and skimmer installation default to witness 100%, failure 50%, success 0%. Cabinet drilling (`breakin`), cashbox cutting (`cashbox`) and other crime actions default to witness 100%, failure 50%, success 25%. Other actions inherit `default`; add `hack`, `fullhack`, `steal`, `disablegps`, `falsifylogs` or `takemachine` entries to tune them separately. Set any percentage to 0 to disable that trigger. Vending attempts use these rules instead of `CrimeAlertStage`; existing dispatch titles, jobs, systems, phone alerts and GPS movement settings remain in place.
+
+A witness must be a living ambient human ped, not a player or mission/resource ped, within `Witness.Radius`, facing the actor and with clear line of sight. `Witness.Interval` limits scanning (default 1000ms, active attempts only); `FacingDot` controls the view cone (0.25 by default). `Witness.Enabled=false` disables witness detection. Each server-authorized attempt allows one witness roll and one outcome roll, and at most one police dispatch. Probabilities are rolled server-side; witness reports must match an active token and the actor must remain near the machine. Cancelled progress bars do not roll failure alerts.
+
+The supplied rush-dispatch archive's `getNearPed` helper is private, distance-only and used by vehicle theft, not `CustomAlert`. This resource therefore performs the stricter witness check before delivering through the existing rush-dispatch `CustomAlert` adapter. No dispatch resource modifications are required.
+
+
+### Vending workspace and cancelled locks
+
+The third-eye **Manage** entry opens a workspace with **Cabinet lock / keys**, **Restock**, and **Machine management** (existing products, prices, ownership, cash and system controls). Child menus have a Back arrow. Actions return to the active menu with current data; closing the menu or leaving the machine ends the workspace. The separate Restock and Cabinet lock / keys target entries are replaced by this entry. Each action retains its existing server permission and inventory checks.
+
+Key locking first previews the door/lid closing without committing closed state. The server commits only after the key animation completes, with current key access, matching attempt token and elapsed duration. Cancellation, interruption, timeout or disconnect leaves only the affected, previously open parts ajar and unlocked. No closed sensor state or expired cabinet session is committed on cancellation. Any nearby player can use **Open ajar doors** to open them fully. Pending closes reserve the machine against conflicting operations.
+
+`Config.VendingMachines.Door.CancelAjarFraction` defaults to `0.18` of the normal opening angle. `CancelReopenSpeed` defaults to `0.35` of normal swing speed. Both affect the cancellation appearance, not normal opening. Ajar parts remain ajar until opened fully or successfully closed; their state is included when clients stream/rejoin.
+
+Embedded portal startup shares overlapping server reads and reuses its initial catalogue load. Views restricted to vending, records, pricing or minigames skip the card catalogue, set list and print-odds requests; editor/collection views still load those normally. Embedded frames do not prewarm unrelated 3D opening scenes. Vending map responses use a small ownership/tamper summary instead of constructing full key archives. Read results are not cached after completion, so refreshes and later visits still read current server state.

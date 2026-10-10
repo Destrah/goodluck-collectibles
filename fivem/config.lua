@@ -80,7 +80,7 @@ Config.Items = {
     --   'ox_export' ox_inventory item definitions with client.export (standalone + ox_inventory)
     -- Item definitions for each setup: examples/ox_inventory-items.lua and examples/qbcore-items.lua
     UseMethod = 'auto',
-    -- Only for /cardpack, /cardbox and the lab: when true those also need (and take) the item.
+    -- For free pack/box tests in the lab or exports: when true those also need (and take) the item.
     -- Using the items from the inventory always takes them.
     RequireForOpen = false,
     BoosterPack = 'boosterpack',
@@ -198,6 +198,9 @@ Config.Portal = {
     Editor = { Ace = 'metacomic.editor', Jobs = {}, Identifiers = {} }, -- Jobs = { cardshop = 4 } (minimum grade)
 }
 
+-- Open/Pack/Box are retained for config compatibility but no longer register chat commands.
+-- Player preferences remain available through /collectiblesoptions.
+-- Inventory items and client exports provide those actions.
 Config.Commands = {
     Open = 'collectibles',
     Pack = 'collectiblespack',
@@ -266,6 +269,7 @@ Config.Collectibles.ContainerImages = true
 -- Per recipe: time (ms, per item), money + account ('cash' | 'bank'), jobs = { jobname = minGrade },
 -- managersOnly, stations = { 'station id', ... } (nil = all), ingredient keep = true (a tool that is not used up).
 Config.Crafting = {
+    MinigameAce = 'metacomic.manage', -- ACE required to edit production settings in collectiblesadmin
     Enabled = true,
     Command = 'collectiblescraft', -- managers: craft anywhere ('' to disable)
     MaxAmount = 25,                -- most items crafted in one go
@@ -287,6 +291,9 @@ Config.Crafting = {
           result = { type = 'item', item = 'coin_blank', count = 1 },
           ingredients = { { item = 'copper', count = 1 } } },
         { id = 'booster_pack', label = 'Booster Pack', category = 'Cards', time = 4000,
+          minigame = { enabled = true, cutter = 'random', cols = 5, rows = 3, rewardPacks = 3,
+            maxErrors = 6, time = 900, minSeconds = 20, flawChance = 0.5, bonusSeconds = 180, bonusPacks = 1,
+            bulkBonusEvery = 5, bulkBonusPacks = 1, bulkBonusMax = 5, scaleBonusTime = true },
           result = { type = 'sealed', kind = 'pack', count = 1 },
           ingredients = { { item = 'card_blank', count = 10 }, { item = 'plastic', count = 1 } } },
         { id = 'booster_box', label = 'Booster Box', category = 'Cards', time = 10000,
@@ -511,6 +518,8 @@ Config.VendingMachines = {
     -- flips the swing if it opens into the machine. Seconds: how long it stays open after a restock / key unlock;
     -- crime, looting and rekeying hold it open until they finish (MaxSeconds at most).
     Door = {
+        CancelAjarFraction = 0.18, -- cancelled locks leave affected doors/lids slightly open
+        CancelReopenSpeed = 0.35, -- fraction of normal swing speed when a lock is cancelled
         Enabled = true, BodyModel = 'metacomics_vending_body', DoorModel = 'metacomics_vending_door',
         Hinge = vec3(-0.5825, -0.435, 0.0), Angle = 105.0, Speed = 90.0, Direction = -1,
         RestockSeconds = 20, UnlockSeconds = 300, MaxSeconds = 120, CloseDelay = 2, Crime = true, -- UnlockSeconds: key unlock lasts as long as Keys.SessionSeconds
@@ -520,7 +529,7 @@ Config.VendingMachines = {
         CashBox = {
             Enabled = true, Lock = true, OpenWithKey = true, Label = 'Break cash box padlock', Duration = 8000,
             Items = { { item = 'lockpick', label = 'lockpick', count = 1, breakChance = 25 } },
-            Minigame = 'lockpick_medium',
+            Minigame = 'grinder_medium',
             LidModel = 'metacomics_vending_cashlid', LidHinge = vec3(0.402, 0.405, -0.6395), LidAngle = 80.0, LidDirection = -1,
             CashProps = { 'prop_cash_pile_01', 'prop_anim_cash_note' }, OverflowAt = 3000, BreakInDelay = 2500, PadlockAfterBreakIn = true,
         },
@@ -572,7 +581,7 @@ Config.VendingMachines = {
             OpenAnimation = { dict = 'mp_common', clip = 'givetake1_a', flag = 1, Duration = 650 },
             Bone = 57005, Offset = vec3(0.10, 0.02, -0.02), Rotation = vec3(0.0, 90.0, 0.0) },
         ReplaceOffset = vec3(0.85, -0.15, 0.0), -- right side of the cabinet, relative to the model origin
-        ForcedReplaceDuration = 180000, ForcedReplaceMinigame = { 'lockpick_hard', 'wires_hard' }, -- non-owner/non-manager cylinder fitting
+        ForcedReplaceDuration = 180000, ForcedReplaceMinigame = { 'lockpick_hard', 'skimmer_hard' }, -- non-owner/non-manager cylinder fitting
         PoliceCommand = 'vendingkeys', -- /vendingkeys SERIAL [print], police/business only
         SecureAccess = 'police_or_controllers', -- physical owners/business may secure too
         Padlock = { Enabled = true, Item = 'vending_padlock', Model = 'prop_cs_padlock',
@@ -644,7 +653,7 @@ Config.VendingMachines = {
         Hack = {
             Enabled = true, Label = 'Hack payment terminal', Icon = 'fas fa-laptop-code', ProgressLabel = 'Rerouting card payments',
             Items = { { item = 'laptop', label = 'laptop', count = 1 }, { item = 'hackingdevice', label = 'electronic kit', count = 1, remove = true } },
-            Minigame = { 'keypad_hard', 'simon_hard', 'wires_hard' },
+            Minigame = { 'keypad_hard', 'simon_hard', 'skimmer_hard' },
             Duration = 90000,
             Animation = { dict = 'anim@heists@prison_heiststation@cop_reactions', clip = 'cop_b_idle', flag = 49, prop = 'prop_laptop_01a', bone = 18905, pos = vec3(0.12, 0.05, 0.12), rot = vec3(-110.0, 0.0, 10.0) },
             Hours = 0,               -- 0: until the owner (or the business) resets the routing, else hours
@@ -655,14 +664,14 @@ Config.VendingMachines = {
             Enabled = true, Label = 'Falsify machine sensor records', ProgressLabel = 'Rewriting sensor identities...',
             Duration = 45000, Cooldown = 0, FailCooldown = 60,
             Items = { { item = 'laptop', count = 1 }, { item = 'hackingdevice', count = 1, remove = true } },
-            Minigame = { 'keypad_hard', 'wires_hard' },
+            Minigame = { 'keypad_hard', 'skimmer_hard' },
             Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
         },
         FullHack = {
             Enabled = true, Label = 'Take over machine operating system', Icon = 'fas fa-user-secret',
             ProgressLabel = 'Taking over the machine operating system',
             Items = { { item = 'laptop', count = 1 }, { item = 'hackingdevice', count = 1, remove = true } },
-            Minigame = { 'keypad_hard', 'simon_hard', 'grid_hard', 'wires_hard', 'safe_hard', 'order_hard' },
+            Minigame = { 'keypad_hard', 'simon_hard', 'grid_hard', 'skimmer_hard', 'safe_hard', 'order_hard' },
             Duration = 300000, Cooldown = 3600, FailCooldown = 300, -- persists until the board is physically replaced
             Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
             FailMessage = 'The operating system rejected your takeover.',
@@ -683,7 +692,7 @@ Config.VendingMachines = {
             Items = { { item = 'drill', label = 'drill', count = 1, breakChance = 25 } },
             NeedsBreakIn = true, -- the machine must be open (broken into or unlocked with a key) to reach the bolts
             NeedsGPSDisabled = false, -- true: with GPS enabled, the machine's GPS must be disabled before unbolting
-            Minigame = { 'sequence_hard', 'wires_hard', 'order_hard' },
+            Minigame = 'grinder_bolts',
             Duration = 180000,
             Animation = { dict = 'anim@heists@fleeca_bank@drilling', clip = 'drill_straight_idle', flag = 49, prop = 'hei_prop_heist_drill', bone = 57005, pos = vec3(0.14, 0.0, -0.01), rot = vec3(90.0, -90.0, 180.0) },
             Cooldown = 300, FailCooldown = 120,
@@ -692,7 +701,7 @@ Config.VendingMachines = {
         DisableGPS = {
             Enabled = true, Label = 'Disable machine GPS', ProgressLabel = 'Disabling GPS',
             Items = { { item = 'hackingdevice', label = 'electronic kit', count = 1 } },
-            Minigame = 'wires_hard', Duration = 30000, Cooldown = 0, FailCooldown = 60,
+            Minigame = 'skimmer_hard', Duration = 30000, Cooldown = 0, FailCooldown = 60,
             Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
         },
         EnableGPS = {
@@ -702,7 +711,7 @@ Config.VendingMachines = {
         InstallSkimmer = {
             Enabled = true, Label = 'Install card skimmer', ProgressLabel = 'Installing skimmer',
             Items = { { item = 'card_skimmer', label = 'card skimmer', count = 1 } },
-            Duration = 30000, Minigame = 'wires_medium', Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
+            Duration = 30000, Minigame = 'skimmer_medium', Animation = { dict = 'mini@repair', clip = 'fixing_a_ped', flag = 49 },
         },
         Secure = {
             Enabled = true, Label = 'Secure vending machine', ProgressLabel = 'Securing the vending machine',
@@ -944,7 +953,7 @@ Config.VendingCarry = {
 -- Skill checks / minigames used by vending machine crime (Config.VendingMachines.Crime.*.Minigame) and by other scripts
 -- through exports['<resource>']:Minigame('name'). type:
 --   'builtin'        this resource's own games, no other resource needed:
---                      lockpick  { pins, speed, zone (0-1 sweet spot width), time (s), mistakes }
+--                      lockpick  Shear Line { pins, tol (pixels), band (%), time (s), showBand, spools }; tension is fixed (drift/shift unused)
 --                      wires     { wires, time, mistakes }      keypad { length, show (s to memorise), time, rounds }
 --                      sequence  { keys, perKey (s), rounds }
 --                      simon     { start, length, show (s per flash), time (s per round) }   repeat a growing colour signal
@@ -963,19 +972,39 @@ Config.VendingCarry = {
 --   'custom'         { run = function() return true end }    'none' always passes
 -- level = 'easy' | 'medium' | 'hard': when a preset's resource isn't running, the built-in lockpick of that level is used.
 Config.Minigames = {
-    lockpick_easy = { type = 'builtin', game = 'lockpick', level = 'easy', pins = 3, speed = 0.8, zone = 0.22, time = 30, mistakes = 4 },
-    lockpick_medium = { type = 'builtin', game = 'lockpick', level = 'medium', pins = 4, speed = 1.1, zone = 0.16, time = 25, mistakes = 3 },
-    lockpick_hard = { type = 'builtin', game = 'lockpick', level = 'hard', pins = 6, speed = 1.5, zone = 0.1, time = 25, mistakes = 2 },
-    wires_easy = { type = 'builtin', game = 'wires', level = 'easy', wires = 4, time = 25, mistakes = 2 },
-    wires_medium = { type = 'builtin', game = 'wires', level = 'medium', wires = 6, time = 20, mistakes = 1 },
-    wires_hard = { type = 'builtin', game = 'wires', level = 'hard', wires = 8, time = 18, mistakes = 0 },
+    crafting_precision = { type = 'builtin', game = 'crafting', cutter = 'bench', cols = 5, rows = 3, time = 900, maxErrors = 6 },
+    crafting_production = { type = 'builtin', game = 'crafting', cutter = 'industrial', cols = 5, rows = 3, time = 900, maxErrors = 6 },
+    -- Skimmer wiring: cut requested colors, strip to length, match terminals and pulse solder heat.
+    -- solderMode: 'heat_feed', 'trace', or 'steady'; drift: true/false (default false).
+    -- stripClick: jaw depth per click; snapRelease: pull distance; placementTol: pad tolerance.
+    -- wires: 1–6; mistakes: failed operations allowed; stripTol/stripSpeed: stripping control.
+    -- solderTime: seconds in the heat band; heatLow/heatHigh: safe band; heatRate/coolRate: temperature speed.
+    skimmer_easy = { type = 'builtin', game = 'skimmer', level = 'easy', wires = 2, time = 100, mistakes = 4 },
+    skimmer_medium = { type = 'builtin', game = 'skimmer', level = 'medium', wires = 3, time = 120, mistakes = 3 },
+    skimmer_hard = { type = 'builtin', game = 'skimmer', level = 'hard', wires = 4, time = 150, mistakes = 2 },
+    lockpick_easy = { type = 'builtin', game = 'lockpick', level = 'easy', pins = 3, speed = 0.8, zone = 0.22, time = 30, mistakes = 4, tol = 6, band = 26, showBand = true, drift = 3, shift = 5, spools = 0 },
+    lockpick_medium = { type = 'builtin', game = 'lockpick', level = 'medium', pins = 4, speed = 1.1, zone = 0.16, time = 25, mistakes = 3, tol = 4, band = 17, showBand = false, drift = 5, shift = 8, spools = 1 },
+    lockpick_hard = { type = 'builtin', game = 'lockpick', level = 'hard', pins = 6, speed = 1.5, zone = 0.1, time = 25, mistakes = 2, tol = 2.6, band = 11, showBand = false, drift = 7, shift = 11, spools = 2 },
     keypad_easy = { type = 'builtin', game = 'keypad', level = 'easy', length = 4, show = 3, time = 15, rounds = 1 },
     keypad_medium = { type = 'builtin', game = 'keypad', level = 'medium', length = 6, show = 3, time = 12, rounds = 2 },
     keypad_hard = { type = 'builtin', game = 'keypad', level = 'hard', length = 8, show = 2.5, time = 10, rounds = 3 },
     sequence_easy = { type = 'builtin', game = 'sequence', level = 'easy', keys = 6, perKey = 1.6, rounds = 1 },
     sequence_medium = { type = 'builtin', game = 'sequence', level = 'medium', keys = 8, perKey = 1.2, rounds = 2 },
     sequence_hard = { type = 'builtin', game = 'sequence', level = 'hard', keys = 10, perKey = 0.9, rounds = 2 },
-    drill_hard = { type = 'builtin', game = 'sequence', level = 'hard', keys = 10, perKey = 0.9, rounds = 2 },
+    -- Shear Line themes: 'padlock' (default), 'camlock'. Grinder targets: 'shackle', 'bolts'.
+    -- Drill: pins, tol (height), angTol (angle), wob, hard (hardened pins), oil (virtual cooling charges), time.
+    lockpick_cam_medium = { type = 'builtin', game = 'lockpick', level = 'medium', theme = 'camlock', pins = 4, time = 50 },
+    drill_easy = { type = 'builtin', game = 'drill', level = 'easy', theme = 'camlock', pins = 4, time = 70 },
+    drill_medium = { type = 'builtin', game = 'drill', level = 'medium', theme = 'camlock', pins = 5, time = 70 },
+    drill_hard = { type = 'builtin', game = 'drill', level = 'hard', theme = 'camlock', pins = 6, time = 70 },
+    -- Grinder: cuts, tol (alignment), feed, heatRate, wearRate, wob, time; larger feed is faster.
+    -- drift: load-driven movement; angleDrift: tilt under load; angleTol: allowable degrees from square.
+    -- Set drift / angleDrift to 0 to disable either force. Mouse up/down or Q/E levels the handle.
+    -- A/D or mouse left/right corrects position. mouseTilt: sensitivity (default 0.25; 0 disables mouse tilt).
+    grinder_easy = { type = 'builtin', game = 'grinder', level = 'easy', target = 'shackle', cuts = 1, time = 60, drift = 14, angleDrift = 6, angleTol = 12 },
+    grinder_medium = { type = 'builtin', game = 'grinder', level = 'medium', target = 'shackle', cuts = 1, time = 60, drift = 22, angleDrift = 10, angleTol = 9 },
+    grinder_hard = { type = 'builtin', game = 'grinder', level = 'hard', target = 'shackle', cuts = 2, time = 60, drift = 30, angleDrift = 15, angleTol = 6 },
+    grinder_bolts = { type = 'builtin', game = 'grinder', level = 'medium', target = 'bolts', cuts = 4, time = 120, drift = 22, angleDrift = 10, angleTol = 9 },
     skill_easy = { type = 'ox_skillcheck', level = 'easy', difficulty = { 'easy', 'easy' }, inputs = { 'e' } },
     skill_medium = { type = 'ox_skillcheck', level = 'medium', difficulty = { 'easy', 'medium', 'medium' }, inputs = { 'w', 'a', 's', 'd' } },
     skill_hard = { type = 'ox_skillcheck', level = 'hard', difficulty = { 'medium', 'hard', { areaSize = 30, speedMultiplier = 2 } }, inputs = { 'w', 'a', 's', 'd' } },
@@ -985,7 +1014,7 @@ Config.Minigames = {
     bl_circle = { type = 'bl_ui', level = 'medium', game = 'CircleProgress', iterations = 3, difficulty = 50 },
     bl_untangle = { type = 'bl_ui', level = 'medium', game = 'Untangle', iterations = 1, config = { numberOfNodes = 8, duration = 15000 } },
     memory_thermite = { type = 'memorygame', level = 'hard', correct = 12, incorrect = 3, show = 3, lose = 12 },
-    qb_lockpick = { type = 'qb-minigames', level = 'medium', game = 'Lockpick', pins = 4 },
+    qb_lockpick = { type = 'builtin', level = 'medium', game = 'lockpick', pins = 4 },
     qb_hacking = { type = 'qb-minigames', level = 'hard', game = 'Hacking', length = 5, seconds = 30 },
     utk_fingerprint = { type = 'utk_fingerprint', level = 'hard', levels = 2, lives = 3, minutes = 2 },
     simon_easy = { type = 'builtin', game = 'simon', level = 'easy', start = 3, length = 5, show = 0.6, time = 10 },
@@ -1015,7 +1044,21 @@ Config.MinigameFallback = nil -- preset used when a preset's resource isn't runn
 Config.Police = {
     Enabled = true,
     System = 'auto',
-    CrimeAlertStage = 'start', -- one police-alert chance per attempt: 'start', 'fail' or 'success'; phone/GPS alerts are independent
+    CrimeAlertStage = 'start', -- legacy/export alert stage; vending attempts use CrimeRules below; phone/GPS alerts are independent
+    -- Per-action percentages: a witness OR an outcome roll can alert; at most one dispatch per attempt.
+    -- These replace CrimeAlertStage for vending attempts. GPS/phone alerts stay independent.
+    CrimeRules = {
+        default = { witness = 100, fail = 50, success = 25 },
+        pickpadlock = { witness = 100, fail = 50, success = 0 },
+        pickseal = { witness = 100, fail = 50, success = 0 },
+        rackpick = { witness = 100, fail = 50, success = 0 },
+        installskimmer = { witness = 100, fail = 50, success = 0 },
+        breakin = { witness = 100, fail = 50, success = 25 },
+        cashbox = { witness = 100, fail = 50, success = 25 },
+        -- Other actions (hack, fullhack, steal, disablegps, falsifylogs, takemachine) inherit default;
+        -- add an entry with witness/fail/success percentages here to override any one action.
+    },
+    Witness = { Enabled = true, Radius = 25.0, Interval = 1000, FacingDot = 0.25 },
     Jobs = { 'police', 'sheriff' },  -- who counts as police (alerts, MinPolice)
     DispatchJobs = { 'leo' },        -- ps-dispatch job groups
     RushDispatchJobs = { 'lspd', 'bcso', 'sasp' }, -- actual job names used by rush-dispatch

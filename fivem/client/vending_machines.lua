@@ -887,10 +887,102 @@ local function productIcon(product, fallback)
     return fallback
 end
 local function productImage(product) return type(product.logo) == 'string' and product.logo ~= '' and product.logo or nil end
-local function menu(id, title, options, parent)
-    exports.ox_lib:registerContext({ id = id, title = title, menu = parent, options = options })
-    exports.ox_lib:showContext(id)
+local workspace
+local openWorkspace
+local requestWorkspace
+local function workBusy()
+    return (MetaComic.VendingActionBusy and MetaComic.VendingActionBusy())
+        or (MetaComic.VendingKeyWorkBusy and MetaComic.VendingKeyWorkBusy()) or ghost~=nil
 end
+local function menu(id, title, options, parent, registerOnly)
+    local managed=workspace and id~='meta_comic_vending_buy'
+    if managed then
+        for _,option in ipairs(options) do
+            local action=option.onSelect
+            if action then option.onSelect=function(...)
+                local session=workspace
+                session.actionRunning=true
+                session.response=nil
+                local waiting=action(...)~=false
+                if workspace~=session then return end
+                CreateThread(function()
+                    while workspace==session and workBusy() do Wait(100) end
+                    if workspace~=session then return end
+                    session.actionRunning=nil
+                    -- A server reply may have arrived while the local animation was finishing.
+                    -- Register it immediately, but reveal it only once the action is over.
+                    if session.response and not session.refreshNeeded then
+                        local response=session.response
+                        session.response=nil
+                        exports.ox_lib:showContext(response)
+                    elseif not option.waitForResponse or not waiting or session.refreshNeeded then
+                        session.response=nil
+                        session.refreshNeeded=nil
+                        requestWorkspace(session)
+                    end
+                end)
+            end end
+        end
+    end
+    exports.ox_lib:registerContext({id=id,title=title,menu=parent,options=options,
+        onExit=managed and function() workspace=nil;MetaComic.VendingMenuActive=nil end or nil,
+        onBack=managed and function() if workspace then workspace.view=parent;if parent=='meta_comic_vending_manage_root' then openWorkspace(workspace.id) end end end or nil})
+    if not registerOnly then
+        if managed then
+            workspace.view=id
+            workspace.awaiting=nil
+            if workspace.actionRunning then workspace.response=id;return end
+        end
+        local visible=lib and lib.getOpenContextMenu and lib.getOpenContextMenu()
+        if visible~=id then exports.ox_lib:showContext(id) end
+    end
+end
+MetaComic.VendingContextMenu=menu
+openWorkspace=function(id)
+    id=tonumber(id)
+    if not id or GetResourceState('ox_lib')~='started' then return end
+    if not workspace or workspace.id~=id then
+        workspace={id=id};MetaComic.VendingMenuActive=id
+        local session=workspace
+        CreateThread(function()
+            while workspace==session do
+                local machine=MetaComic.VendingMachineById and MetaComic.VendingMachineById(id)
+                if not machine or not machine.entity or not DoesEntityExist(machine.entity)
+                    or #(GetEntityCoords(PlayerPedId())-GetEntityCoords(machine.entity))>4.0 then
+                    workspace=nil;MetaComic.VendingMenuActive=nil;exports.ox_lib:hideContext(false);return
+                end
+                Wait(500)
+            end
+        end)
+    end
+    local options={
+        {title='Cabinet lock / keys',icon='key',arrow=true,waitForResponse=true,disabled=(cfg.Keys or {}).Enabled~=true,
+            onSelect=function() TriggerServerEvent('meta_comic:server:vendingKeyMenu',id) end},
+        {title='Restock',icon='truck-ramp-box',arrow=true,waitForResponse=true,onSelect=function() TriggerServerEvent('meta_comic:server:vendingOpen',id,'restock') end},
+        {title='Machine management',waitForResponse=true,description='Products, prices, cash, ownership and operating controls',icon='gears',arrow=true,
+            onSelect=function() TriggerServerEvent('meta_comic:server:vendingManage',id) end},
+    }
+    if MetaComic.VendingIsAjar and MetaComic.VendingIsAjar(id) then
+        options[#options+1]={title='Open ajar doors fully',icon='door-open',waitForResponse=true,onSelect=function() TriggerServerEvent('meta_comic:server:vendingOpenAjar',id) end}
+    end
+    menu('meta_comic_vending_manage_root',('Manage Vending Machine #%d'):format(id),options)
+end
+MetaComic.OpenVendingManage=openWorkspace
+requestWorkspace=function(session)
+    if workspace~=session or session.awaiting then return end
+    session.awaiting=true
+    if session.view=='meta_comic_vending_keys' then TriggerServerEvent('meta_comic:server:vendingKeyMenu',session.id)
+    elseif session.view=='meta_comic_vending_restock' then TriggerServerEvent('meta_comic:server:vendingOpen',session.id,'restock')
+    elseif session.view=='meta_comic_vending_manage_root' then
+        session.awaiting=nil
+        openWorkspace(session.id)
+    else TriggerServerEvent('meta_comic:server:vendingManage',session.id) end
+end
+RegisterNetEvent('meta_comic:client:vendingMenuRefresh',function(id)
+    if not workspace or workspace.id~=id then return end
+    if workspace.actionRunning then workspace.refreshNeeded=true;return end
+    requestWorkspace(workspace)
+end)
 local function input(title, rows)
     return exports.ox_lib:inputDialog(title, rows)
 end
@@ -940,6 +1032,7 @@ local function openRestock(machine, maxStock)
             icon = productIcon(product, 'truck-ramp-box'),
             image = productImage(product),
             disabled = (product.stock or 0) >= MAX_STOCK,
+            waitForResponse = true,
             onSelect = function()
                 local room = MAX_STOCK - (product.stock or 0)
                 local result = input(('Restock %s'):format(productTitle(product)), {
@@ -947,12 +1040,14 @@ local function openRestock(machine, maxStock)
                 })
                 if result and tonumber(result[1]) then
                     TriggerServerEvent('meta_comic:server:vendingRestock', machine.id, product.set, product.kind, tonumber(result[1]))
+                    return true
                 end
+                return false -- Dismissed the amount dialog: no server action is pending.
             end,
         }
     end
     if #options == 0 then options[1] = { title = 'This machine sells nothing yet', disabled = true } end
-    menu('meta_comic_vending_restock', 'Restock Vending Machine', options)
+    menu('meta_comic_vending_restock', 'Restock Vending Machine', options,workspace and 'meta_comic_vending_manage_root')
 end
 
 -- the server answers Buy / Restock with this machine's current products, so the menus never show a stale copy
@@ -1182,7 +1277,9 @@ RegisterNetEvent('meta_comic:client:vendingManage', function(id, products, sets,
             if option.onSelect then option.disabled, option.description = true, 'The machine is busy. Wait for the current action to finish.' end
         end
     end
-    menu('meta_comic_vending_manage', ('Manage Vending Machine #%d'):format(id), options)
+    if not workspace or workspace.id~=id then openWorkspace(id) end
+    local show=workspace and (workspace.view=='meta_comic_vending_manage' or workspace.view=='meta_comic_vending_manage_root' or tostring(workspace.view):find('meta_comic_vending_product_',1,true))
+    menu('meta_comic_vending_manage', 'Machine management', options,'meta_comic_vending_manage_root',not show)
 end)
 
 CreateThread(function()
@@ -1213,32 +1310,18 @@ CreateThread(function()
                 if machine then TriggerServerEvent('meta_comic:server:vendingOpen', machine.id, 'buy') end
             end,
         },
-        {
-            name = 'meta_comic_vending_restock', label = 'Restock', icon = 'fas fa-truck-ramp-box', distance = distance,
-            canInteract = function(entity)
-                local machine = machineOf(entity)
-                if not machine or machine.securitySeal or machine.padlock then return false end
-                if (cfg.Keys or {}).Enabled ~= true then return access.restock == true or controls(machine) end
-                local open = (cfg.Door or {}).Enabled == false or MetaComic.VendingCabinetOpen and MetaComic.VendingCabinetOpen(machine.id)
-                return open and (MetaComic.VendingHasKeyAccess and MetaComic.VendingHasKeyAccess(machine.id)
-                    or machine.lockCondition == 'damaged' and (controls(machine) or access.staffed and access.staffed[machine.id]))
-            end,
-            onSelect = function(data)
-                local machine = machineOf(data.entity)
-                if machine then TriggerServerEvent('meta_comic:server:vendingOpen', machine.id, 'restock') end
-            end,
-        },
+        {name='meta_comic_vending_ajar',label='Open ajar doors',icon='fas fa-door-open',distance=distance,
+            canInteract=function(entity) local machine=machineOf(entity);return machine and MetaComic.VendingIsAjar and MetaComic.VendingIsAjar(machine.id) end,
+            onSelect=function(data) local machine=machineOf(data.entity);if machine then TriggerServerEvent('meta_comic:server:vendingOpenAjar',machine.id) end end},
         {
             name = 'meta_comic_vending_manage', label = 'Manage', icon = 'fas fa-gear', distance = distance,
             canInteract = function(entity)
                 local machine = machineOf(entity)
-                if not machine or machine.securitySeal or machine.padlock then return false end
-                if (cfg.Keys or {}).Enabled ~= true then return access.manage == true or controls(machine) end
-                return MetaComic.VendingHasKeyAccess and MetaComic.VendingHasKeyAccess(machine.id)
+                return machine~=nil
             end,
             onSelect = function(data)
                 local machine = machineOf(data.entity)
-                if machine then TriggerServerEvent('meta_comic:server:vendingManage', machine.id) end
+                if machine then openWorkspace(machine.id) end
             end,
         },
     })

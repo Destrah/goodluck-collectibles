@@ -20,7 +20,16 @@ local function copyValue(value)
     if type(value)=='table' then return MetaComic.CopyTable(value) end
     return value
 end
-local function extract(value,path,section,id,entries)
+local ORDER_FIELD = '__vending_entry_order'
+local LOG_FIELDS = {history=true,osHistory=true,sales=true,osSales=true}
+local function simpleLog(list)
+    for _,item in ipairs(list) do
+        if type(item)~='table' then return false end
+        for _,value in pairs(item) do if type(value)=='table' then return false end end
+    end
+    return true
+end
+local function extract(value,path,section,id,entries,previous)
     if type(value)~='table' then return value end
     local fields={}
     for key,child in pairs(value) do
@@ -28,19 +37,45 @@ local function extract(value,path,section,id,entries)
         if type(child)=='table' and #child>0 then
             assert(#location<=255,'Vending collection path is too long')
             fields[key]={}
+            local stable=LOG_FIELDS[key] and simpleLog(child)
+            local prior=stable and previous[identity(section,id,location)] or nil
+            local sequence=prior and prior.maximum or 0
+            local order={}
             for position,item in ipairs(child) do
-                local stripped=extract(item,location..'.'..position,section,id,entries)
-                entries[identity(section,id,location,position)]={section=section,id=id,path=location,position=position,value=stripped}
+                local storedPosition=position
+                if stable then
+                    local matches=prior and prior.values[canonical(item)]
+                    if matches and #matches>0 then storedPosition=table.remove(matches)
+                    else sequence=sequence+1;storedPosition=sequence end
+                    order[position]=storedPosition
+                end
+                local stripped=extract(item,location..'.'..storedPosition,section,id,entries,previous)
+                entries[identity(section,id,location,storedPosition)]={section=section,id=id,path=location,position=storedPosition,value=stripped}
             end
-        else fields[key]=extract(child,location,section,id,entries) end
+            if stable then fields[key][ORDER_FIELD]=order end
+        else fields[key]=extract(child,location,section,id,entries,previous) end
     end
     return fields
 end
-local function flatten(key,data)
-    local state,entries={},{}
+local function flatten(key,data,old)
+    local state,entries,previous={},{},{}
+    -- Match immutable log entries to their existing row identities. Prepending a log
+    -- changes the compact display order, not every previous event's database row.
+    for _,row in pairs(old and old.entries or {}) do
+        local groupId=identity(row.section,row.id,row.path)
+        local group=previous[groupId] or {values={},maximum=0}
+        previous[groupId]=group
+        group.maximum=math.max(group.maximum,row.position)
+        local valueId=canonical(row.value)
+        group.values[valueId]=group.values[valueId] or {}
+        group.values[valueId][#group.values[valueId]+1]=row.position
+    end
+    for _,group in pairs(previous) do
+        for _,positions in pairs(group.values) do table.sort(positions,function(a,b) return a>b end) end
+    end
     local function add(section,id,value)
         id=tostring(id); assert(#id<=160,'Vending identity is too long')
-        state[identity(section,id)]={section=section,id=id,value=extract(value,'',section,id,entries)}
+        state[identity(section,id)]={section=section,id=id,value=extract(value,'',section,id,entries,previous)}
     end
     if key=='vending_registry' then
         for id,person in pairs(data.people or {}) do add('people',id,person) end
@@ -87,10 +122,22 @@ local function inflate(key,rows)
         if a.row.path~=b.row.path then return a.row.path<b.row.path end
         return a.row.position<b.row.position
     end)
+    local orderMaps={}
     for index,entry in ipairs(entries) do
         local row=entry.row
         local root=roots[identity(row.section,row.id)]
-        if type(root)=='table' then parent(root,row.path)[row.position]=copyValue(row.value) end
+        if type(root)=='table' then
+            local target=parent(root,row.path)
+            local groupId=identity(row.section,row.id,row.path)
+            local mapping=orderMaps[groupId]
+            if target[ORDER_FIELD] then
+                mapping={};orderMaps[groupId]=mapping
+                for index,storedPosition in ipairs(target[ORDER_FIELD]) do mapping[storedPosition]=index end
+                target[ORDER_FIELD]=nil
+            end
+            local position=mapping and mapping[row.position] or row.position
+            if position then target[position]=copyValue(row.value) end
+        end
         if index%100==0 then Wait(0) end
     end
     return data
@@ -126,7 +173,7 @@ local function read(key)
 end
 local function persist(key,data)
     read(key)
-    local desired=flatten(key,data);local old=cached[key];local statements={}
+    local old=cached[key];local desired=flatten(key,data,old);local statements={}
     local function statement(sql,values) statements[#statements+1]={query=sql,values=values} end
     -- Bulk upsert only changed rows, at most 100 rows per statement.
     for _,bucket in ipairs({'state','entries'}) do

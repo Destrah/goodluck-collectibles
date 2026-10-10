@@ -1,5 +1,5 @@
 -- Skill checks / minigames (Config.Minigames). Crime actions name presets from that table; each preset uses one of:
---   'builtin'        this resource's own NUI games: lockpick, wires, keypad, sequence (no other resource needed)
+--   'builtin'        this resource's own NUI games: lockpick, drill, grinder, skimmer, keypad, sequence (no other resource needed)
 --   'ox_skillcheck'  ox_lib skillCheck          'ps-ui'          ps-ui circle / maze / varhack / thermite / scrambler
 --   'bl_ui'          bl_ui games                 'memorygame'     memorygame thermite grid
 --   'qb-minigames'   qb-minigames skillbar / lockpick / hacking / keyminigame
@@ -9,6 +9,11 @@
 -- resource isn't running falls back to Config.MinigameFallback (default: the built-in lockpick at the same level).
 local presets = Config.Minigames or {}
 local nuiGame
+local function shearGame(preset, name)
+    local game=tostring(preset.game or ''):lower()
+    if game=='lockpick' or game=='drill' or game=='grinder' or game=='skimmer' then return game end
+    if game=='drilling' or (name=='drill_hard' and game=='sequence') then return 'drill' end
+end
 
 local function started(name) return GetResourceState(name) == 'started' end
 local function await(start)
@@ -22,6 +27,19 @@ local function builtin(preset)
     if nuiGame then return false end
     local id = ('%d'):format(GetGameTimer())
     nuiGame = { id = id, promise = promise.new() }
+    local session=nuiGame
+    if preset.game == 'crafting' and type(preset.cards) ~= 'table' then
+        local response = MetaComic.GetCraftingPrints and MetaComic.GetCraftingPrints(preset.setId, preset.cols, preset.rows)
+        if not response or not response.ok or #(response.cards or {}) == 0 then nuiGame = nil; return false end
+        preset = MetaComic.CopyTable(preset)
+        preset.cards, preset.setId, preset.setName = response.cards, response.setId, response.setName
+    end
+    if shearGame(preset) or preset.game == 'crafting' then
+        local defaultTime=preset.game=='crafting' and 900 or preset.game=='skimmer' and 120 or preset.game=='drill' and 70 or preset.game=='grinder' and 60 or 50
+        SetTimeout((math.max(5,math.min(preset.game == 'crafting' and 1800 or 300,tonumber(preset.time) or defaultTime))+15)*1000,function()
+            if nuiGame==session then session.promise:resolve(false) end
+        end)
+    end
     SetNuiFocus(true, true)
     local game = {}
     for key, value in pairs(preset) do if type(value) ~= 'function' then game[key] = value end end
@@ -31,11 +49,12 @@ local function builtin(preset)
     nuiGame = nil
     SetNuiFocus(false, false)
     SendNUIMessage({ type = 'metaComic:close' })
+    if type(result) == 'table' then return result.success == true, result.details end
     return result
 end
 RegisterNUICallback('minigameResult', function(data, cb)
     cb({ ok = true })
-    if nuiGame and data and tostring(data.id) == nuiGame.id then nuiGame.promise:resolve(data.success == true) end
+    if nuiGame and data and tostring(data.id) == nuiGame.id then nuiGame.promise:resolve({ success = data.success == true, details = data.details }) end
 end)
 
 local runners = {}
@@ -69,7 +88,7 @@ end
 runners['qb-minigames'] = function(p)
     if not started('qb-minigames') then return nil end
     local game = p.game or 'Skillbar'
-    if game == 'Lockpick' then return exports['qb-minigames']:Lockpick(p.pins or 3) == true end
+    if game:lower() == 'lockpick' then local config=MetaComic.CopyTable(p);config.game='lockpick';return builtin(config) end
     if game == 'Hacking' then return exports['qb-minigames']:Hacking(p.length or 5, p.seconds or 30) == true end
     if game == 'KeyMinigame' then local result = exports['qb-minigames']:KeyMinigame(p.keys or 10); return type(result) == 'table' and result.quit == false and (result.faults or 0) == 0 or result == true end
     return exports['qb-minigames']:Skillbar(p.difficulty or 'medium', p.keys or '1234') == true
@@ -98,7 +117,12 @@ local function run(name, depth)
         print(('[meta-comic] unknown minigame preset %s (Config.Minigames)'):format(tostring(name)))
         return true
     end
-    local runner = runners[preset.type or 'builtin']
+    local shear=shearGame(preset,name)
+    local runner = shear and builtin or runners[preset.type or 'builtin']
+    if shear then
+        preset=MetaComic.CopyTable(preset);preset.game=shear
+        if shear=='drill' and not preset.theme then preset.theme='camlock' end
+    end
     local result = runner and runner(preset)
     if result == nil then -- that resource isn't running
         local fallback = preset.fallback or Config.MinigameFallback or FALLBACK_LEVEL[preset.level or 'medium']
@@ -109,19 +133,43 @@ local function run(name, depth)
 end
 
 -- names: a preset name, a list of names (all must pass), or { random = { names... } } (one of them)
-function MetaComic.RunMinigames(names)
+function MetaComic.RunMinigames(names, options)
     if names == nil or names == false then return true end
-    if type(names) == 'string' then return run(names) end
-    if type(names) == 'table' and type(names.random) == 'table' and #names.random > 0 then return run(names.random[math.random(1, #names.random)]) end
-    if type(names) == 'table' and names.type then return run(names) end
+    if type(names) == 'string' then
+        if type(options)=='table' and type(presets[names])=='table' then
+            local config=MetaComic.CopyTable(presets[names])
+            for key,value in pairs(options) do config[key]=value end
+            return run(config)
+        end
+        return run(names)
+    end
+    if type(names) == 'table' and type(names.random) == 'table' and #names.random > 0 then return MetaComic.RunMinigames(names.random[math.random(1, #names.random)], options) end
+    if type(names) == 'table' and (names.type or names.game) then
+        local config=MetaComic.CopyTable(names)
+        if type(options)=='table' then for key,value in pairs(options) do config[key]=value end end
+        return run(config)
+    end
     for _, name in ipairs(names) do
-        if not MetaComic.RunMinigames(name) then return false end -- entries can be { random = { ... } } too
+        if not MetaComic.RunMinigames(name, options) then return false end -- entries can be { random = { ... } } too
     end
     return true
 end
 
 -- other scripts: exports['<resource>']:Minigame('lockpick_hard') -> true / false
-exports('Minigame', function(names) return MetaComic.RunMinigames(names) end)
+exports('Minigame', function(names, options) return MetaComic.RunMinigames(names, options) end)
+-- UI-only export: success, details. Rewards remain the caller's server-authoritative responsibility.
+exports('CraftingMinigame', function(options)
+    local game = type(options) == 'table' and MetaComic.CopyTable(options) or {}
+    game.game, game.type = 'crafting', 'builtin'
+    game.time = math.max(30, math.min(1800, tonumber(game.time) or 900))
+    if game.cutter == 'random' then game.cutter = math.random(2) == 1 and 'bench' or 'industrial' end
+    return builtin(game)
+end)
+AddEventHandler('onResourceStop', function(resource)
+    if resource ~= GetCurrentResourceName() or not nuiGame then return end
+    nuiGame.promise:resolve(false)
+    SetNuiFocus(false, false)
+end)
 
 -- Admin UI "Minigames" tab: lists Config.Minigames and runs a preset at a test speed. Built-in games play inside the
 -- page; presets from other resources run here, then the admin UI opens again on that tab with the result.
@@ -166,6 +214,11 @@ RegisterNUICallback('getMinigames', function(_, cb)
             local entry = { name = name }
             for key, value in pairs(preset) do if type(value) ~= 'function' then entry[key] = value end end
             local kind = preset.type or 'builtin'
+            local shear=shearGame(entry,name)
+            if shear then
+                kind='builtin';entry.type='builtin';entry.game=shear
+                if shear=='drill' and not entry.theme then entry.theme='camlock' end
+            end
             entry.available = kind == 'builtin' or kind == 'none' or (kind == 'custom' and type(preset.run) == 'function')
                 or (RESOURCE_OF[kind] ~= nil and started(RESOURCE_OF[kind]))
             list[#list + 1] = entry
@@ -186,10 +239,18 @@ RegisterNUICallback('testMinigame', function(data, cb)
         exports[resource]:CloseCards()
         Wait(200)
         local startedAt = GetGameTimer()
-        local success = run(testScale(preset, speed))
+        local scaled=testScale(preset,speed)
+        scaled.game=shearGame(preset,name) or scaled.game
+        local success = run(scaled)
         lastTest = { at = GetCloudTimeAsInt() * 1000 + startedAt % 1000, name = name, speed = speed, success = success == true,
             seconds = math.floor((GetGameTimer() - startedAt) / 100 + 0.5) / 10 }
         Wait(300)
         exports[resource]:OpenAdmin('minigames')
     end)
+end)
+
+AddEventHandler('onResourceStop',function(name)
+    if name~=GetCurrentResourceName() or not nuiGame then return end
+    nuiGame.promise:resolve(false)
+    SetNuiFocus(false,false)
 end)

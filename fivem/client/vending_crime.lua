@@ -578,6 +578,7 @@ RegisterNetEvent('meta_comic:client:crimeStart', function(data)
     local passed = true
     if not current() then return end
     startPose(data.animation, current)
+    if data.witness and MetaComic.WatchCrimeWitness then MetaComic.WatchCrimeWitness(data.token,current) end
     if not current() then return end
     if data.minigame then
         passed = MetaComic.RunMinigames(data.minigame)

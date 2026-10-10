@@ -293,7 +293,7 @@ function service.view(record, withHistory)
     local routing = service.routing(record)
     local person = record.owner and load().people[record.owner]
     local tampered = record.tampered == true and rerouted(record)
-    local keyRecords = service.keyRecords(record)
+    local keyRecords = withHistory and service.keyRecords(record) or { lockId = record.registeredLockId or record.lockId }
     return {
         serial = record.serial, owner = record.owner or BUSINESS, ownerName = service.ownerName(record),
         ownerRouting = person and person.routing or (not record.owner and service.businessRouting() or nil),
@@ -408,6 +408,20 @@ function service.viewFor(record, source, withHistory)
     view.remoteOffline, view.systemTakenOver = true, true
     if not withHistory then view.history, view.sales, view.keyArchive = nil, nil, nil end
     return view
+end
+-- The map only displays ownership and tamper status. Avoid building archives, sales,
+-- delegates and histories for every machine while preserving the same OS visibility.
+function service.mapSummary(record, source, forensic)
+    if not record then return {} end
+    if not forensic and record.systemController then
+        service.ensureOS(record)
+        if service.osMember(record, identifierOf(source)) then
+            return { ownerName = 'Taken-over OS', tampered = record.tampered }
+        end
+        local snapshot = record.osBusinessSnapshot or {}
+        return { ownerName = snapshot.ownerName or service.ownerName(record), tampered = snapshot.tampered }
+    end
+    return { ownerName = service.ownerName(record), tampered = record.tampered == true and rerouted(record) }
 end
 function service.all()
     local list = {}

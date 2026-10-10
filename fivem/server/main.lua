@@ -352,17 +352,26 @@ local function sealedMetadata(kind, set)
     }
 end
 
+-- Metadata matters for ox_inventory stacking: another set's packs do not share a slot.
+function MetaComic.CanCarrySealed(source, kind, setId, count)
+    local set = setById(setId)
+    if not set then return false end
+    local item = kind == 'box' and Config.Items.BoosterBox or Config.Items.BoosterPack
+    return not MetaComic.Inventory.canCarry or MetaComic.Inventory.canCarry(source, item, count, sealedMetadata(kind, set))
+end
+
 -- Gives sealed pack / box items of a set (default set when setId is empty). Used by server/modules/vending_machines.lua.
 function MetaComic.GiveSealed(source, kind, setId, count)
     count = math.max(1, math.floor(tonumber(count) or 1))
     if MetaComic.Inventory.name == 'none' then return false, 'Buying packs needs an inventory adapter.' end
     local set = setById(setId)
     if not set then return false, ('Unknown card set: %s'):format(tostring(setId)) end
+    local metadata = sealedMetadata(kind, set)
     local item = kind == 'box' and Config.Items.BoosterBox or Config.Items.BoosterPack
-    if MetaComic.Inventory.canCarry and not MetaComic.Inventory.canCarry(source, item, count) then
+    if MetaComic.Inventory.canCarry and not MetaComic.Inventory.canCarry(source, item, count, metadata) then
         return false, 'You cannot carry that.'
     end
-    if MetaComic.Inventory.add(source, item, count, sealedMetadata(kind, set)) ~= true then
+    if MetaComic.Inventory.add(source, item, count, metadata) ~= true then
         return false, 'Could not add it to your inventory (is it full?).'
     end
     return true, set
@@ -1954,7 +1963,7 @@ end, true)
 
 -- ---------- legacy artwork: downscale every saved image and store it on Fivemanage ----------
 -- Old cards / collectibles keep full-size artwork inline (data: URLs in the catalog) or on other hosts (fetched
--- through this server and sent to the NUI as base64), which is what makes /cardadmin slow to load them. The server
+-- through this server and sent to the NUI as base64), which is what makes /collectiblesadmin slow to load them. The server
 -- can't resize images, so a player's NUI does it (like the inventory icons); the server uploads the result.
 local optimizeJobs, optimizeRunning, optimizeSerial = {}, false, 0
 local FIVEMANAGE_HOSTS = { ['r2.fivemanage.com'] = true, ['i.fmfile.com'] = true }
@@ -2085,7 +2094,7 @@ local function restoreSeed(source)
     if not ok then return print('[meta-comic] recovery failed: ' .. tostring(result)) end
     MetaComic.Cards.reloadCatalog()
     MetaComic.Sets.reload()
-    print(('[meta-comic] recovered %d cards, %d prints, %d sets, %d memberships; existing records were kept. Reopen /cardadmin.'):format(result.cards, result.prints, result.sets, result.memberships))
+    print(('[meta-comic] recovered %d cards, %d prints, %d sets, %d memberships; existing records were kept. Reopen /collectiblesadmin.'):format(result.cards, result.prints, result.sets, result.memberships))
     syncIcons()
 end
 RegisterCommand('collectiblesrestoreseed',restoreSeed,true)
@@ -2267,7 +2276,7 @@ handlers.openPack = function(source, payload)
         if not ok then print(('[meta-comic] could not record the opened cards for %s: %s'):format(tostring(owner), tostring(err))) end
     end)
 
-    -- card items only for packs that were paid for (free /cardpack test opens don't hand out items)
+    -- card items only for packs that were paid for (free pack test opens don't hand out items)
     if paid then
         queueCardItems(source, cards)
         requestIcons(source, cards) -- drawn + uploaded during the reveal, so the items usually get them straight away
@@ -2331,7 +2340,7 @@ end
 local function sendRpcResult(target, requestId, response)
     -- getCatalog and resolveRemoteAsset can become large too (for example after an
     -- embedded editor image is saved, or when the remote resolver returns image data).
-    -- Mirror the client-side large-RPC handling so reopening /cardadmin cannot later
+    -- Mirror the client-side large-RPC handling so reopening /collectiblesadmin cannot later
     -- overflow in the opposite direction.
     if estimatedRpcResponseBytes(requestId, response) >= RPC_LATENT_THRESHOLD then
         TriggerLatentClientEvent('meta_comic:client:rpcResult', target, RPC_LATENT_BPS, requestId, response)

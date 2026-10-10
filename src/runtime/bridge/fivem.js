@@ -1,4 +1,5 @@
 import { getResourceName, isEmbedded } from '../env'
+import { shareRead } from '../sharedReads.js'
 import { withCollectibleKeys } from '../../collectibles/legacyKeys.js'
 
 const listeners = new Set()
@@ -40,7 +41,7 @@ function unpackRunImages(response) {
 
 export const fivemBridge = {
   runtime: 'fivem',
-  getInfo: () => nuiFetch('getRuntimeInfo'),
+  getInfo: () => shareRead('getRuntimeInfo', () => nuiFetch('getRuntimeInfo')),
   close: () => nuiFetch('close'),
   openPack: payload => nuiFetch('openPack', { set: payload?.set || 'base' }),
   openBox: payload => nuiFetch('openBox', { set: payload?.set || 'base' }),
@@ -54,13 +55,14 @@ export const fivemBridge = {
   binderStoreCard: payload => nuiFetch('binderStoreCard', payload || {}), // card hand -> binder pocket (server moves the item)
   binderTakeCard: payload => nuiFetch('binderTakeCard', payload || {}), // binder pocket -> inventory, if there is room
   getPrintOdds: () => nuiFetch('getPrintOdds'),
-  getCatalog: () => nuiFetch('getCatalog'),
-  getSets: () => nuiFetch('getSets'),
+  getCatalog: () => shareRead('getCatalog', () => nuiFetch('getCatalog')),
+  getSets: () => shareRead('getSets', () => nuiFetch('getSets')),
   saveSets: sets => nuiFetch('saveSets', { sets }),
-  getVendingMachines: () => nuiFetch('getVendingMachines', { forensic: !isEmbedded }),
-  getCrafting: () => nuiFetch('getCrafting'), // managers: recipes and what they can make
+  getVendingMachines: () => shareRead('getVendingMachines', () => nuiFetch('getVendingMachines', { forensic: !isEmbedded })),
+  getCrafting: () => shareRead('getCrafting', () => nuiFetch('getCrafting')), // managers: recipes and what they can make
+  getCraftingPrints: payload => nuiFetch('getCraftingPrints', payload),
   saveCrafting: payload => nuiFetch('saveCrafting', payload),
-  getVendingRecords: () => nuiFetch('getVendingRecords', { forensic: !isEmbedded, summary: true }),
+  getVendingRecords: () => shareRead('getVendingRecords', () => nuiFetch('getVendingRecords', { forensic: !isEmbedded, summary: true })),
   getCardBuyerUI: payload => nuiFetch('getCardBuyerUI', payload),
   saveCardSetPayout: payload => nuiFetch('saveCardSetPayout', payload),
   getCardMarketOptions: () => nuiFetch('getCardMarketOptions'),
@@ -69,7 +71,7 @@ export const fivemBridge = {
   getVendingRecordPage: payload => nuiFetch('getVendingRecordPage', { ...payload, forensic: !isEmbedded }),
   saveVendingRecords: payload => nuiFetch('saveVendingRecords', { ...payload, forensic: !isEmbedded, summary: true }),
   minigameResult: payload => nuiFetch('minigameResult', payload), // built-in skill check finished
-  getMinigames: () => nuiFetch('getMinigames'), // admin Minigames tab: Config.Minigames + last in-game test
+  getMinigames: () => shareRead('getMinigames', () => nuiFetch('getMinigames')), // admin Minigames tab: Config.Minigames + last in-game test
   testMinigame: payload => nuiFetch('testMinigame', payload), // { name, speed }: run a preset in game
   vendingWaypoint: (x, y) => nuiFetch('vendingWaypoint', { x, y }),
   printCard: payload => nuiFetch('printCard', payload || {}),

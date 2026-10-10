@@ -74,6 +74,11 @@ local LED_SIZE, LED_RANGE = tonumber(leds.Size) or 0.012, tonumber(leds.Range) o
 local LED_INTENSITY, LED_DISTANCE = tonumber(leds.Intensity) or 3.0, tonumber(leds.Distance) or 15.0
 local racks = {} -- machine id -> true while its rack is open (from the server)
 
+local ajar = {}
+MetaComic.VendingIsAjar=function(id) return ajar[tonumber(id) or 0]~=nil end
+local AJAR=math.max(.05,math.min(.5,tonumber(door.CancelAjarFraction) or .18))
+local REOPEN=math.max(.1,math.min(.9,tonumber(door.CancelReopenSpeed) or .35))
+local cabinetOpen = {} -- authoritative state survives removal of the closed visual props
 local doors = {} -- machine id -> { target, angle, entity (machine prop it replaced), body, door }
 MetaComic.VendingDoorOpen = function(id)
     local state = doors[tonumber(id) or 0]
@@ -291,8 +296,8 @@ local function animate()
                 if not near then
                     restore(state)
                     state.angle = state.target -- out of view: jump to the end state
-                    state.lidAngle = lids[id] and state.target > 0 and LIDANGLE or 0.0
-                    state.rackAngle = racks[id] and state.target > 0 and RACKANGLE or 0.0
+                    state.lidAngle = lids[id] and state.target > 0 and LIDANGLE * (state.ajar and state.ajar.cashbox and AJAR or 1) or 0.0
+                    state.rackAngle = racks[id] and state.target > 0 and RACKANGLE * (state.ajar and state.ajar.rack and AJAR or 1) or 0.0
                     if state.target == 0 then doors[id] = nil end
                 else
                     anyNear = true
@@ -303,15 +308,15 @@ local function animate()
                     if state.body then
                         -- the skimmer rides on the door; a skimmer (re)spawned while the door is open moves onto it too
                         state.skimmer = machine.skimmerProp -- picks up a skimmer fitted or re-synced while the door is open
-                        local step = SPEED * dt
+                        local step = SPEED * dt * (state.reopenSpeed or 1)
                         if state.angle < state.target then state.angle = math.min(state.target, state.angle + step)
                         elseif state.angle > state.target then state.angle = math.max(state.target, state.angle - step) end
                         local level = lids[id]
-                        local lidTarget = level and state.target > 0 and LIDANGLE or 0.0
+                        local lidTarget = level and state.target > 0 and LIDANGLE * (state.ajar and state.ajar.cashbox and AJAR or 1) or 0.0
                         state.lidAngle = state.lidAngle or 0.0
                         if state.lidAngle < lidTarget then state.lidAngle = math.min(lidTarget, state.lidAngle + step)
                         elseif state.lidAngle > lidTarget then state.lidAngle = math.max(lidTarget, state.lidAngle - step) end
-                        local rackTarget = racks[id] and state.target > 0 and RACKANGLE or 0.0
+                        local rackTarget = racks[id] and state.target > 0 and RACKANGLE * (state.ajar and state.ajar.rack and AJAR or 1) or 0.0
                         state.rackAngle = state.rackAngle or 0.0
                         if state.rackAngle < rackTarget then state.rackAngle = math.min(rackTarget, state.rackAngle + step)
                         elseif state.rackAngle > rackTarget then state.rackAngle = math.max(rackTarget, state.rackAngle - step) end
@@ -330,24 +335,46 @@ local function animate()
     end)
 end
 
-local function setDoor(id, isOpen)
+local function setDoor(id, isOpen, speed, preview)
     id = tonumber(id)
     if not id or not modelsReady() then return end
+    if not preview then cabinetOpen[id]=isOpen == true or nil end
     local state = doors[id]
     if not state then
         if not isOpen then return end
         state = { target = 0, angle = 0 }
         doors[id] = state
     end
-    state.target = isOpen and ANGLE or 0
+    state.ajar=ajar[id]
+    state.serverOpen=cabinetOpen[id] == true
+    state.reopenSpeed=speed
+    state.target = isOpen and ANGLE * (state.ajar and state.ajar.cabinet and AJAR or 1) or 0
     -- the cabinet closed on its own (key session ran out): close a menu this player had open at it
-    if not isOpen and state.entity and DoesEntityExist(state.entity) and lib and lib.getOpenContextMenu and lib.getOpenContextMenu()
+    if not isOpen and not preview and state.entity and DoesEntityExist(state.entity) and lib and lib.getOpenContextMenu and lib.getOpenContextMenu()
+        and not MetaComic.VendingMenuActive
         and #(GetEntityCoords(PlayerPedId()) - GetEntityCoords(state.entity)) < 4.0 then
         lib.hideContext(false)
     end
     animate()
 end
 
+RegisterNetEvent('meta_comic:client:vendingAjar',function(id,parts)
+    id=tonumber(id) or 0;ajar[id]=parts
+    local state=doors[id]
+    if not state and parts and parts.cabinet and cabinetOpen[id] then
+        setDoor(id,true,REOPEN,true)
+        state=doors[id]
+    end
+    if state then
+        state.ajar=parts
+        if parts and parts.cabinet or state.cabinetAjar then
+            state.target=cabinetOpen[id] and ANGLE*(parts and parts.cabinet and AJAR or 1) or 0
+        end
+        state.cabinetAjar=parts and parts.cabinet or nil
+        state.reopenSpeed=parts and REOPEN or nil
+        animate()
+    end
+end)
 RegisterNetEvent('meta_comic:client:vendingDoor', setDoor)
 RegisterNetEvent('meta_comic:client:vendingDoors', function(list)
     for _, id in ipairs(list or {}) do setDoor(id, true) end
@@ -435,6 +462,8 @@ local function breakOpen(data)
         while not HasAnimDictLoaded(anim.dict) and GetGameTimer() < timeout do Wait(0) end
         TaskPlayAnim(ped, anim.dict, anim.clip, 3.0, 3.0, -1, anim.flag or 1, 0, false, false, false)
     end
+    local stopWitness=data.witness and MetaComic.WatchCrimeWitness and MetaComic.WatchCrimeWitness(data.token,function() return breaking end)
+    local cancelled=false
     local started = GetGameTimer()
     local passed = true
     if data.minigame and MetaComic.RunMinigames then passed = MetaComic.RunMinigames(data.minigame) == true end
@@ -443,13 +472,15 @@ local function breakOpen(data)
         if GetResourceState('ox_lib') == 'started' then
             passed = exports.ox_lib:progressBar({ duration = rest, label = data.label or 'Breaking the padlock', canCancel = true,
                 disable = { move = true, car = true, combat = true } }) == true
+            cancelled=not passed
         else
             Wait(rest)
         end
     end
+    if stopWitness then stopWitness() end
     if anim.dict then StopAnimTask(ped, anim.dict, anim.clip, 2.0) end
     breaking = false
-    TriggerServerEvent(finish, data.token, passed)
+    TriggerServerEvent(finish, data.token, passed, cancelled)
 end
 RegisterNetEvent('meta_comic:client:cashboxStart', breakOpen)
 RegisterNetEvent('meta_comic:client:rackStart', breakOpen)

@@ -149,16 +149,20 @@ RegisterNetEvent('meta_comic:server:crimeStart', function(id, action, option)
         alias = action == 'falsifylogs' and type(option) == 'table' and tostring(option.employee or '') or nil,
         percent = (action == 'installskimmer' or action == 'adjustskimmer') and MetaComic.VendingSecurity.cutOf(type(option) == 'table' and option.percent) or nil }
     local evidence = evidenceAction(action)
-    if criminal and MetaComic.Police then MetaComic.Police.alert(source, { action = evidence, stage = 'start', coords = coords(entry), serial = entry.serial }) end
+    local job=pending[source];job.criminal=criminal
+    if criminal and MetaComic.Police then
+        MetaComic.Police.attempt(source,job,entry,evidence,'start')
+        MetaComic.Police.watch(source,job,entry,evidence,function() return pending[source]==job end)
+    end
     if action ~= 'bolt' and MetaComic.CrimeEvidence then MetaComic.CrimeEvidence.start(source, entry, evidence) end
     TriggerClientEvent('meta_comic:client:crimeStart', source, {
-        token = token, id = entry.id, action = action, label = s.ProgressLabel or s.Label, duration = duration,
+        token = token, id = entry.id, action = action, witness = criminal, label = s.ProgressLabel or s.Label, duration = duration,
         minigame = minigame, animation = s.Animation, minigameFirst = s.MinigameFirst ~= false,
     })
 end)
 
-RegisterNetEvent('meta_comic:server:crimeCancel', function() pending[source] = nil end)
-AddEventHandler('playerDropped', function() pending[source] = nil end)
+RegisterNetEvent('meta_comic:server:crimeCancel', function() pending[source] = nil; if MetaComic.Police and MetaComic.Police.unwatch then MetaComic.Police.unwatch(source) end end)
+AddEventHandler('playerDropped', function() pending[source] = nil; if MetaComic.Police and MetaComic.Police.unwatch then MetaComic.Police.unwatch(source) end end)
 
 local function breakTools(source, action)
     for _, entry in ipairs(itemsOf(action)) do
@@ -349,8 +353,9 @@ end
 RegisterNetEvent('meta_comic:server:crimeFinish', function(token, success)
     local source = source
     local job = pending[source]
-    pending[source] = nil
     if not job or job.token ~= token then return end
+    pending[source] = nil
+    if MetaComic.Police and MetaComic.Police.unwatch then MetaComic.Police.unwatch(source) end
     local s = settings(job.action)
     local entry = Vending.get(job.id)
     if not entry then return notify(source, 'That vending machine is gone.', 'error') end
@@ -367,7 +372,7 @@ RegisterNetEvent('meta_comic:server:crimeFinish', function(token, success)
         if MetaComic.CrimeEvidence and job.action ~= 'bolt' then MetaComic.CrimeEvidence.failure(source, entry, evidenceAction(job.action)) end
         breakTools(source, job.action)
         if not noCooldown(job.action) then cooldowns[key] = os.time() + math.floor(tonumber(s.FailCooldown) or 30) end
-        if MetaComic.Police and job.action ~= 'bolt' then MetaComic.Police.alert(source, { action = evidenceAction(job.action), stage = 'fail', coords = coords(entry), serial = entry.serial }) end
+        if MetaComic.Police and job.criminal then MetaComic.Police.attempt(source,job,entry,evidenceAction(job.action),'fail') end
         Registry.update(entry.serial, nil, ({ breakin = 'Failed break-in attempt', hack = 'Failed hacking attempt', steal = 'Failed theft attempt' })[job.action] or ('Failed ' .. job.action .. ' attempt'))
         return notify(source, s.FailMessage or 'You failed.', 'error')
     end
@@ -386,7 +391,7 @@ RegisterNetEvent('meta_comic:server:crimeFinish', function(token, success)
     if handlers[job.action](source, entry, s, job) then
         useUpItems(source, job.action)
         if not noCooldown(job.action) then cooldowns[key] = os.time() + math.floor(tonumber(s.Cooldown) or 600) end
-        if MetaComic.Police and job.action ~= 'inspectpanel' and job.action ~= 'bolt' then MetaComic.Police.alert(source, { action = evidenceAction(job.action), stage = 'success', coords = coords(entry), serial = entry.serial }) end
+        if MetaComic.Police and job.criminal then MetaComic.Police.attempt(source,job,entry,evidenceAction(job.action),'success') end
         TriggerEvent('meta_comic:server:vendingDoorSuccess', source, entry.id, 'crime', job.action) -- the door opens on success only
         if (job.action == 'breakin' or job.action == 'pickseal') and MetaComic.VendingLoot then MetaComic.VendingLoot.inspect(source, entry) end
     end

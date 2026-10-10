@@ -36,6 +36,9 @@ import { bridge, isFiveM, storage } from './runtime'
 import { embedTab, embedTabs, embedView, isEmbedded, notifyEmbedHost } from './runtime/env'
 import { loadPackPrefs } from './runtime/packPrefs'
 import { normalizeCatalogForRuntime } from './runtime/catalog'
+import { portalNeedsCatalog } from './runtime/portalBoot.js'
+
+const needsCatalog = portalNeedsCatalog(isEmbedded, embedView, embedTabs, embedTab)
 
 
 export default function App() {
@@ -81,7 +84,7 @@ export default function App() {
   const [recordView, setRecordView] = useState(null) // FiveM vending registration certificate / ledger item
   const [minigameView, setMinigameView] = useState(null) // FiveM built-in skill check (client/minigames.lua)
   const oddsFetchedAt = useRef(0)
-  // FiveM /cardoptions: compact player preference overlay
+  // FiveM player preferences: compact player preference overlay
   const [packOptionsView, setPackOptionsView] = useState(false)
   const [embedTest, setEmbedTest] = useState(null) // FiveM /cardportal: this UI embedded in a frame, as another resource shows it
   const [binderPreview, setBinderPreview] = useState(null)
@@ -93,6 +96,7 @@ export default function App() {
   const importRef = useRef(null)
   const previewRef = useRef(null)
   const catalogRevision = useRef(0)
+  const embeddedOpened = useRef(false)
 
   // Embedded in another resource's NUI (exports GetEmbedUrl): open the requested view as soon as every listener is up.
   // The server still checks management permission on each request.
@@ -112,7 +116,7 @@ export default function App() {
 
   // FiveM: get coin bag / plushie box openings ready while idle, so using one shows it straight away.
   useEffect(() => {
-    if (!isFiveM) return undefined
+    if (!isFiveM || isEmbedded) return undefined
     const idle = window.requestIdleCallback || (fn => setTimeout(fn, 1500))
     const handle = idle(() => { loadPackPrefs().catch(() => {}); import('./collectibles/Container3D.js').then(module => module.prewarmContainerScenes()).catch(() => {}) }, { timeout: 5000 })
     return () => (window.cancelIdleCallback || clearTimeout)(handle)
@@ -122,9 +126,9 @@ export default function App() {
     let cancelled = false
     const revision = ++catalogRevision.current
     Promise.all([
-      storage.loadCatalog(defaultCards),
+      needsCatalog ? storage.loadCatalog(defaultCards) : Promise.resolve([]),
       bridge.getInfo().then(info => {if (!cancelled && info) setRuntimeInfo(current => ({...current,...info}));return info}).catch(() => null),
-      bridge.getSets?.().then(result => {if (!cancelled && revision === catalogRevision.current && isFiveM && Array.isArray(result?.sets)) setSets(result.sets);return result}).catch(() => null),
+      (needsCatalog ? bridge.getSets?.() : Promise.resolve(null)).then(result => {if (!cancelled && revision === catalogRevision.current && isFiveM && Array.isArray(result?.sets)) setSets(result.sets);return result}).catch(() => null),
     ]).then(([loaded, info, setResult]) => {
       if (cancelled || revision !== catalogRevision.current) return
       const normalized = normalizeCatalogForRuntime(loaded)
@@ -144,12 +148,12 @@ export default function App() {
     }).catch(error => {
       if (cancelled || revision !== catalogRevision.current) return
       setCatalogReady(false)
-      setCatalogError(error?.message || 'Could not load the server catalog. Reopen /cardadmin to retry.')
+      setCatalogError(error?.message || 'Could not load the server catalog. Reopen /collectiblesadmin to retry.')
     })
 
     const unsubscribe = bridge.subscribe(message => {
       // FiveM: the server's print odds for the card stars (refreshed at most once a minute, whenever the UI opens)
-      if (isFiveM && message.type === 'metaComic:open' && Date.now() - oddsFetchedAt.current > 60000) {
+      if (isFiveM && needsCatalog && message.type === 'metaComic:open' && Date.now() - oddsFetchedAt.current > 60000) {
         oddsFetchedAt.current = Date.now()
         bridge.getPrintOdds?.().then(result => setServerOdds(result?.odds,result?.bySet)).catch(() => {})
       }
@@ -220,9 +224,12 @@ export default function App() {
           setTab(canEdit ? 'editor' : 'management')
           if (typeof message.tab === 'string' && message.tab) setTab(message.tab) // exports OpenAdmin(tab) / embed ?tab=
 
-          // /cardadmin is expected to reflect the server's current catalog, sets and
+          // /collectiblesadmin is expected to reflect the server's current catalog, sets and
           // permissions every time it opens, not only what existed when the hidden
           // NUI page first booted.
+          const reuseBootstrap = isEmbedded && !embeddedOpened.current
+          embeddedOpened.current = true
+          if (!reuseBootstrap) {
           ;(async () => {
             const revision = ++catalogRevision.current
             const [info, catalogResult, setResult] = await Promise.all([
@@ -247,6 +254,7 @@ export default function App() {
             if (Array.isArray(catalogResult?.sets)) setSets(catalogResult.sets)
             else if (Array.isArray(setResult?.sets)) setSets(setResult.sets)
           })()
+          }
         } else if (message.overlay && message.mode === 'options') {
           setOverlayRun(0)
           setCardView(null)
@@ -339,12 +347,12 @@ export default function App() {
 
   const saveSelected = async () => {
     if (isFiveM && !catalogReady) {
-      setSaveState({ saving: false, error: 'Load the server catalog before saving. Reopen /cardadmin to retry.' })
+      setSaveState({ saving: false, error: 'Load the server catalog before saving. Reopen /collectiblesadmin to retry.' })
       return false
     }
     if (!selected || !selectedDirty || saveState.saving) return !selectedDirty
     setSaveState({ saving: true, error: '' })
-    // A catalog reload still in flight (e.g. started when /cardadmin opened) was read before this save:
+    // A catalog reload still in flight (e.g. started when /collectiblesadmin opened) was read before this save:
     // letting it land afterwards replaced the saved card with the old copy and the editor kept saying "Unsaved changes".
     ++catalogRevision.current
     const snapshot = normalizeCard(structuredClone(selected))
@@ -469,14 +477,14 @@ export default function App() {
         saveSelected()
         return
       }
-      if (isFiveM && event.key === 'Escape' && !event.defaultPrevented) { // a page can keep Escape (minigame test)
+      if (isFiveM && event.key === 'Escape' && !event.defaultPrevented && !minigameView) { // minigames send their result before the client closes NUI
         event.preventDefault()
         requestCloseNui()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [nuiVisible, objectOpenRequest, tab, selectedDirty, selectedId, cards, savedCards, saveState.saving])
+  }, [nuiVisible, objectOpenRequest, tab, selectedDirty, selectedId, cards, savedCards, saveState.saving, minigameView])
 
   useEffect(() => {
     if (isFiveM || !selectedDirty) return undefined
@@ -544,10 +552,10 @@ export default function App() {
   if (boxView) return <BoosterBoxOverlay key={boxView.key} box={boxView} onClose={performCloseNui} />
   if (crateView) return <ShippingCrateReveal key={crateView.key} crate={crateView} onClose={performCloseNui} />
   // skill check: hidden straight away on a result (the game script then closes the page, or opens the next game)
-  if (minigameView) return <Minigame key={minigameView.id} config={minigameView} onResult={success => { bridge.minigameResult?.({ id: minigameView.id, success }).catch?.(() => {}); setMinigameView(null); if (isFiveM) setNuiVisible(false) }} />
+  if (minigameView) return <Minigame key={minigameView.id} config={minigameView} onResult={(success, details) => { bridge.minigameResult?.({ id: minigameView.id, success, details }).catch?.(() => {}); setMinigameView(null); if (isFiveM) setNuiVisible(false) }} />
   if (recordView) return <VendingRecordView key={recordView.key} record={recordView} onClose={performCloseNui} />
 
-  // /cardoptions: only the compact preference panel, with the game visible around it
+  // Player preferences: only the compact preference panel, with the game visible around it
   if (isFiveM && packOptionsView) return <PackOptions onClose={performCloseNui} />
   // booster pack item used in FiveM: only the centre-screen opening, no app shell
   if (overlayRun) return <PackSimulator cards={savedCards} sets={sets} overlay overlayKey={overlayRun} onClose={performCloseNui} />
@@ -630,7 +638,7 @@ export default function App() {
       </div>
 
       {system === 'trading_card' && <>
-      {catalogError && tab !== 'pricing' && <div className="management-message" role="alert">{catalogError} Reopen /cardadmin to retry.</div>}
+      {catalogError && tab !== 'pricing' && <div className="management-message" role="alert">{catalogError} Reopen /collectiblesadmin to retry.</div>}
       {tab === 'editor' && catalogReady && !selected && <div className="management-message">No cards are saved in the server catalog. Add a new card or import a catalog.</div>}
       {tab === 'editor' && (!isFiveM || catalogReady) && selected && selectedPrint && (
         <section className="workspace">
@@ -691,8 +699,8 @@ export default function App() {
       {tab === 'pricing' && pricingAllowed && <PackPricingPanel cards={savedCards} sets={sets} />}
       {tab === 'vending' && vendingAllowed && <VendingMapPanel />}
       {tab === 'records' && recordsAllowed && <VendingRecordsPanel />}
-      {tab === 'crafting' && managementAllowed && <CraftingPanel sets={sets} />}
-      {tab === 'minigames' && managementAllowed && <MinigameTestPanel />}
+      {tab === 'crafting' && managementAllowed && <CraftingPanel sets={sets} cards={cards} />}
+      {tab === 'minigames' && managementAllowed && <MinigameTestPanel sets={sets} cards={cards} />}
 
       {tab === 'gallery' && (
         <div className="binder-preview-bar">

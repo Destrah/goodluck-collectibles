@@ -404,7 +404,7 @@ RegisterNUICallback('deleteCard', function(data, cb)
 end)
 
 -- Compatibility helper for the checked-in prebuilt NUI: reverting a draft reloads the
--- page so the old compiled React state is discarded, then asks the normal /cardadmin
+-- page so the old compiled React state is discarded, then asks the normal /collectiblesadmin
 -- path to reopen after the fresh page has installed its message listeners.
 RegisterNUICallback('reopenAdmin', function(_, cb)
     cb({ ok = true })
@@ -461,7 +461,8 @@ RegisterNUICallback('sellCardBuyerCart',function(data,cb)
     cb(serverRpc('sellCardBuyerCart',data or {},120000))
 end)
 
-for _,action in ipairs({'getCollectibles','saveCollectible','openCollectibleContainer','createCollectibleContainer','claimCollectibles','printCollectible',
+MetaComic.GetCraftingPrints = function(setId, cols, rows) return serverRpc('getCraftingPrints', { setId = setId, cols = cols, rows = rows }, 120000) end
+for _,action in ipairs({'getCraftingPrints','getCollectibles','saveCollectible','openCollectibleContainer','createCollectibleContainer','claimCollectibles','printCollectible',
     'gradingMark','gradingSubmit','gradingCancel','roughHandling','gradingRecord','getPrintOdds','binderStoreCard','binderTakeCard',
     'getVendingMachines','getCrafting','saveCrafting','getVendingRecords','getVendingRecordPage','saveVendingRecords'}) do
     RegisterNUICallback(action,function(data,cb) cb(serverRpc(action,data or {},120000)) end)
@@ -707,46 +708,25 @@ RegisterNetEvent('meta_comic:client:notify', function(message, notifyType)
     EndTextCommandThefeedPostTicker(false, false)
 end)
 
-if Config.Commands.Open and Config.Commands.Open ~= '' then
-    RegisterCommand(Config.Commands.Open, function() openNui(Config.Nui.DefaultView) end, false)
-end
-if Config.Commands.Pack and Config.Commands.Pack ~= '' then
-    RegisterCommand(Config.Commands.Pack, function() openPackOverlay() end, false)
-end
-if Config.Commands.Box and Config.Commands.Box ~= '' then
-    RegisterCommand(Config.Commands.Box, function() openNui('pack', 'openBox') end, false)
-end
-if Config.Commands.Options and Config.Commands.Options ~= '' then
-    RegisterCommand(Config.Commands.Options, function() openPackOptions() end, false)
-end
--- Keep /cardadmin available for installations that intentionally preserve an
--- older config.lua. An explicit empty Management command still disables it.
+-- Player preferences remain available without the retired legacy aliases.
+RegisterCommand('collectiblesoptions',openPackOptions,false)
+
+-- Default to the current admin command when an older config omits Management.
+-- An explicit empty Management command still disables it.
 local managementCommand = Config.Commands and Config.Commands.Management
-if managementCommand == nil then managementCommand = 'cardadmin' end
+if managementCommand == nil then managementCommand = 'collectiblesadmin' end
 if managementCommand ~= '' then
     RegisterCommand(managementCommand, function() openManagement() end, false)
 end
 
--- Canonical collectibles commands also work with preserved older configs.
--- Existing configured names remain aliases; empty values still disable a route.
-local aliases={
-    {key='Open',name='collectibles',legacy='cards',action=function() openNui(Config.Nui.DefaultView) end},
-    {key='Pack',name='collectiblespack',legacy='cardpack',action=openPackOverlay},
-    {key='Box',name='collectiblesbox',legacy='cardbox',action=function() openNui('pack','openBox') end},
-    {key='Options',name='collectiblesoptions',legacy='cardoptions',action=openPackOptions},
-    {key='Management',name='collectiblesadmin',legacy='cardadmin',action=function() openManagement() end},
-}
-for _,entry in ipairs(aliases) do
-    local configured=Config.Commands[entry.key]
-    if configured~='' then
-        if configured~=entry.name then RegisterCommand(entry.name,entry.action,false) end
-        if configured~=entry.legacy then RegisterCommand(entry.legacy,entry.action,false) end
-    end
+-- Preserve the canonical admin command when a custom management name is configured.
+if managementCommand~='' and managementCommand~='collectiblesadmin' then
+    RegisterCommand('collectiblesadmin',function() openManagement() end,false)
 end
 
 exports('OpenCards', function(view) openNui(view or Config.Nui.DefaultView) end)
 -- OpenPack / OpenBox: called by ox_inventory for an item -> use that item (server takes it).
--- Called by another script with no item -> the free test opening, same as /cardpack and /cardbox.
+-- Called by another script with no item -> the free test opening.
 exports('OpenPack', function(...)
     if oxItem(...) or slotOf(...) then return usePack(...) end
     openPackOverlay()

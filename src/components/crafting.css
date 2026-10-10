@@ -1,4 +1,5 @@
 .crafting-filter { width:100%; margin:0 0 8px; }
+.crafting-production{border:0;padding:0;margin:0;min-width:0}
 .crafting-off { opacity:.55; }
 .crafting-actions { display:flex; gap:6px; }
 .crafting-check { flex-direction:row !important; align-items:center; gap:8px; }

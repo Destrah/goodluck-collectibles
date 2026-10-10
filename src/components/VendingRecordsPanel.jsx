@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { bridge } from '../runtime'
 import useConfirm from './useConfirm'
 import './vendingRecords.css'
@@ -28,12 +28,14 @@ export default function VendingRecordsPanel() {
   const [osPlayers, setOSPlayers] = useState({})
   const [report, setReport] = useState(null)
 
+  const loadRevision = useRef(0)
   const apply = result => { setState(result); setTaxes(taxMap(result.people)) }
   const load = async () => {
+    const revision = ++loadRevision.current
     setBusy(true); setMessage('')
-    try { apply(await bridge.getVendingRecords()) } catch (error) { setMessage(error?.message || String(error)) } finally { setBusy(false) }
+    try { const result = await bridge.getVendingRecords(); if (revision === loadRevision.current) apply(result) } catch (error) { if (revision === loadRevision.current) setMessage(error?.message || String(error)) } finally { if (revision === loadRevision.current) setBusy(false) }
   }
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); return () => { loadRevision.current++ } }, [])
   useEffect(() => {
     const refresh = event => { if (event.data?.type === 'metaComic:vendingRemoteAccessChanged') load() }
     window.addEventListener('message', refresh)
@@ -41,6 +43,7 @@ export default function VendingRecordsPanel() {
   }, [])
 
   const act = async (payload, done) => {
+    loadRevision.current++ // an older read must not overwrite this action response
     setBusy(true); setMessage('')
     try { const result = await bridge.saveVendingRecords(payload); apply(result); if (result.keyReportPreview) setReport(result.keyReportPreview); if (done) setMessage(done) }
     catch (error) { setMessage(error?.message || String(error)) } finally { setBusy(false) }

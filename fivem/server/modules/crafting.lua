@@ -29,6 +29,37 @@ local function text(value, max)
     return value ~= '' and #value <= (max or 80) and value or nil
 end
 local function itemName(value) local name = text(value, 60); return name and name:match('^[%w_%-%.]+$') and name or nil end
+local function gameAuthor(source)
+    return source == 0 or IsPlayerAceAllowed(source, cfg.MinigameAce or (Config.Management or {}).Ace or 'metacomic.manage')
+end
+local function cleanGame(raw)
+    if raw == nil or raw == false then return nil end
+    if type(raw) ~= 'table' then return nil, 'minigame must be a table' end
+    if raw.enabled ~= true then return nil end
+    local game = { enabled = true, cols = whole(raw.cols or 5, 1, 10), rows = whole(raw.rows or 3, 1, 10),
+        rewardPacks = whole(raw.rewardPacks or 3, 1, 100), maxErrors = whole(raw.maxErrors or 6, 1, 20),
+        time = whole(raw.time or 900, 30, 1800), minSeconds = whole(raw.minSeconds or 20, 5, 300),
+        bonusSeconds = whole(raw.bonusSeconds or 180, 0, 1800), bonusPacks = whole(raw.bonusPacks or 0, 0, 10),
+        bulkBonusEvery = whole(raw.bulkBonusEvery or 5, 2, 100), bulkBonusPacks = whole(raw.bulkBonusPacks or 1, 0, 10),
+        bulkBonusMax = whole(raw.bulkBonusMax or 5, 0, 100), scaleBonusTime = raw.scaleBonusTime ~= false,
+        flawChance = tonumber(raw.flawChance) or 0.5, cutter = raw.cutter or 'bench' }
+    for _, key in ipairs({'cols','rows','rewardPacks','maxErrors','time','minSeconds','bonusSeconds','bonusPacks','bulkBonusEvery','bulkBonusPacks','bulkBonusMax'}) do
+        if game[key] == nil then return nil, 'invalid minigame ' .. key end
+    end
+    if game.cols * game.rows > 60 or game.cols * game.rows % 5 ~= 0 then return nil, 'sheet needs at most 60 cards and a total divisible by five' end
+    if not finite(game.flawChance) or game.flawChance < 0 or game.flawChance > 1 then return nil, 'flaw chance must be 0 to 1' end
+    if game.cutter ~= 'bench' and game.cutter ~= 'industrial' and game.cutter ~= 'random' then return nil, 'unknown cutter' end
+    if game.minSeconds >= game.time then return nil, 'minimum duration must be below the time limit' end
+    return game
+end
+
+local function bulkReward(game, completed)
+    return math.min(game.bulkBonusMax, math.floor(completed / game.bulkBonusEvery) * game.bulkBonusPacks)
+end
+local function perfectWindow(game)
+    -- Preserve the configured allowance for a normal 15-card sheet; larger sheets get proportional time.
+    return math.min(game.time, game.bonusSeconds * (game.scaleBonusTime and math.max(1, game.cols * game.rows / 15) or 1))
+end
 
 -- Results ------------------------------------------------------------------------------------------------------------
 -- what a recipe makes: MetaComic.Rewards (server/modules/rewards.lua) knows every kind, other modules add theirs
@@ -56,8 +87,13 @@ local function cleanRecipe(raw, id)
         for _, id in ipairs(result.sets) do local value = text(id, 80); if value and #sets < 20 then sets[#sets + 1] = value end end
         cleanResult.sets = #sets > 0 and sets or nil
     end
+    -- Sealed recipes are shared across sets; callers choose the set at craft start.
+    if typeId == 'sealed' then cleanResult.set = nil end
     if not cleanResult.count then return nil, id .. ': result count must be 1 to 1000' end
     if resultType.validate and not resultType.validate(cleanResult) then return nil, id .. ': the result is not valid (check its item / set / type)' end
+    local minigame, gameError = cleanGame(raw.minigame)
+    if gameError then return nil, id .. ': ' .. gameError end
+    if minigame and (typeId ~= 'sealed' or cleanResult.kind == 'box') then return nil, id .. ': card production requires a sealed pack result' end
     local ingredients = {}
     for _, entry in ipairs(type(raw.ingredients) == 'table' and raw.ingredients or {}) do
         local name, count = itemName(entry.item), whole(entry.count or 1, 1, 10000)
@@ -82,6 +118,7 @@ local function cleanRecipe(raw, id)
         managersOnly = raw.managersOnly == true,
         stations = type(raw.stations) == 'table' and raw.stations or nil, -- station ids; nil = every station
         enabled = raw.enabled ~= false,
+        minigame = minigame,
     }
 end
 
@@ -113,6 +150,78 @@ CreateThread(function() Wait(0); loadRecipes() end)
 
 local function findRecipe(id) for _, recipe in ipairs(recipes) do if recipe.id == id then return recipe end end end
 function service.all() return MetaComic.CopyTable(recipes) end
+function service.prints(setId, sheetSize)
+    if setId ~= nil and setId ~= '' and not text(setId, 80) then return nil end
+    local set = MetaComic.Sets.get(text(setId, 80) or MetaComic.Sets.defaultId())
+    if not set then return nil end
+    local allowed, pool, cards = {}, {}, {}
+    for _, id in ipairs(set.cardIds or {}) do allowed[id] = true end
+    for _, card in ipairs(MetaComic.Cards.getCatalog()) do
+        if allowed[card.id] and #(card.variants or {}) > 0 then pool[#pool + 1] = card end
+    end
+    -- Sample the whole set: distinct cards before any repetition, rather than first catalogue entries.
+    for i = #pool, 2, -1 do local j = math.random(i); pool[i], pool[j] = pool[j], pool[i] end
+    if sheetSize then
+        -- Pick the sheet before resolving/transferring full artwork records. Only the requested stock
+        -- needs a full sheet; other stocks are lightweight decoy previews for the selection task.
+        local grouped, groups = {}, {}
+        for _, card in ipairs(pool) do
+            for _, variant in ipairs(card.variants) do
+                local layout = text(variant.layout) or card.layout or 'classic'
+                local accent = text(variant.accent) or card.accent or '#22d3ee'
+                local key = layout == 'dark-borderless' and layout or (layout .. '|' .. accent)
+                local group = grouped[key]
+                if not group then group = { identities = {}, count = 0 }; grouped[key] = group; groups[#groups + 1] = group end
+                if not group.identities[card.id] then group.identities[card.id] = {}; group.count = group.count + 1 end
+                local prints = group.identities[card.id]
+                prints[#prints + 1] = { card = card, variant = variant }
+            end
+        end
+        table.sort(groups, function(a, b) return a.count > b.count end)
+        if #groups > 0 then
+            local eligible = 1
+            while groups[eligible + 1] and groups[eligible + 1].count >= math.min(sheetSize, groups[1].count) do eligible = eligible + 1 end
+            local chosen = math.random(eligible); groups[1], groups[chosen] = groups[chosen], groups[1]
+        end
+        for index = 1, math.min(6, #groups) do
+            local group, identities = groups[index], {}
+            for _, prints in pairs(group.identities) do identities[#identities + 1] = prints end
+            for i = #identities, 2, -1 do local j = math.random(i); identities[i], identities[j] = identities[j], identities[i] end
+            for i = 1, math.min(#identities, index == 1 and sheetSize or 1) do
+                local prints = identities[i]
+                local chosen = prints[math.random(#prints)]
+                local print = MetaComic.Cards.resolve(chosen.card.id, chosen.variant.id)
+                if print then cards[#cards + 1] = print end
+            end
+        end
+        return cards, set
+    end
+    local variants = {}
+    for i, card in ipairs(pool) do
+        variants[i] = MetaComic.CopyTable(card.variants)
+        for n = #variants[i], 2, -1 do local j = math.random(n); variants[i][n], variants[i][j] = variants[i][j], variants[i][n] end
+    end
+    -- Interleave prints across card identities; the bounded latent payload never favors the first cards.
+    local round, more = 1, true
+    while more and #cards < 600 do
+        more = false
+        for i, card in ipairs(pool) do
+            local variant = variants[i][round]
+            if variant and #cards < 600 then
+                more = true
+                local print = MetaComic.Cards.resolve(card.id, variant.id)
+                if print then cards[#cards + 1] = print end
+            end
+        end
+        round = round + 1
+    end
+    return cards, set
+end
+local function setChoices()
+    local choices = {}
+    for _, set in ipairs(MetaComic.Sets.getAll()) do choices[#choices + 1] = { value = set.id, label = set.name or set.id } end
+    return choices
+end
 
 -- Stations ------------------------------------------------------------------------------------------------------------
 local function stationOf(index)
@@ -187,7 +296,10 @@ local function menuFor(source, station)
                 ingredients[#ingredients + 1] = { item = entry.item, count = entry.count, keep = entry.keep, have = countOf(source, entry.item) }
             end
             list[#list + 1] = { id = recipe.id, label = recipe.label, category = recipe.category, result = resultLabel(recipe),
-                ingredients = ingredients, money = recipe.money, account = recipe.account, time = recipe.time }
+                ingredients = ingredients, money = recipe.money, account = recipe.account, time = recipe.time,
+                interactive = recipe.minigame ~= nil, rewardPacks = recipe.minigame and recipe.minigame.rewardPacks,
+                bulkBonusEvery = recipe.minigame and recipe.minigame.bulkBonusEvery, bulkBonusPacks = recipe.minigame and recipe.minigame.bulkBonusPacks, bulkBonusMax = recipe.minigame and recipe.minigame.bulkBonusMax,
+                sets = recipe.result.type == 'sealed' and setChoices() or nil, defaultSet = recipe.result.type == 'sealed' and MetaComic.Sets.defaultId() or nil }
         end
     end
     return list
@@ -202,37 +314,84 @@ RegisterNetEvent('meta_comic:server:craftingOpen', function(stationIndex)
     TriggerLatentClientEvent('meta_comic:client:craftingOpen', source, 256 * 1024, tonumber(stationIndex), station.label or 'Crafting', menuFor(source, station), MAX_AMOUNT)
 end)
 
-RegisterNetEvent('meta_comic:server:craftingStart', function(stationIndex, recipeId, amount)
-    local source = source
+local function startCraft(source, stationIndex, recipeId, amount, setId, order)
     if pending[source] then return notify(source, 'You are already crafting something.', 'error') end
     local station = stationOf(tonumber(stationIndex) or -1)
-    local recipe = type(recipeId) == 'string' and findRecipe(recipeId)
+    local recipe = order and order.recipe or (type(recipeId) == 'string' and findRecipe(recipeId))
     amount = whole(amount, 1, MAX_AMOUNT)
     if not station or not recipe or not amount then return end
+    recipe = MetaComic.CopyTable(recipe)
+    if recipe.result.type == 'sealed' then
+        if setId ~= nil and setId ~= '' and not text(setId, 80) then return notify(source, 'Invalid card set.', 'error') end
+        local selected = MetaComic.Sets.get(text(setId, 80) or MetaComic.Sets.defaultId())
+        if not selected then return notify(source, 'Unknown card set.', 'error') end
+        recipe.result.set = selected.id
+    end
+    local requested = recipe.minigame and amount or nil
+    if requested then amount = 1; order = order or { requested = requested, completed = 0, bonusPaid = 0, recipe = recipe } end
     if not atStation(source, station) then return notify(source, 'You need to stand at the crafting bench.', 'error') end
     local allowed, why = mayCraft(source, station, recipe)
     if not allowed then return notify(source, why, 'error') end
     local short = missing(source, recipe, amount)
     if short then return notify(source, short, 'error') end
-    local duration = recipe.time * amount
-    pending[source] = { recipe = recipe, amount = amount, station = station, startedAt = GetGameTimer(), duration = duration }
-    TriggerClientEvent('meta_comic:client:craftingProgress', source, duration, recipe.label, amount, cfg.Animation)
+    local preview = MetaComic.CopyTable(recipe.result)
+    if recipe.minigame then preview.count = requested + math.ceil(requested / recipe.minigame.rewardPacks) * recipe.minigame.bonusPacks + bulkReward(recipe.minigame, order.requested) - order.bonusPaid end
+    local resultType = resultTypes[preview.type]
+    if resultType.canGive and not resultType.canGive(source, preview, amount) then
+        return notify(source, 'You cannot carry the crafted items. Make inventory room before starting.', 'error')
+    end
+    local duration = recipe.minigame and recipe.minigame.minSeconds * 1000 or recipe.time * amount
+    pending[source] = { recipe = recipe, amount = amount, station = station, startedAt = GetGameTimer(), duration = duration, remaining = requested, stationIndex = stationIndex, order = order }
+    if recipe.minigame then
+        local game = MetaComic.CopyTable(recipe.minigame)
+        game.game, game.type = 'crafting', 'builtin'
+        if game.cutter == 'random' then game.cutter = math.random(2) == 1 and 'bench' or 'industrial' end
+        local cards, selected = service.prints(recipe.result.set, game.cols * game.rows)
+        if not cards or #cards == 0 then pending[source] = nil; return notify(source, 'This set has no printable cards.', 'error') end
+        game.cards, game.setId, game.setName = cards, selected.id, selected.name or selected.id
+        game.requestedPacks = requested
+        game.orderCompleted = order.completed
+        game.bulkBonusRemaining = bulkReward(recipe.minigame, order.requested) - order.bonusPaid
+        game.bonusSeconds = perfectWindow(recipe.minigame)
+        TriggerLatentClientEvent('meta_comic:client:craftingGame', source, 256 * 1024, game)
+    else TriggerClientEvent('meta_comic:client:craftingProgress', source, duration, recipe.label, amount, cfg.Animation) end
+end
+RegisterNetEvent('meta_comic:server:craftingStart', function(stationIndex, recipeId, amount, setId)
+    startCraft(source, stationIndex, recipeId, amount, setId)
 end)
 
 RegisterNetEvent('meta_comic:server:craftingCancel', function() pending[source] = nil end)
 
-RegisterNetEvent('meta_comic:server:craftingFinish', function()
+RegisterNetEvent('meta_comic:server:craftingFinish', function(details)
     local source = source
     local job = pending[source]
     pending[source] = nil
     if not job then return end
     local recipe, amount = job.recipe, job.amount
+    local reward = MetaComic.CopyTable(recipe.result)
+    local bulkBonus, completedPacks = 0, 0
+    if recipe.minigame then
+        local game, elapsed = recipe.minigame, GetGameTimer() - job.startedAt
+        local expected = game.cols * game.rows / 5
+        local errors = type(details) == 'table' and whole(details.errors, 0, game.maxErrors - 1)
+        if not errors or details.printed ~= true or details.inspected ~= true or details.packs ~= expected
+            or details.folds ~= expected or details.seals ~= expected or details.cuts ~= game.cols * game.rows - 1
+            or elapsed > (game.time + 20) * 1000 then return notify(source, 'Card production was incomplete or expired.', 'error') end
+        reward.count = math.min(game.rewardPacks, job.remaining or game.rewardPacks)
+        completedPacks = reward.count
+        bulkBonus = bulkReward(game, job.order.completed + completedPacks) - job.order.bonusPaid
+        reward.count = reward.count + bulkBonus
+        -- Payout and timing come from the pending server recipe, never client supplied reward quantities/time.
+        if errors == 0 and elapsed <= perfectWindow(game) * 1000 then reward.count = reward.count + game.bonusPacks end
+    end
     if GetGameTimer() - job.startedAt < job.duration - 750 then return notify(source, 'Crafting was interrupted.', 'error') end
     if not atStation(source, job.station) then return notify(source, 'You walked away from the crafting bench.', 'error') end
     local short = missing(source, recipe, amount)
     if short then return notify(source, short, 'error') end
     local resultType = resultTypes[recipe.result.type]
-    if resultType.canGive and not resultType.canGive(source, recipe.result, amount) then return notify(source, 'You cannot carry that.', 'error') end
+    local allowed, why = mayCraft(source, job.station, recipe)
+    if not allowed then return notify(source, why, 'error') end
+    if resultType.canGive and not resultType.canGive(source, reward, amount) then return notify(source, 'You cannot carry that.', 'error') end
 
     local taken = {}
     local function giveBack()
@@ -253,13 +412,20 @@ RegisterNetEvent('meta_comic:server:craftingFinish', function()
         giveBack()
         return notify(source, ('Crafting this costs $%d.'):format(price), 'error')
     end
-    local ok, err = resultType.give(source, recipe.result, amount)
+    local ok, err = resultType.give(source, reward, amount)
     if not ok then
         giveBack()
         if price > 0 then MetaComic.Money.add(source, recipe.account, price, 'collectibles-crafting-refund') end
         return notify(source, err or 'Could not give the crafted items.', 'error')
     end
-    notify(source, ('Crafted %s%s.'):format(amount > 1 and (amount .. 'x ') or '', recipe.label), 'success')
+    if recipe.minigame then
+        job.order.completed = job.order.completed + completedPacks
+        job.order.bonusPaid = job.order.bonusPaid + bulkBonus
+    end
+    if recipe.minigame and job.remaining > recipe.minigame.rewardPacks then
+        startCraft(source, job.stationIndex, recipe.id, job.remaining - recipe.minigame.rewardPacks, recipe.result.set, job.order)
+    end
+    notify(source, recipe.minigame and ('Crafted %d booster packs%s.'):format(reward.count, bulkBonus > 0 and (' (includes %d bulk bonus)'):format(bulkBonus) or '') or ('Crafted %s%s.'):format(amount > 1 and (amount .. 'x ') or '', recipe.label), 'success')
 end)
 
 AddEventHandler('playerDropped', function() pending[source] = nil end)
@@ -276,6 +442,14 @@ end
 -- Admin UI ------------------------------------------------------------------------------------------------------------
 local handlers = MetaComic.RpcHandlers
 if handlers then
+    handlers.getCraftingPrints = function(_, payload)
+        local setId = type(payload) == 'table' and payload.setId or nil
+        local cols = type(payload) == 'table' and whole(payload.cols or 5, 1, 10) or 5
+        local rows = type(payload) == 'table' and whole(payload.rows or 3, 1, 10) or 3
+        if not cols or not rows or cols * rows > 60 or cols * rows % 5 ~= 0 then return { ok = false, error = 'Invalid production sheet dimensions.' } end
+        local cards, selected = service.prints(setId, cols * rows)
+        return cards and { ok = true, cards = cards, setId = selected.id, setName = selected.name or selected.id } or { ok = false, error = 'Unknown card set.' }
+    end
     handlers.getCrafting = function(source)
         if not canManage(source) then return { ok = false, error = 'You do not have permission to manage crafting.' } end
         local types = {}
@@ -287,11 +461,13 @@ if handlers then
         for id in pairs(MetaComic.Objects and MetaComic.Objects.types or {}) do collectibles[#collectibles + 1] = id end
         table.sort(collectibles)
         return { ok = true, recipes = recipes, resultTypes = types, stations = stations, collectibles = collectibles,
-            crates = service.crateChoices and service.crateChoices() or {}, custom = MetaComic.Settings.get(SETTING_KEY) ~= nil }
+            crates = service.crateChoices and service.crateChoices() or {}, custom = MetaComic.Settings.get(SETTING_KEY) ~= nil,
+            canEditMinigame = gameAuthor(source) }
     end
     handlers.saveCrafting = function(source, payload)
         if not canManage(source) then return { ok = false, error = 'You do not have permission to manage crafting.' } end
         if payload and payload.reset == true then
+            if not gameAuthor(source) then return { ok = false, error = 'The crafting minigame settings require the management ACE.' } end
             local ok, err = MetaComic.Settings.set(SETTING_KEY, nil)
             if not ok then return { ok = false, error = err } end
             loadRecipes()
@@ -299,6 +475,16 @@ if handlers then
         end
         local list, err = cleanList(payload and payload.recipes)
         if not list then return { ok = false, error = err } end
+        if not gameAuthor(source) then
+            local function same(a, b)
+                a, b = a or {}, b or {}
+                for _, key in ipairs({'enabled','cols','rows','rewardPacks','maxErrors','time','minSeconds','bonusSeconds','bonusPacks','bulkBonusEvery','bulkBonusPacks','bulkBonusMax','scaleBonusTime','flawChance','cutter'}) do if a[key] ~= b[key] then return false end end
+                return true
+            end
+            local incoming = {}
+            for _, recipe in ipairs(list) do incoming[recipe.id] = recipe; if not same(recipe.minigame, (findRecipe(recipe.id) or {}).minigame) then return { ok = false, error = 'The crafting minigame settings require the management ACE.' } end end
+            for _, recipe in ipairs(recipes) do if recipe.minigame and not incoming[recipe.id] then return { ok = false, error = 'Removing a card production recipe requires the management ACE.' } end end
+        end
         local ok, saveError = MetaComic.Settings.set(SETTING_KEY, list)
         if not ok then return { ok = false, error = saveError } end
         recipes = list

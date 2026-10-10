@@ -1,0 +1,562 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>[hidden]{display:none!important}:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}
+</style></head><body>
+<title>Shear Line Drill</title>
+
+
+<style>
+:root{
+  /* Layout: same bench as Shear Line: lock cutaway on top, HUD strip, then rules / tuning / wiring */
+  --bg:#13140f; --panel:#1b1c16; --panel2:#22231c; --line:#35362d;
+  --fg:#e8e3d3; --muted:#a19f8f; --brass:#d1a84e; --ok:#8bb880; --bad:#d65b42; --heat:#e0873a;
+  --display:'Spectral SC', Georgia, serif; --body:'Barlow', system-ui, -apple-system, sans-serif; --mono:'JetBrains Mono', ui-monospace, Menlo, monospace;
+  color-scheme:dark;
+}
+html,body{background:var(--bg);color:var(--fg)}
+body{font-family:var(--body);font-size:15px;line-height:1.55}
+.wrap{max-width:1080px;margin:0 auto;padding-inline:18px;padding-block:28px 64px;display:grid;gap:28px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 24px}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(30px,5vw,46px);letter-spacing:.04em;margin:0;line-height:1.05;color:var(--brass);text-wrap:balance}
+.sub{color:var(--muted);margin:0;max-width:60ch}
+h2{font-family:var(--display);font-weight:500;font-size:22px;letter-spacing:.05em;margin:0 0 12px}
+.label{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.bench{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.stage{position:relative}
+canvas{display:block;width:100%;aspect-ratio:800/440;max-width:100%;touch-action:none;cursor:crosshair}
+.overlay{position:absolute;inset:0;display:grid;place-items:center;background:rgba(14,15,10,.78);padding:16px}
+.card{text-align:center;display:grid;gap:14px;justify-items:center;max-width:440px}
+.card h3{font-family:var(--display);font-size:clamp(24px,4vw,34px);margin:0;color:var(--brass);letter-spacing:.05em}
+.card p{margin:0;color:var(--muted)}
+.diffs{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+button{font:600 14px var(--body);color:var(--fg);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:9px 16px;cursor:pointer;letter-spacing:.03em}
+button:hover{border-color:var(--brass)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+button.primary{background:var(--brass);color:#1a1608;border-color:var(--brass)}
+.hud{display:grid;grid-template-columns:1.6fr 1.2fr 1fr 1fr auto;gap:18px;padding:16px 18px;border-top:1px solid var(--line);align-items:end}
+.meter{display:grid;gap:6px;min-width:0}
+.bar{height:10px;border-radius:5px;background:#0e0f0a;border:1px solid var(--line);position:relative;overflow:hidden}
+.bar i{position:absolute;inset:0 auto 0 0;width:0;border-radius:4px}
+#heatBar i{background:linear-gradient(90deg,#6e8a6a,var(--heat),var(--bad))}
+#stressBar i{background:linear-gradient(90deg,#b98a3a,var(--bad))}
+.level{height:14px;border-radius:7px;background:linear-gradient(90deg,#2c2e22,#3b4a2c 40%,#3b4a2c 60%,#2c2e22);border:1px solid var(--line);position:relative}
+.level::before,.level::after{content:"";position:absolute;top:-2px;bottom:-2px;width:1px;background:var(--fg);opacity:.5}
+.level::before{left:calc(50% - var(--tolw))} .level::after{left:calc(50% + var(--tolw))}
+.level b{position:absolute;top:2px;width:22px;height:8px;margin-left:-11px;border-radius:4px;background:#d9f0c0;box-shadow:0 0 6px #d9f0c0;left:50%}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:10px;background:linear-gradient(90deg,#0e0f0a 0,#0e0f0a var(--safe),rgba(214,91,66,.35) var(--safe));border:1px solid var(--line);border-radius:5px;margin:0;display:block}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:22px;border-radius:4px;background:var(--brass);border:2px solid #1a1608;cursor:grab}
+input[type=range]::-moz-range-thumb{width:16px;height:20px;border-radius:4px;background:var(--brass);border:2px solid #1a1608;cursor:grab}
+.stats{display:flex;gap:16px;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.stats b{display:block;font-size:20px;font-weight:600}
+.msg{padding:0 18px 14px;color:var(--muted);min-height:1.5em;font-size:14px}
+.msg.warn{color:var(--bad)} .msg.good{color:var(--ok)}
+.touch{display:none;gap:8px;padding:0 18px 16px;flex-wrap:wrap}
+.touch button{flex:1 1 22%;padding:14px 6px;user-select:none;-webkit-user-select:none}
+@media (pointer:coarse){.touch{display:flex}}
+.keys{display:flex;flex-wrap:wrap;gap:6px 18px;padding:0 18px 16px;color:var(--muted);font-size:13px}
+kbd{font:600 11px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:var(--fg);background:var(--panel2)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:28px}
+.cols > section{min-width:0}
+ol.rules{margin:0;padding:0;list-style:none;display:grid;gap:12px;counter-reset:r}
+ol.rules li{display:grid;grid-template-columns:28px 1fr;gap:10px;counter-increment:r}
+ol.rules li::before{content:counter(r);font:600 13px var(--mono);color:var(--brass);border:1px solid var(--line);border-radius:50%;width:26px;height:26px;display:grid;place-items:center}
+ol.rules p{margin:0;color:var(--muted)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--panel)}
+tr:last-child td{border-bottom:0}
+pre{margin:0;background:#0e0f0a;border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto;font:12.5px/1.55 var(--mono);color:#d8d3c0}
+.c{color:#7f8a6e}
+.notes{display:grid;gap:14px}
+.notes p{margin:0;color:var(--muted);max-width:65ch}
+.notes strong{color:var(--fg)}
+@media (max-width:860px){.cols{grid-template-columns:1fr}.hud{grid-template-columns:1fr 1fr}.hud .wide{grid-column:1/-1}}
+</style>
+
+<style>.wrap{padding:12px;gap:12px;max-width:min(100%,calc((100vh - 230px)*1.818));margin:auto}h1{font-size:28px}.sub{font-size:12px;max-width:380px}.hud{gap:12px;padding:12px}.keys{font-size:12px;padding-bottom:12px}</style>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="label">Shear Line · Drill</div>
+      <h1>Shear Line Drill</h1>
+    </div>
+    <p class="sub">Drill the cylinder out along the shear line. Keep the bit level and on the line, feed it with steady pressure, and stop before it overheats or snaps.</p>
+  </header>
+
+  <div class="bench">
+    <div class="stage">
+      <canvas id="cv" aria-label="Lock cutaway with drill"></canvas>
+      <div class="overlay" id="overlay">
+        <div class="card" id="card"><h3>Preparing the lock…</h3></div></div>
+      </div>
+    </div>
+    <div class="hud">
+      <div class="meter wide"><span class="label">Pressure</span><input type="range" id="pressure" min="0" max="100" step="1" value="35" aria-label="Pressure"></div>
+      <div class="meter wide"><span class="label">Level</span><div class="level" id="level"><b></b></div></div>
+      <div class="meter"><span class="label">Bit heat</span><div class="bar" id="heatBar"><i></i></div></div>
+      <div class="meter"><span class="label">Bit stress</span><div class="bar" id="stressBar"><i></i></div></div>
+      <div class="stats">
+        <div><span class="label">Pins</span><b id="pinTxt">0/0</b></div>
+        <div><span class="label">Oil</span><b id="oilTxt">0</b></div>
+        <div><span class="label">Time</span><b id="timeTxt">--</b></div>
+      </div>
+    </div>
+    <div class="msg" id="msg" aria-live="polite">Waiting for a lock.</div>
+    <div class="touch">
+      <button id="tUp">▲ Raise</button><button id="tDown">▼ Lower</button>
+      <button id="tTiltU">⟲ Tilt</button><button id="tTiltD">⟳ Tilt</button>
+      <button id="tDrill">Hold to drill</button><button id="tOil">Oil</button>
+    </div>
+    <div class="keys">
+      <span><kbd>W</kbd> <kbd>S</kbd> raise / lower</span>
+      <span><kbd>A</kbd> <kbd>D</kbd> tilt to level</span>
+      <span><kbd>Space</kbd> / hold click: run drill</span>
+      <span>Wheel / slider: pressure</span>
+      <span><kbd>R</kbd> cutting oil</span>
+      <span><kbd>Esc</kbd> give up</span>
+    </div>
+  </div>
+
+
+</div>
+<script>
+(() => {
+const DIFF = {
+  easy:   { pins:4, tol:10, angTol:4, wob:0.6, hard:0, oil:3, time:70 },
+  medium: { pins:5, tol:7,  angTol:3, wob:1.0, hard:1, oil:2, time:70 },
+  hard:   { pins:6, tol:5,  angTol:2, wob:1.5, hard:2, oil:1, time:70 }
+};
+const W = 800, H = 440, SHEAR = 150, Y0 = 240, DRIVER = 44, CH_TOP = 56, FACE = 172, BIT_R = 6;
+const SAFE = 75, SAFE_HARD = 40;
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+const slider = $('pressure'), overlay = $('overlay'), card = $('card'), msgEl = $('msg');
+let S = null, keys = {}, last = 0, actx = null, motor = null, msgCool = {};
+let sessionId=null, options={};
+
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = W*dpr; cv.height = H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); draw();
+}
+window.addEventListener('resize', resize);
+function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]];} return a; }
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+function clamp01(v){ return clamp(v,0,1); }
+
+function start(key, opts){
+  const d = {...(DIFF[key] || DIFF.medium)};
+  const limits={pins:[2,10,true],tol:[1,20],angTol:[.5,10],wob:[0,5],hard:[0,10,true],oil:[0,20,true],time:[5,300]};
+  for(const [field,[lo,hi,integer]] of Object.entries(limits)){
+    const value=Number(options[field]);if(Number.isFinite(value)){d[field]=Math.max(lo,Math.min(hi,value));if(integer)d[field]=Math.round(d[field]);}
+  }
+  if('showBand' in options)d.showBand=options.showBand===true;
+  if('spools' in d)d.spools=Math.min(d.pins-1,d.spools);
+  if('hard' in d)d.hard=Math.min(d.pins,d.hard);
+  if(!actx){ try{ actx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+  const n = d.pins;
+  const pins = Array.from({length:n}, (_,i) => ({ x: 270 + i*(330/(n-1)), L: 25 + Math.random()*45, hard:false, cut:false }));
+  shuffle([...Array(n).keys()]).slice(0, d.hard).forEach(i => pins[i].hard = true);
+  const sign = Math.random() < .5 ? -1 : 1;
+  S = { key, d, pins, end: pins[n-1].x + 20 - FACE,
+        y: sign*(d.tol + 8 + Math.random()*14), ang: -sign*(1.5 + Math.random()*3), av:0,
+        p: +slider.value, depth:0, heat:0, stress:0, run:false, spin:0,
+        trail:[], parts:[], oil: d.oil, oilUsed:0, oilT:0,
+        time:d.time, t0:performance.now(), running:true, turning:false, turn:0, hardHit:false };
+  $('level').style.setProperty('--tolw', (d.angTol/12*50).toFixed(1) + '%');
+  updateSafeMark(SAFE);
+  overlay.hidden = true;
+  say('Line the tip up with the shear line and level the drill, then start drilling.');
+}
+
+function updateSafeMark(v){ slider.style.setProperty('--safe', v + '%'); }
+function say(t, cls){ msgEl.textContent = t; msgEl.className = 'msg' + (cls ? ' ' + cls : ''); }
+function sayOnce(key, t, cls, cool){ const now = performance.now(); if((msgCool[key]||0) > now) return; msgCool[key] = now + (cool||3500); say(t, cls); }
+function tipX(){ return FACE + S.depth; }
+function pinAtTip(){ const x = tipX(); return S.pins.find(p => !p.cut && Math.abs(x - p.x) < 16); }
+
+function useOil(){
+  if(!S || !S.running || S.turning) return;
+  if(S.oil <= 0){ sayOnce('nooil','No cutting oil left.','warn',1500); return; }
+  S.oil--; S.oilUsed++; S.heat = Math.max(0, S.heat - 30); S.oilT = 3; sfx('oil');
+  say('Oil on the bit. It smokes and cools.', 'good');
+}
+
+function update(dt){
+  if(!S) return;
+  if(S.turning){ S.turn += dt; if(S.turn >= SEQ_END && S.running) finish(true); return; }
+  if(!S.running) return;
+  const d = S.d;
+  S.time -= dt;
+  if(S.time <= 0){ S.time = 0; return finish(false, 'time'); }
+  if(keys.w) S.y -= 24*dt;
+  if(keys.s) S.y += 24*dt;
+  if(keys.a) S.ang -= 6*dt;
+  if(keys.d) S.ang += 6*dt;
+  S.p = +slider.value;
+
+  const run = S.run && S.p > 2;
+  const pin = pinAtTip(), onHard = !!(pin && pin.hard);
+  const safe = onHard ? SAFE_HARD : SAFE;
+  updateSafeMark(safe);
+
+  // vibration: the running drill wanders, more under pressure
+  if(run){
+    S.av += (Math.random()-.5) * d.wob * (0.4 + S.p/70) * dt * 140;
+    S.av *= Math.pow(0.08, dt);
+    S.ang += S.av * dt;
+    S.y += (Math.random()-.5) * d.wob * S.p * 0.006;
+  }
+  S.y = clamp(S.y, -70, 70); S.ang = clamp(S.ang, -12, 12);
+
+  const aligned = Math.abs(S.y) <= d.tol;
+  const tilted = Math.abs(S.ang) > d.angTol;
+  let feed = run ? S.p * 0.55 * (onHard ? 0.3 : 1) : 0;
+  if(S.heat > 80) feed *= 0.55;
+  if(tilted) feed *= 0.65;
+  const skating = run && pin && !aligned;
+  if(skating) feed *= 0.06;
+  const before = S.depth;
+  S.depth = Math.min(S.end, S.depth + feed*dt);
+  const moved = S.depth - before;
+  // a tilted bit walks up or down as it goes deeper
+  if(run) S.y += Math.tan(S.ang*Math.PI/180) * moved * 2.4;
+  if(moved > 0){
+    const lt = S.trail[S.trail.length-1];
+    if(!lt || tipX() - lt.x > 2) S.trail.push({ x: tipX(), y: SHEAR + S.y });
+  }
+
+  // heat
+  if(run) S.heat += (S.p * 0.2 * (onHard ? 2.6 : 1) * (moved > 0 || skating ? 1 : 0.4) - 3) * dt;
+  else S.heat -= 10*dt;
+  if(S.oilT > 0){ S.oilT -= dt; S.heat -= 16*dt; }
+  S.heat = Math.max(0, S.heat);
+  if(S.heat >= 100){ S.heat = 100; return finish(false, 'burn'); }
+
+  // stress
+  let sr = 0;
+  if(run){
+    if(S.p > safe) sr += (S.p - safe) * 2.2;
+    if(skating) sr += 30;
+    if(tilted) sr += (Math.abs(S.ang) - d.angTol) * 10;
+    if(S.heat > 85) sr += 12;
+  }
+  S.stress = sr > 0 ? S.stress + sr*dt : Math.max(0, S.stress - 25*dt);
+  if(S.stress >= 100){ S.stress = 100; return finish(false, 'snap'); }
+
+  // pins
+  S.pins.forEach(p => { if(!p.cut && tipX() > p.x + 12){ p.cut = true; sfx('crunch'); sayOnce('cut' + p.x, p.hard ? 'Through the hardened pin.' : 'Through a pin stack.', 'good', 99999); } });
+
+  // feedback messages
+  if(skating) sayOnce('skate','The bit is skating on the pin. Get back on the shear line.','warn');
+  else if(onHard && run && !S.hardHit){ S.hardHit = true; say('Hardened pin. Ease the pressure and let it cut.', 'warn'); }
+  else if(run && S.p > safe) sayOnce('press','Too much pressure. The bit is flexing.','warn');
+  else if(S.heat > 80) sayOnce('hot','The bit is getting hot. Let off the trigger or oil it (R).','warn');
+  else if(run && tilted) sayOnce('tilt','The drill is tilted. Level it or the bore will wander.','warn');
+
+  // motor sound follows load
+  motorSound(run, S.p, onHard);
+
+  // particles
+  if(run && moved > 0 && Math.random() < 0.7){
+    const hot = S.heat > 55 || onHard;
+    S.parts.push({ x: pin ? tipX() : FACE, y: SHEAR + S.y + (Math.random()-.5)*8, vx: -40 - Math.random()*90, vy: -30 + Math.random()*90, life: 0.6 + Math.random()*0.5,
+      c: hot && Math.random() < .5 ? '#ffb45a' : pin ? (pin.hard ? '#9fb2c2' : '#e7c46c') : '#c9cec7' });
+  }
+  if(S.depth >= S.end){
+    // the unlock sequence starts by backing the drill out (seq().retract), then turns the plug
+    S.turning = true; S.run = false; S.turn = 0; motorSound(false); sfx('win');
+    say('Through the last pin. Backing the drill out…', 'good');
+  }
+}
+
+function finish(success, reason){
+  if(!S || !S.running)return;
+  S.running = false; S.run = false; motorSound(false);
+  const time = +((performance.now() - S.t0)/1000).toFixed(2);
+  if(reason === 'snap') sfx('snap');
+  if(reason === 'burn') sfx('burn');
+  const res = { success, reason: reason || 'opened', brokeBit: reason === 'snap' || reason === 'burn', oilUsed: S.oilUsed, time };
+  parent.postMessage({type:'metacomic:shearResult',id:sessionId,...res},'*');
+  const title = success ? 'Drilled out' : { snap:'Bit snapped', burn:'Bit burnt out', time:'Out of time', cancel:'Gave up' }[reason];
+  const body = success ? `Opened in ${time.toFixed(1)} s on ${S.key}, using ${S.oilUsed} oil.` :
+    reason === 'snap' ? 'Too much side load on the bit. That costs a drill bit.' :
+    reason === 'burn' ? 'The bit lost its temper and went blunt. That costs a drill bit.' :
+    reason === 'time' ? 'The noise has drawn attention. Time to leave.' : 'You backed off the lock.';
+  const heading=document.createElement('h3'),detail=document.createElement('p');heading.textContent=title;detail.textContent=body;card.replaceChildren(heading,detail);
+  overlay.hidden = false;
+  say(success ? 'Lock drilled.' : title + '.', success ? 'good' : 'warn');
+
+}
+
+/* ---------- drawing ---------- */
+function rr(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function lin(x0,y0,x1,y1,stops){ const g = ctx.createLinearGradient(x0,y0,x1,y1); stops.forEach((c,i)=>g.addColorStop(i/(stops.length-1),c)); return g; }
+function mix(a,b,t){ const pa=a.match(/\w\w/g).map(h=>parseInt(h,16)), pb=b.match(/\w\w/g).map(h=>parseInt(h,16)); return '#'+pa.map((v,i)=>Math.round(v+(pb[i]-v)*t).toString(16).padStart(2,'0')).join(''); }
+
+function drawCutaway(alpha, retract = 0){
+  const c = ctx; c.save(); c.globalAlpha = alpha;
+  const pins = S ? S.pins : Array.from({length:5},(_,i)=>({x:270+i*82.5,L:40+(i*17)%30,hard:i===2,cut:false}));
+  const y = S ? S.y : 18, ang = S ? S.ang : -2.5, depth = (S ? S.depth : 0) - ((S ? S.depth : 0) + 260) * retract, heat = S ? S.heat : 0, tol = S ? S.d.tol : 7;
+
+  // housing
+  drawThemeHousing(c);
+  // plug + keyway
+  c.fillStyle = lin(0,SHEAR,0,Y0+26,['#9ea39d','#767b75','#5a5f59']); rr(184,SHEAR,462,Y0+26-SHEAR,10); c.fill();
+  c.fillStyle = '#15160f'; rr(184,Y0-4,462,30,4); c.fill();
+  // chambers + pins (at rest: drivers cross the shear line and lock the plug)
+  pins.forEach(p => {
+    c.fillStyle = '#1a1b14'; c.fillRect(p.x-15, CH_TOP, 30, Y0-CH_TOP);
+    const kt = Y0 - p.L, dt_ = kt - DRIVER;
+    c.strokeStyle = '#c9cec7'; c.lineWidth = 2; c.beginPath(); c.moveTo(p.x, CH_TOP+2);
+    for(let k=1;k<=16;k++) c.lineTo(p.x + (k%2?10:-10), CH_TOP+2 + (dt_-CH_TOP-2)*k/16);
+    c.stroke();
+    c.fillStyle = p.hard ? lin(p.x-12,0,p.x+12,0,['#3d4a57','#9fb2c2','#45525f']) : lin(p.x-12,0,p.x+12,0,camTheme()?['#a12e32','#ef7171','#ad3438']:['#7d827c','#e2e6df','#8a8f89']);
+    rr(p.x-12, dt_, 24, DRIVER, 3); c.fill();
+    c.fillStyle = p.hard ? lin(p.x-12,0,p.x+12,0,['#3d4a57','#8ea3b5','#45525f']) : lin(p.x-12,0,p.x+12,0,camTheme()?['#225c9a','#72b3df','#245c98']:['#8a6a22','#f1cd74','#9a7628']);
+    c.beginPath(); c.moveTo(p.x-12,kt+2); c.lineTo(p.x+12,kt+2); c.lineTo(p.x+12,Y0-9); c.lineTo(p.x+4,Y0); c.lineTo(p.x-4,Y0); c.lineTo(p.x-12,Y0-9); c.closePath(); c.fill();
+    c.beginPath(); c.arc(p.x, 24, 5, 0, Math.PI*2); c.fillStyle = p.cut ? '#8bb880' : p.hard ? '#6f8ba3' : 'rgba(255,255,255,.12)'; c.fill();
+  });
+  // shear line + tolerance brackets
+  c.save(); c.setLineDash([6,5]); c.strokeStyle = 'rgba(209,168,78,.6)'; c.lineWidth = 1.2;
+  c.beginPath(); c.moveTo(176,SHEAR); c.lineTo(654,SHEAR); c.stroke(); c.restore();
+  c.strokeStyle = '#d1a84e'; c.lineWidth = 2;
+  c.beginPath(); c.moveTo(158,SHEAR-tol); c.lineTo(166,SHEAR-tol); c.lineTo(166,SHEAR+tol); c.lineTo(158,SHEAR+tol); c.stroke();
+  c.fillStyle = 'rgba(209,168,78,.75)'; c.font = '600 10px "JetBrains Mono", monospace'; c.fillText('SHEAR', 186, SHEAR-5);
+
+  // bore trail
+  if(S && S.trail.length){
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    c.strokeStyle = '#0c0c08'; c.lineWidth = BIT_R*2 + 2;
+    c.beginPath(); c.moveTo(FACE, S.trail[0].y); S.trail.forEach(pt => c.lineTo(pt.x, pt.y)); c.stroke();
+    c.strokeStyle = 'rgba(255,255,255,.08)'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(FACE, S.trail[0].y - BIT_R); S.trail.forEach(pt => c.lineTo(pt.x, pt.y - BIT_R)); c.stroke();
+  }
+
+  // aim guide: where the bore will go at the current tilt
+  const tx = FACE + depth, ty = SHEAR + y;
+  if(S && S.running && !S.turning){
+    c.save(); c.setLineDash([3,6]); c.strokeStyle = 'rgba(232,227,211,.28)'; c.lineWidth = 1;
+    const reach = 660 - tx; c.beginPath(); c.moveTo(tx, ty); c.lineTo(tx + reach, ty + Math.tan(ang*Math.PI/180)*reach*2.4); c.stroke(); c.restore();
+  }
+
+  // drill
+  const bitLen = (S ? S.end : 450) + 50;
+  c.save(); c.translate(tx, ty); c.rotate(ang*Math.PI/180);
+  const steel = mix('a9aea8', heat > 50 ? 'e0873a' : 'a9aea8', clamp01((heat-50)/50));
+  c.fillStyle = steel; c.fillRect(-bitLen, -BIT_R, bitLen-8, BIT_R*2);
+  c.beginPath(); c.moveTo(-8,-BIT_R); c.lineTo(0,0); c.lineTo(-8,BIT_R); c.closePath(); c.fill();
+  c.strokeStyle = 'rgba(0,0,0,.4)'; c.lineWidth = 2;
+  const ph = S ? S.spin % 10 : 0;
+  for(let x = -8 - ph; x > -bitLen + 10; x -= 10){ c.beginPath(); c.moveTo(x, -BIT_R); c.lineTo(x - 6, BIT_R); c.stroke(); }
+  if(heat > 70){ c.fillStyle = `rgba(255,140,50,${(heat-70)/100})`; c.fillRect(-60, -BIT_R-3, 60, BIT_R*2+6); }
+  // chuck and body
+  c.fillStyle = lin(0,-18,0,18,['#4a4d47','#1f211c']); rr(-bitLen-46, -17, 46, 34, 5); c.fill();
+  c.fillStyle = '#2a2c25'; rr(-bitLen-250, -30, 206, 60, 12); c.fill();
+  c.fillStyle = '#d1a84e'; c.fillRect(-bitLen-200, -30, 6, 60);
+  c.fillStyle = '#23251f'; rr(-bitLen-190, 22, 50, 110, 10); c.fill();
+  c.restore();
+
+  // particles
+  if(S) S.parts.forEach(pt => { c.fillStyle = pt.c; c.globalAlpha = alpha * clamp01(pt.life*2); c.fillRect(pt.x, pt.y, 2.5, 2.5); });
+  c.globalAlpha = alpha;
+  if(S && S.oilT > 0){ c.fillStyle = `rgba(220,220,210,${0.12*S.oilT})`; c.beginPath(); c.arc(FACE-10, SHEAR+y-20, 26 + (3-S.oilT)*10, 0, Math.PI*2); c.fill(); }
+
+  c.fillStyle = 'rgba(232,227,211,.35)'; c.font = '500 12px "Spectral SC", Georgia, serif';
+  c.fillText('PIN STACKS', 270, 400); c.fillText('CYLINDER', 535, 400);
+  c.restore();
+}
+
+const VARIANT = 'drill';
+/* ---------- padlock unlock sequence (shared by Shear Line and Shear Line Drill) ---------- */
+// t is seconds since the lock was beaten. VARIANT is 'pick' or 'drill'.
+const SEQ_END = 4.6;
+const FACE_C = { x:400, y:222, R:78 };
+const PS = { x0:150, x1:690, top:170, bot:420, shear:318, plugX0:172, plugX1:476, plugY0:320, plugY1:396,
+             legS:500, legL:620, legW:24, arcCY:150, shortBot:222, longBot:350, ballY:200, camX:560, pop:56 };
+function easeInOut(x){ return x < .5 ? 4*x*x*x : 1 - Math.pow(-2*x + 2, 3)/2; }
+function easeOutBack(x){ const c1 = 1.9, c3 = c1 + 1; return 1 + c3*Math.pow(x-1,3) + c1*Math.pow(x-1,2); }
+function seq(t){
+  const k = (a, d) => Math.max(0, Math.min(1, (t - a)/d));
+  return {
+    retract: easeInOut(k(0, 0.7)),     // tool comes out of the keyway
+    fade1:   k(0.7, 0.4),              // cutaway shrinks onto the end of the cylinder
+    turn:    easeInOut(k(1.1, 0.9)),   // end-on: cylinder turns a quarter
+    fade2:   k(2.0, 0.4),              // cut to the padlock cross-section
+    balls:   easeInOut(k(2.4, 0.25)),  // locking balls fall in off the turned cam
+    pop:     easeOutBack(k(2.65, 0.4)),// shackle springs up
+    swivel:  easeInOut(k(3.2, 0.85))   // shackle swings open on its long leg
+  };
+}
+const KW = [[-6,-16],[5,-16],[5,-6],[8,-2],[8,9],[3,13],[3,26],[-7,26],[-7,14],[-3,10],[-3,0],[-6,-4]];
+
+function draw(){
+  const c = ctx; c.globalAlpha = 1;
+  const g = c.createRadialGradient(420,190,30,420,220,480);
+  g.addColorStop(0,'#2b2c23'); g.addColorStop(1,'#0f100b');
+  c.fillStyle = g; c.fillRect(0,0,W,H);
+  const t = S && S.turning ? S.turn : 0, q = seq(t);
+  if(q.fade1 < 1){
+    // the cutaway shrinks onto the cylinder's end as it fades
+    const k = easeInOut(q.fade1), sc = 1 - 0.6*k, ox = 415, oy = 261;
+    c.save(); c.translate(ox + (FACE_C.x-ox)*k, oy + (FACE_C.y-oy)*k); c.scale(sc, sc); c.translate(-ox, -oy);
+    drawCutaway(1 - q.fade1, q.retract);
+    c.restore();
+  }
+  if(q.fade1 > 0 && q.fade2 < 1){
+    const z = 1 + 0.1*(1 - q.fade1) + 0.15*q.fade2;
+    c.save(); c.translate(FACE_C.x, FACE_C.y); c.scale(z, z); c.translate(-FACE_C.x, -FACE_C.y);
+    drawFaceView(q.fade1 * (1 - q.fade2), q);
+    c.restore();
+  }
+  if(q.fade2 > 0){
+    const z = 1 + 0.08*(1 - q.fade2);
+    c.save(); c.translate(400, 300); c.scale(z, z); c.translate(-400, -300);
+    drawSideSection(q.fade2, q);
+    c.restore();
+  }
+  c.globalAlpha = 1;
+}
+
+// end-on view of the cylinder, the way you'd see it looking into the keyway
+function drawFaceView(alpha, q){
+  const c = ctx, { x:cx, y:cy, R } = FACE_C, a = q.turn * Math.PI/2;
+  c.save(); c.globalAlpha = alpha;
+  drawThemeFaceBack(c,cx,cy);
+  // housing ring
+  c.beginPath(); c.arc(cx, cy, R+22, 0, Math.PI*2); c.fillStyle = lin(0,cy-R-22,0,cy+R+22,['#c9cec7','#8d928c','#5f645e']); c.fill();
+  c.beginPath(); c.arc(cx, cy, R+3, 0, Math.PI*2); c.fillStyle = '#16170f'; c.fill();
+  if(VARIANT === 'drill'){
+    // the housing half of the bore stays where it is
+    c.save(); c.beginPath(); c.rect(cx-60, cy-R-40, 120, 80); c.arc(cx, cy, R, 0, Math.PI*2, true); c.clip();
+    c.beginPath(); c.arc(cx, cy-R, 13, 0, Math.PI*2); c.fillStyle = '#0c0c08'; c.fill(); c.restore();
+  }
+  // plug
+  c.save(); c.translate(cx, cy); c.rotate(a);
+  const pg = c.createRadialGradient(-22,-26,8,0,0,R); pg.addColorStop(0,'#f0d68e'); pg.addColorStop(.6,'#c49a45'); pg.addColorStop(1,'#80622a');
+  c.beginPath(); c.arc(0,0,R,0,Math.PI*2); c.fillStyle = pg; c.fill();
+  c.strokeStyle = 'rgba(60,40,10,.4)'; c.lineWidth = 1; c.beginPath(); c.arc(0,0,R-12,0,Math.PI*2); c.stroke();
+  c.save(); c.scale(2.3, 2.3); c.beginPath(); KW.forEach(([x,y],i) => i ? c.lineTo(x,y) : c.moveTo(x,y)); c.closePath(); c.fillStyle = '#120f08'; c.fill(); c.restore();
+  if(VARIANT === 'drill'){
+    c.save(); c.beginPath(); c.arc(0,0,R,0,Math.PI*2); c.clip(); c.beginPath(); c.arc(0,-R,13,0,Math.PI*2); c.fillStyle = '#0c0c08'; c.fill(); c.restore();
+    // screwdriver handle points straight at you
+    c.beginPath(); c.arc(0, 0, 34, 0, Math.PI*2); c.fillStyle = 'rgba(30,32,27,.93)'; c.fill();
+    c.strokeStyle = '#d1a84e'; c.lineWidth = 3; c.beginPath(); c.arc(0, 0, 27, 0, Math.PI*2); c.stroke();
+    c.strokeStyle = 'rgba(255,255,255,.2)'; c.lineWidth = 3;
+    for(let i=0;i<6;i++){ const b = i*Math.PI/3; c.beginPath(); c.moveTo(Math.cos(b)*9, Math.sin(b)*9); c.lineTo(Math.cos(b)*22, Math.sin(b)*22); c.stroke(); }
+  } else {
+    // tension wrench in the bottom of the keyway, handle bent down and out
+    c.lineCap = 'round';
+    [['#2d302b',9],['#9da29c',5]].forEach(([col,w]) => { c.strokeStyle = col; c.lineWidth = w; c.beginPath(); c.moveTo(-4,36); c.lineTo(-4,58); c.lineTo(-4,R+44); c.lineTo(-70,R+86); c.stroke(); });
+  }
+  c.restore();
+  c.save(); c.setLineDash([5,5]); c.strokeStyle = 'rgba(209,168,78,.85)'; c.lineWidth = 1.2; c.beginPath(); c.arc(cx, cy, R+1, 0, Math.PI*2); c.stroke(); c.restore();
+  c.fillStyle = 'rgba(232,227,211,.85)'; c.font = '600 22px "JetBrains Mono", monospace';
+  c.fillText(`${Math.round(q.turn*90)}°`, cx+190, cy-10);
+  c.fillStyle = 'rgba(232,227,211,.5)'; c.font = '500 13px "Spectral SC", Georgia, serif';
+  c.fillText(q.turn >= 1 ? 'CYLINDER TURNED' : 'CYLINDER TURNING', cx+190, cy+10);
+  c.restore();
+}
+
+// padlock cross-section: plug along the bottom, pin stacks above it, locking balls and shackle to the right
+function unlockSounds(){
+  tone(520,.15,'triangle',.08); setTimeout(()=>tone(780,.25,'triangle',.08),130);
+  setTimeout(()=>{ noise(.6,.04); tone(90,.6,'sine',.07,60); }, 1100);           // cylinder grinding round
+  setTimeout(()=>{ tone(2200,.03,'square',.04); setTimeout(()=>tone(2000,.03,'square',.04),40); }, 2450); // balls drop
+  setTimeout(()=>{ tone(300,.15,'triangle',.09,700); noise(.06,.12); }, 2680);   // shackle springs
+  setTimeout(()=>{ noise(.35,.03); }, 3250);                                      // swing
+}
+
+function hud(){
+  if(!S) return;
+  $('heatBar').firstElementChild.style.width = S.heat.toFixed(1) + '%';
+  $('stressBar').firstElementChild.style.width = S.stress.toFixed(1) + '%';
+  $('level').firstElementChild.style.left = (50 + clamp(S.ang,-12,12)/12*50).toFixed(1) + '%';
+  $('pinTxt').textContent = `${S.pins.filter(p=>p.cut).length}/${S.pins.length}`;
+  $('oilTxt').textContent = S.oil;
+  $('timeTxt').textContent = S.time.toFixed(1);
+}
+
+function loop(now){
+  const dt = Math.min(0.05, (now - last)/1000 || 0); last = now;
+  update(dt);
+  if(S){
+    if(S.run && S.running) S.spin += dt*120;
+    if(S.turning && S.turn < 0.7) S.spin -= dt*60;   // bit backs out turning slowly
+    S.parts.forEach(p => { p.x += p.vx*dt; p.y += p.vy*dt; p.vy += 300*dt; p.life -= dt; });
+    S.parts = S.parts.filter(p => p.life > 0);
+  }
+  draw(); hud(); requestAnimationFrame(loop);
+}
+
+/* ---------- audio ---------- */
+function tone(f,dur,type,vol,f2){ if(!actx) return; const o=actx.createOscillator(), g=actx.createGain(), t=actx.currentTime;
+  o.type=type; o.frequency.setValueAtTime(f,t); if(f2) o.frequency.exponentialRampToValueAtTime(f2,t+dur);
+  g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur); o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t+dur); }
+function noise(dur,vol){ if(!actx) return; const b=actx.createBuffer(1,actx.sampleRate*dur,actx.sampleRate), d=b.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*(1-i/d.length); const s=actx.createBufferSource(), g=actx.createGain(); g.gain.value=vol; s.buffer=b; s.connect(g); g.connect(actx.destination); s.start(); }
+function motorSound(on, p, hard){
+  if(!actx) return;
+  try{
+    if(on && !motor){
+      const o = actx.createOscillator(), g = actx.createGain(); o.type = 'sawtooth'; g.gain.value = 0;
+      o.connect(g); g.connect(actx.destination); o.start(); motor = { o, g };
+    }
+    if(!motor) return;
+    const t = actx.currentTime;
+    if(on){ motor.o.frequency.setTargetAtTime(220 - p*0.9 - (hard?40:0), t, 0.05); motor.g.gain.setTargetAtTime(0.035, t, 0.05); }
+    else motor.g.gain.setTargetAtTime(0, t, 0.05);
+  }catch(e){}
+}
+function sfx(k){ try{
+  if(k==='crunch'){ noise(.12,.18); tone(300,.08,'square',.05,120); }
+  if(k==='oil'){ noise(.4,.06); }
+  if(k==='snap'){ noise(.2,.35); tone(3200,.08,'sawtooth',.06,500); }
+  if(k==='burn'){ tone(180,.6,'sawtooth',.06,60); }
+  if(k==='win') unlockSounds();
+}catch(e){} }
+
+/* ---------- input ---------- */
+const live = () => S && S.running && !S.turning;
+window.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if(k==='escape' && S?.running)return finish(false,'cancel');
+  if(!live()) return;
+  if(['w','a','s','d',' ','r','arrowup','arrowdown','arrowleft','arrowright'].includes(k) && e.target !== slider) e.preventDefault();
+  if(k==='escape') return finish(false,'cancel');
+  if(k==='w'||k==='arrowup') keys.w = true;
+  if(k==='s'||k==='arrowdown') keys.s = true;
+  if(k==='a'||k==='arrowleft') keys.a = true;
+  if(k==='d'||k==='arrowright') keys.d = true;
+  if(k===' '){actx?.resume();S.run = true;}
+  if(k==='r' && !e.repeat) useOil();
+});
+window.addEventListener('keyup', e => {
+  const k = e.key.toLowerCase();
+  if(k==='w'||k==='arrowup') keys.w = false;
+  if(k==='s'||k==='arrowdown') keys.s = false;
+  if(k==='a'||k==='arrowleft') keys.a = false;
+  if(k==='d'||k==='arrowright') keys.d = false;
+  if(k===' ' && S) S.run = false;
+});
+cv.addEventListener('pointerdown', e => { if(e.button === 0 && live()) {actx?.resume();S.run = true;} });
+window.addEventListener('pointerup', () => { if(S) S.run = false; });
+window.addEventListener('pointercancel', () => { if(S) S.run = false; });
+window.addEventListener('blur', () => { keys = {}; if(S) S.run = false; });
+cv.addEventListener('wheel', e => { if(!live()) return; e.preventDefault(); slider.value = clamp(+slider.value - Math.sign(e.deltaY)*3, 0, 100); }, { passive:false });
+const hold = (id, on, off) => { const b = $(id); b.addEventListener('pointerdown', e => { e.preventDefault(); if(live()) on(); }); ['pointerup','pointerleave','pointercancel'].forEach(t => b.addEventListener(t, off)); b.addEventListener('contextmenu', e => e.preventDefault()); };
+hold('tUp', () => keys.w = true, () => keys.w = false);
+hold('tDown', () => keys.s = true, () => keys.s = false);
+hold('tTiltU', () => keys.a = true, () => keys.a = false);
+hold('tTiltD', () => keys.d = true, () => keys.d = false);
+hold('tDrill', () => S.run = true, () => { if(S) S.run = false; });
+$('tOil').addEventListener('click', useOil);
+window.addEventListener('message', e => {
+  const d=e.data;if(e.source!==parent || sessionId!==null || !d || d.action!=='drill:open')return;
+  sessionId=d.id;options=d.config || {};start(options.level || options.difficulty || 'medium',options);
+});
+
+/* SHEAR_THEME_RENDERER */
+/* SHEAR_FIT_LAYOUT */
+resize(); requestAnimationFrame(loop);
+})();
+</script>
+</body></html>

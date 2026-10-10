@@ -54,10 +54,10 @@ VERIFICATION
 - No live FiveM/ox_inventory runtime was available for integration testing.
 
 IN-GAME ACCEPTANCE CHECK
-1. Make two prints share an image. Set different crops and Save. Reopen /cardadmin
+1. Make two prints share an image. Set different crops and Save. Reopen /collectiblesadmin
    and confirm they keep their own crops; verify mask alignment in each preview.
 2. Pull a card and manually print another. Edit title, image, crop, layout and masks
-   in /cardadmin, then Save. Old cards must retain their appearance and metadata;
+   in /collectiblesadmin, then Save. Old cards must retain their appearance and metadata;
    newly created cards must show the new definition.
 3. Transfer an old card, place it in a binder, Show Card to another player, then
    restart the resource. All views should retain its original snapshot.

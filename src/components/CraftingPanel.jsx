@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { bridge } from '../runtime'
 import useConfirm from './useConfirm'
 import './crafting.css'
+import Minigame from '../minigames/Minigame'
+import { loadCraftingPrints } from '../minigames/craftingPrints'
+const productionDefaults = { enabled: true, cutter: 'random', cols: 5, rows: 3, rewardPacks: 3, maxErrors: 6, time: 900, minSeconds: 20, flawChance: 0.5, bonusSeconds: 180, bonusPacks: 1, bulkBonusEvery: 5, bulkBonusPacks: 1, bulkBonusMax: 5, scaleBonusTime: true }
 
 // Admin "Crafting" tab: every recipe the server knows. Nothing is saved until "Save recipes"; Revert reloads.
 // The server checks every recipe again when saving (unknown result types, sets or bad numbers are refused).
@@ -15,7 +18,7 @@ const parseJobs = text => Object.fromEntries(String(text).split(',').map(part =>
   return [name, Math.max(0, Math.floor(Number(grade) || 0))]
 }).filter(([name]) => name))
 
-export default function CraftingPanel({ sets = [] }) {
+export default function CraftingPanel({ sets = [], cards = [] }) {
   const { confirm, dialog } = useConfirm()
   const [state, setState] = useState(null)
   const [draft, setDraft] = useState([])
@@ -23,6 +26,8 @@ export default function CraftingPanel({ sets = [] }) {
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [filter, setFilter] = useState('')
+  const [testing, setTesting] = useState(null)
+  const [testSet, setTestSet] = useState('')
 
   const load = async () => {
     setBusy(true); setMessage('')
@@ -65,9 +70,12 @@ export default function CraftingPanel({ sets = [] }) {
   const renameId = value => { const id = value.replace(/[^\w-]/g, ''); setDraft(list => list.map(recipe => recipe.id === selectedId ? { ...recipe, id } : recipe)); setSelectedId(id) }
 
   const result = selected?.result || {}
+  const production = { ...productionDefaults, ...selected?.minigame }
+  const patchProduction = changes => patch({ minigame: { ...production, ...changes } })
   return (
     <section className="management-page crafting-page">
       {dialog}
+      {testing && <Minigame config={testing} onResult={(success, details) => { setTesting(null); setMessage(`${success ? 'Batch completed' : 'Test failed or cancelled'}${details ? ` · ${details.errors || 0} errors · ${Math.round(details.seconds || 0)} seconds` : ''}. Test gives no items.`) }} />}
       <div className="management-heading">
         <div><span className="eyebrow">Restricted FiveM tools</span><h2>Crafting</h2><p>Recipes for every item: what goes in, what comes out, how long it takes and who may craft it.{state && !state.custom ? ' Showing the config.lua recipes.' : ''}</p></div>
         <button className="primary" disabled={busy || !dirty} onClick={save}>Save recipes</button>
@@ -109,16 +117,41 @@ export default function CraftingPanel({ sets = [] }) {
                 }} />{station.label}</label>)}</div>}
             </div>
 
+            {result.type === 'sealed' && result.kind !== 'box' && <div className="management-card">
+              <div className="management-panel-title"><div><strong>Interactive card production</strong><span>One sheet batch per craft. Ingredients and costs apply once per batch, including a final partial batch. Players choose the card set and pack quantity before starting. Settings require the management ACE and explicit Save.</span></div></div>
+              <fieldset disabled={busy || state.canEditMinigame === false} className="crafting-production">
+                <label className="field crafting-check"><input type="checkbox" checked={selected.minigame?.enabled === true} onChange={e => patchProduction({ enabled: e.target.checked })} /><span>Print, inspect, cut, fold and seal instead of a progress bar</span></label>
+                {selected.minigame?.enabled && <div className="form-grid compact-grid">
+                  <label className="field"><span>Cutter</span><select value={production.cutter} onChange={e => patchProduction({ cutter: e.target.value })}><option value="random">Alternate randomly</option><option value="bench">Precision workbench</option><option value="industrial">Production cutter</option></select></label>
+                  {[['cols','Sheet columns',1,10],['rows','Sheet rows',1,10],['rewardPacks','Packs awarded per completed batch',1,100],['maxErrors','Errors before batch fails',1,20],['time','Time limit (seconds)',30,1800],['minSeconds','Minimum completion time (seconds)',5,300],['bonusSeconds','Perfect bonus time for up to 15 cards (seconds)',0,1800],['bonusPacks','Extra packs for fast completion with zero errors',0,10],['bulkBonusEvery','Completed packs per bulk bonus milestone',2,100],['bulkBonusPacks','Guaranteed extra packs per milestone (0 disables)',0,10],['bulkBonusMax','Maximum bulk extra packs per order',0,100]].map(([key,label,min,max]) => <label className="field" key={key}><span>{label}</span><input type="number" min={min} max={max} step="1" value={production[key]} onChange={e => patchProduction({ [key]: Number(e.target.value) })} /></label>)}
+                  <label className="field"><span>Obvious printing flaw chance (%)</span><input type="number" min="0" max="100" value={Math.round(production.flawChance * 100)} onChange={e => patchProduction({ flawChance: Number(e.target.value) / 100 })} /></label>
+                  <label className="field crafting-check"><input type="checkbox" checked={production.scaleBonusTime !== false} onChange={e => patchProduction({ scaleBonusTime: e.target.checked })} /><span>Give larger sheets proportionally more time for the perfect batch bonus</span></label>
+                  <span className="field span-2">Bulk extras are earned every {production.bulkBonusEvery} requested packs completed within one order, up to {production.bulkBonusMax} extra packs. Mistakes do not remove earned bulk extras. Perfect allowance: {Math.round(Math.min(production.time, production.bonusSeconds * (production.scaleBonusTime !== false ? Math.max(1, production.cols * production.rows / 15) : 1)))} seconds per sheet.</span>
+                  <span className="field span-2">{production.cols * production.rows} cards → {production.cols * production.rows / 5} packs to fold/seal. Sheet total must be divisible by 5, maximum 60. Award count can differ from the visible batch; sealed packs retain the set's normal opening odds.</span>
+                </div>}
+              </fieldset>
+              {selected.minigame?.enabled && <div className="crafting-actions">
+                <label className="field"><span>Test production card set</span><select disabled={busy} value={testSet} onChange={e => setTestSet(e.target.value)}><option value="">Default set</option>{sets.map(set => <option key={set.id} value={set.id}>{set.name}</option>)}</select></label>
+                <button disabled={busy} onClick={async () => {
+                  setBusy(true); setMessage('')
+                  try {
+                    const prints = await loadCraftingPrints(testSet, sets, cards, production)
+                    setTesting({ ...production, ...prints, game: 'crafting', cutter: production.cutter === 'random' ? (Math.random()<.5?'bench':'industrial') : production.cutter, id: `craft-test-${Date.now()}` })
+                  } catch (error) { setMessage(error.message) } finally { setBusy(false) }
+                }}>Test draft production · no rewards</button>
+              </div>}
+            </div>}
+
             <div className="management-card">
               <div className="management-panel-title"><div><strong>Makes</strong><span>What the player receives for each item crafted.</span></div></div>
               <div className="form-grid compact-grid">
-                <label className="field"><span>Type</span><select value={result.type} onChange={e => patch({ result: { type: e.target.value, count: 1 } })}>
+                <label className="field"><span>Type</span><select value={result.type} onChange={e => patch({ result: { type: e.target.value, count: 1 }, ...(e.target.value !== 'sealed' ? { minigame: undefined } : {}) })}>
                   {(state.resultTypes || Object.keys(RESULT_LABELS)).map(type => <option key={type} value={type}>{RESULT_LABELS[type] || type}</option>)}</select></label>
                 <label className="field"><span>Count</span><input type="number" min="1" max="1000" value={result.count || 1} onChange={e => patchResult({ count: Math.max(1, Math.floor(Number(e.target.value) || 1)) })} /></label>
                 {result.type === 'item' && <label className="field span-2"><span>Item name</span><input value={result.item || ''} onChange={e => patchResult({ item: e.target.value.trim() })} placeholder="card_sleeve" /></label>}
                 {result.type === 'sealed' && <>
-                  <label className="field"><span>Pack or box</span><select value={result.kind || 'pack'} onChange={e => patchResult({ kind: e.target.value })}><option value="pack">Booster pack</option><option value="box">Booster box</option></select></label>
-                  <label className="field"><span>Card set</span><select value={result.set || ''} onChange={e => patchResult({ set: e.target.value || undefined })}><option value="">Default set</option>{sets.map(set => <option key={set.id} value={set.id}>{set.name}</option>)}</select></label>
+                  <label className="field"><span>Pack or box</span><select value={result.kind || 'pack'} onChange={e => patch({ result: { ...result, kind: e.target.value }, ...(e.target.value === 'box' ? { minigame: undefined } : {}) })}><option value="pack">Booster pack</option><option value="box">Booster box</option></select></label>
+                  <span className="field">Players choose the card set when starting this recipe.</span>
                 </>}
                 {result.type === 'container' && <>
                   <label className="field"><span>Collectible</span><select value={result.collectible || ''} onChange={e => patchResult({ collectible: e.target.value })}><option value="" disabled>Pick one</option>{(state.collectibles || []).map(id => <option key={id} value={id}>{id.replace('_', ' ')}</option>)}</select></label>

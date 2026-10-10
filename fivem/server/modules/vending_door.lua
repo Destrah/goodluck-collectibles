@@ -10,6 +10,7 @@ local open = {}      -- machine id -> { until = os.time() (nil while held), hold
 local refreshLids
 local closeCabinet
 local holding = {}   -- source -> machine id it keeps open (crime / looting until it ends)
+local closing, ajar = {}, {}
 local manuallyClosed = {} -- a damaged lock cannot lock; closing its door only changes its position
 
 local function seconds(key, default) return math.max(1, tonumber(door[key]) or default) end
@@ -72,19 +73,6 @@ local function unlocked(source, entry)
     local keys = MetaComic.VendingKeys
     return not keys or not keys.access or keys.access(source, entry, 'service') == true
 end
-RegisterNetEvent('meta_comic:server:vendingKeyUnlock', function(id)
-    local source = source
-    -- the key module may still be saving when this fires, so check a few times before giving up
-    local tries = 0
-    local function check()
-        tries = tries + 1
-        local entry = Vending.get(id)
-        if entry and unlocked(source, entry) then return trigger(source, id, seconds('UnlockSeconds', 30)) end
-        if tries < 6 then return SetTimeout(500, check) end
-        if door.Debug then print(('[meta-comic] door: unlock by %s on machine %s did not pass the key check'):format(source, tostring(id))) end
-    end
-    SetTimeout(300, check)
-end)
 -- Only close after the key module has validated and saved the lock operation.
 -- Listening to the request raced its yielding save and saw the lock as busy.
 AddEventHandler('meta_comic:server:vendingKeyLockSuccess', function(src, id)
@@ -158,6 +146,8 @@ local function closeRack(id, actor)
 end
 closeCabinet = function(id, actor)
     local state = open[id]
+    ajar[id]=nil
+    TriggerClientEvent('meta_comic:client:vendingAjar',-1,id,nil)
     if not state then return end
     for holder in pairs(state.holders) do if holding[holder] == id then holding[holder] = nil end end
     open[id], lids[id] = nil, nil
@@ -206,6 +196,7 @@ local function duration()
 end
 
 MetaComic.VendingCashbox = {
+    closing = function(id) return closing[tonumber(id) or 0] ~= nil end,
     isOpen = function(id) return lids[tonumber(id) or 0] ~= nil end,
     -- looting cash needs the lid open; with Lock = false the box never stops anyone
     allows = function(entry, mode) return entry ~= nil and open[entry.id] ~= nil
@@ -221,6 +212,89 @@ MetaComic.VendingCashbox = {
     -- full-key holders can open and shut the box on its own from the key menu (client/vending_keys.lua)
     keyBox = box.Enabled ~= false and box.OpenWithKey ~= false,
 }
+local function restoreClose(job)
+    closing[job.id]=nil
+    local entry=Vending.get(job.id)
+    if not entry or entry.serial~=job.serial then return end
+    local parts={cabinet=job.kind=='cylinder' and open[job.id]~=nil,
+        cashbox=(job.kind=='cylinder' or job.kind=='cashbox') and lids[job.id]~=nil,
+        rack=(job.kind=='cylinder' or job.kind=='rack') and racks[job.id]~=nil}
+    if not parts.cabinet and not parts.cashbox and not parts.rack then return end
+    local previous=ajar[job.id] or {}
+    for part,value in pairs(previous) do if value then parts[part]=true end end
+    ajar[job.id]=parts
+    -- Authoritative state never closed: restore the unlocked parts with a slower, partial swing.
+    if parts.cabinet then TriggerClientEvent('meta_comic:client:vendingDoor',-1,job.id,true) end
+    if parts.cashbox then TriggerClientEvent('meta_comic:client:vendingCashbox',-1,job.id,lids[job.id],wasBrokenIn(job.id)) end
+    if parts.rack then TriggerClientEvent('meta_comic:client:vendingRack',-1,job.id,true) end
+    TriggerClientEvent('meta_comic:client:vendingAjar',-1,job.id,parts)
+    TriggerClientEvent('meta_comic:client:vendingMenuRefresh',job.source,job.id)
+end
+function MetaComic.VendingCashbox.beginKeyClose(src,entry,kind)
+    kind=kind or 'cylinder'
+    if kind~='cylinder' and kind~='cashbox' and kind~='rack' or closing[entry.id] then return end
+    if not open[entry.id] or kind=='cashbox' and lids[entry.id]==nil or kind=='rack' and not racks[entry.id] then return end
+    local record=MetaComic.VendingRegistry.get(entry.serial)
+    local visual=((cfg.Keys or {}).UseAnimation or {})
+    local profile=(visual.Profiles or {})[({cylinder='Cylinder',cashbox='Cashbox',rack='Rack'})[kind]] or {}
+    local token=('%s:%s:%s'):format(src,GetGameTimer(),math.random(1,1000000000))
+    local job={source=src,id=entry.id,serial=entry.serial,revision=record.lockRevision,kind=kind,token=token,at=GetGameTimer(),minDuration=tonumber(profile.Duration) or tonumber(visual.Duration) or 4500}
+    closing[entry.id]=job
+    if kind=='cylinder' then TriggerClientEvent('meta_comic:client:vendingDoor',-1,entry.id,false,nil,true) end
+    if kind=='cylinder' or kind=='cashbox' then TriggerClientEvent('meta_comic:client:vendingCashbox',-1,entry.id,nil) end
+    if kind=='cylinder' or kind=='rack' then TriggerClientEvent('meta_comic:client:vendingRack',-1,entry.id,false) end
+    TriggerClientEvent('meta_comic:client:vendingKeyCloseForLock',src,entry.id,kind,token)
+    SetTimeout(math.max(15000,(tonumber(profile.Duration) or tonumber(visual.Duration) or 4500)+15000),function()
+        if closing[entry.id]==job then restoreClose(job) end
+    end)
+    return token
+end
+RegisterNetEvent('meta_comic:server:vendingKeyCloseFinish',function(id,token,success)
+    local src=source
+    local job=closing[tonumber(id) or 0]
+    if not job or job.source~=src or job.token~=token then return end
+    local entry=Vending.get(job.id)
+    local keys=MetaComic.VendingKeys
+    local record=entry and MetaComic.VendingRegistry.get(entry.serial)
+    if success~=true or not record or entry.serial~=job.serial or record.lockRevision~=job.revision
+        or not Vending.near(src,entry,Vending.reach()+1.0) or not keys.access(src,entry,job.kind=='cylinder' and 'service' or 'full') then return restoreClose(job) end
+    if GetGameTimer()-job.at<job.minDuration then return restoreClose(job) end
+    closing[job.id]=nil
+    if job.kind=='cylinder' then
+        if not keys.lockCabinet(src,entry) then return restoreClose(job) end
+    else
+        if job.kind=='cashbox' then
+            lids[job.id]=nil;sendLid(job.id,nil,src)
+            if record.cashboxOpenFor then record.cashboxOpenFor=nil;MetaComic.VendingRegistry.save() end
+        else
+            closeRack(job.id,src)
+            if record.rackOpenFor then record.rackOpenFor=nil;MetaComic.VendingRegistry.save() end
+        end
+        local parts=ajar[job.id]
+        if parts then
+            parts[job.kind]=nil
+            if not parts.cabinet and not parts.cashbox and not parts.rack then parts=nil end
+        end
+        ajar[job.id]=parts
+        TriggerClientEvent('meta_comic:client:vendingAjar',-1,job.id,parts)
+    end
+    TriggerClientEvent('meta_comic:client:vendingMenuRefresh',src,entry.id)
+end)
+RegisterNetEvent('meta_comic:server:vendingOpenAjar',function(id)
+    local src=source;id=tonumber(id) or 0
+    local entry=Vending.get(id)
+    if not entry or not ajar[id] or closing[id] or not Vending.near(src,entry,Vending.reach()+1.0) then return end
+    local parts=ajar[id]
+    ajar[id]=nil
+    TriggerClientEvent('meta_comic:client:vendingAjar',-1,id,nil)
+    if parts.cabinet then TriggerClientEvent('meta_comic:client:vendingDoor',-1,id,open[id]~=nil) end
+    if parts.cashbox then TriggerClientEvent('meta_comic:client:vendingCashbox',-1,id,lids[id],wasBrokenIn(id)) end
+    if parts.rack then TriggerClientEvent('meta_comic:client:vendingRack',-1,id,racks[id]==true) end
+    TriggerClientEvent('meta_comic:client:vendingMenuRefresh',src,id)
+end)
+AddEventHandler('playerDropped',function()
+    for _,job in pairs(closing) do if job.source==source then restoreClose(job) end end
+end)
 RegisterNetEvent('meta_comic:server:vendingDamagedDoor', function(id, wantOpen)
     local src, entry = source, Vending.get(id)
     local keys, registry = MetaComic.VendingKeys, MetaComic.VendingRegistry
@@ -248,31 +322,23 @@ RegisterNetEvent('meta_comic:server:vendingDamagedDoor', function(id, wantOpen)
         sendLid(entry.id, nil)
         closeRack(entry.id)
     end
+    TriggerClientEvent('meta_comic:client:vendingMenuRefresh',src,entry.id)
 end)
--- key holders open the box along with the cabinet
--- mode 'door' opens only the cabinet; 'both' (or nothing) also opens the box for a full key
-RegisterNetEvent('meta_comic:server:vendingKeyUnlock', function(id, mode)
-    local source = source
-    if box.OpenWithKey == false or mode == 'door' then return end
+-- Consume the validated key operation synchronously; menu snapshots now see the completed door state.
+AddEventHandler('meta_comic:server:vendingKeyUnlockSuccess', function(src, id, mode)
     local entry = Vending.get(id)
-    if not entry or not Vending.near(source, entry, Vending.reach() + 1.0) then return end
-    -- only keys that may take the cash (full access) open the box; service keys leave it shut
+    if not entry or not unlocked(src, entry) then return end
+    trigger(src, id, seconds('UnlockSeconds', 30))
     local keys = MetaComic.VendingKeys
-    local tries = 0
-    local function check()
-        tries = tries + 1
-        if open[entry.id] and not brokenIn(entry) and unlocked(source, entry) then
-            if not keys or not keys.access or keys.access(source, entry, 'full') == true then openLid(entry, source) end
-            return
-        end
-        if tries < 6 then SetTimeout(500, check) end
-    end
-    SetTimeout(600, check)
+    if mode ~= 'door' and box.OpenWithKey ~= false and open[entry.id] and not brokenIn(entry)
+        and (not keys or not keys.access or keys.access(src, entry, 'full') == true) then openLid(entry, src) end
+    TriggerClientEvent('meta_comic:client:vendingMenuRefresh', src, entry.id)
 end)
 -- a full key opens or shuts the cash box of an open cabinet without locking the machine
 RegisterNetEvent('meta_comic:server:vendingCashboxKey', function(id, wantOpen)
     local source = source
     local entry = Vending.get(id)
+    if entry and closing[entry.id] then return notify(source,'Wait for the current lock operation.', 'error') end
     if box.Enabled == false then return notify(source, 'Cash box access is disabled.', 'error') end
     if not entry or not Vending.near(source, entry, Vending.reach() + 1.0) then return notify(source, 'Stand at the vending machine first.', 'error') end
     local keys = MetaComic.VendingKeys
@@ -292,6 +358,7 @@ RegisterNetEvent('meta_comic:server:vendingCashboxKey', function(id, wantOpen)
     else
         notify(source, 'The cash box is already closed.', 'error')
     end
+    TriggerClientEvent('meta_comic:client:vendingMenuRefresh',source,entry.id)
 end)
 -- a successful break-in opens the door, then after BreakInDelay ms the cash box (unless PadlockAfterBreakIn)
 afterBreakIn = function(source, id)
@@ -330,16 +397,25 @@ RegisterNetEvent('meta_comic:server:cashboxStart', function(id)
     end
     local token = ('%d:%d:%d'):format(source, os.time(), math.random(1, 1000000000))
     padlocks[source] = { token = token, id = entry.id, at = GetGameTimer(), duration = duration() }
+    if MetaComic.Police and MetaComic.Police.watch then
+        local job=padlocks[source];job.action='cashbox'
+        MetaComic.Police.watch(source,job,entry,'breakin',function() return padlocks[source]==job end)
+    end
     setOpen(entry.id, os.time() + seconds('MaxSeconds', 120), source)
-    TriggerClientEvent('meta_comic:client:cashboxStart', source, { token = token, id = entry.id, minigame = box.Minigame,
+    TriggerClientEvent('meta_comic:client:cashboxStart', source, { token = token, witness = true, id = entry.id, minigame = box.Minigame,
         duration = padlocks[source].duration, animation = box.Animation })
 end)
-RegisterNetEvent('meta_comic:server:cashboxFinish', function(token, success)
+RegisterNetEvent('meta_comic:server:cashboxFinish', function(token, success, cancelled)
     local source = source
     local job = padlocks[source]
+    if not job or job.token ~= token then return end
     padlocks[source] = nil
     release(source)
-    if not job or job.token ~= token then return end
+    if MetaComic.Police and MetaComic.Police.unwatch then MetaComic.Police.unwatch(source) end
+    local alertEntry=Vending.get(job.id)
+    if success~=true and cancelled~=true and alertEntry and Vending.near(source,alertEntry,Vending.reach()+2.0) and MetaComic.Police and MetaComic.Police.attempt then
+        MetaComic.Police.attempt(source,job,alertEntry,'breakin','fail')
+    end
     if success ~= true then return notify(source, 'Cash box lock attempt canceled or failed.', 'error') end
     if GetGameTimer() - job.at < job.duration * 0.9 then return notify(source, 'You stopped before the cash box lock was opened.', 'error') end
     local entry = Vending.get(job.id)
@@ -349,6 +425,7 @@ RegisterNetEvent('meta_comic:server:cashboxFinish', function(token, success)
             if MetaComic.Inventory.remove(source, item.item, 1) then notify(source, ('Your %s broke.'):format(item.label or item.item), 'error') end
         end
     end
+    if MetaComic.Police and MetaComic.Police.attempt then MetaComic.Police.attempt(source,job,entry,'breakin','success') end
     openLid(entry)
     -- remembered for this break-in (keyed by its unlock time) so the box stays open across restarts
     local record = MetaComic.VendingRegistry and MetaComic.VendingRegistry.get(entry.serial)
@@ -360,6 +437,7 @@ AddEventHandler('playerDropped', function() padlocks[source] = nil; rackJobs[sou
 RegisterNetEvent('meta_comic:server:vendingRackKey', function(id, wantOpen)
     local source = source
     local entry = Vending.get(id)
+    if entry and closing[entry.id] then return notify(source,'Wait for the current lock operation.', 'error') end
     if not RACK_ON or rack.OpenWithKey == false then return notify(source, 'Server rack access with a key is disabled.', 'error') end
     if not entry or not Vending.near(source, entry, Vending.reach() + 1.0) then return notify(source, 'Stand at the vending machine first.', 'error') end
     local keys = MetaComic.VendingKeys
@@ -378,6 +456,7 @@ RegisterNetEvent('meta_comic:server:vendingRackKey', function(id, wantOpen)
     else
         notify(source, 'The server rack is already closed.', 'error')
     end
+    TriggerClientEvent('meta_comic:client:vendingMenuRefresh',source,entry.id)
 end)
 local function rackDuration()
     local ms = math.max(1000, tonumber(rack.Duration) or 10000)
@@ -408,16 +487,25 @@ RegisterNetEvent('meta_comic:server:rackStart', function(id)
     end
     local token = ('%d:%d:%d'):format(source, os.time(), math.random(1, 1000000000))
     rackJobs[source] = { token = token, id = entry.id, at = GetGameTimer(), duration = rackDuration() }
+    if MetaComic.Police and MetaComic.Police.watch then
+        local job=rackJobs[source];job.action='rackpick'
+        MetaComic.Police.watch(source,job,entry,'breakin',function() return rackJobs[source]==job end)
+    end
     setOpen(entry.id, os.time() + seconds('MaxSeconds', 120), source)
-    TriggerClientEvent('meta_comic:client:rackStart', source, { token = token, id = entry.id, minigame = rack.Minigame,
+    TriggerClientEvent('meta_comic:client:rackStart', source, { token = token, witness = true, id = entry.id, minigame = rack.Minigame,
         duration = rackJobs[source].duration, animation = rack.Animation, finish = 'meta_comic:server:rackFinish', label = 'Picking the rack lock' })
 end)
-RegisterNetEvent('meta_comic:server:rackFinish', function(token, success)
+RegisterNetEvent('meta_comic:server:rackFinish', function(token, success, cancelled)
     local source = source
     local job = rackJobs[source]
+    if not job or job.token ~= token then return end
     rackJobs[source] = nil
     release(source)
-    if not job or job.token ~= token then return end
+    if MetaComic.Police and MetaComic.Police.unwatch then MetaComic.Police.unwatch(source) end
+    local alertEntry=Vending.get(job.id)
+    if success~=true and cancelled~=true and alertEntry and Vending.near(source,alertEntry,Vending.reach()+2.0) and MetaComic.Police and MetaComic.Police.attempt then
+        MetaComic.Police.attempt(source,job,alertEntry,'breakin','fail')
+    end
     if success ~= true then return notify(source, 'Server rack lock attempt canceled or failed.', 'error') end
     if GetGameTimer() - job.at < job.duration * 0.9 then return notify(source, 'You stopped before the server rack lock was opened.', 'error') end
     local entry = Vending.get(job.id)
@@ -427,6 +515,7 @@ RegisterNetEvent('meta_comic:server:rackFinish', function(token, success)
             if MetaComic.Inventory.remove(source, item.item, 1) then notify(source, ('Your %s broke.'):format(item.label or item.item), 'error') end
         end
     end
+    if MetaComic.Police and MetaComic.Police.attempt then MetaComic.Police.attempt(source,job,entry,'breakin','success') end
     openRack(entry)
     -- remembered for this break-in (keyed by its unlock time) so the rack stays open across restarts
     local record = MetaComic.VendingRegistry and MetaComic.VendingRegistry.get(entry.serial)
@@ -453,6 +542,7 @@ CreateThread(function()
         Wait(1000)
         local now = os.time()
         for id, state in pairs(open) do
+            if closing[id] then state['until']=math.max(state['until'] or 0,now+2) end
             -- a broken-in cabinet stays open until it's secured or its unlock runs out
             local entry = Vending.get(id)
             if entry and MetaComic.VendingKeys and (MetaComic.VendingKeys.replacing(entry) or MetaComic.VendingKeys.repairing and MetaComic.VendingKeys.repairing(entry)) then
@@ -464,7 +554,7 @@ CreateThread(function()
                 state.breakIn = nil
                 state['until'] = math.min(state['until'] or 0, now + seconds('CloseDelay', 2))
             end
-            if (state['until'] or 0) <= now or not entry then
+            if (not closing[id] and not ajar[id] and (state['until'] or 0) <= now) or not entry then
                 for source in pairs(state.holders) do if holding[source] == id then holding[source] = nil end end
                 open[id] = nil
                 send(id, false)
@@ -499,6 +589,7 @@ RegisterNetEvent('meta_comic:server:vendingDoors', function()
     local openRacks = {}
     for id in pairs(racks) do openRacks[#openRacks + 1] = id end
     TriggerClientEvent('meta_comic:client:vendingRacks', source, openRacks)
+    for id,parts in pairs(ajar) do TriggerClientEvent('meta_comic:client:vendingAjar',source,id,parts) end
 end)
 
 -- other scripts: exports['<resource>']:SetVendingDoor(machineId, true | false, seconds)
